@@ -68,7 +68,7 @@
  *               ------hh hhhhhhhh  Foreground tilemap horizontal scroll
  *      E9A      r------- --------  Background tilemap row scroll enable
  *               ------hh hhhhhhhh  Background tilemap horizontal scroll
- *      E9C      ------hh hhhhhhhh  Alternate foreground tilemap horizontal scroll
+ *      E9C      ------hh hhhhhhhh  Alternate tilemap horizontal scroll
  *      E9E      ------hh hhhhhhhh  Alternate background tilemap horizontal scroll
  *      F16-F3F  -------- vvvvvvvv  Foreground tilemap per-16-pixel-column vertical scroll
  *      F56-F7F  -------- vvvvvvvv  Background tilemap per-16-pixel-column vertical scroll
@@ -176,11 +176,7 @@ void hwtiles::set_x_clamp(const uint16_t props)
     }
     else if (props == RIGHT)
     {
-        // A System 16 tilemap page is 512 pixels wide. Ultrawide is 524,
-        // so centre the 512-pixel safe region instead of clamping beyond it.
-        const int width = static_cast<int>(s16_width_noscale);
-        x_clamp = static_cast<int16_t>(
-            width > 512 ? (512 - width) / 2 : 512 - width);
+        x_clamp = (512 - s16_width_noscale);
     }
     else if (props == CENTRE)
     {
@@ -311,14 +307,14 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
         } // end for mx loop
     } // end for my loop
 
-    // A tilemap page is 512 pixels wide, while 21:9 uses 524 pixels.
-    // After both normal tile layers are present, mirror the tiny uncovered
-    // borders from the current frame instead of exposing partially updated
-    // pixels from the adjacent tilemap page.
-    if (page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
+    // 21:9 only: the visible tilemap is 524 pixels wide, while a System 16
+    // tilemap page is 512 pixels. Preserve the original tilemap position and
+    // mirror only the 12-pixel excess at the extreme edges. 4:3 and 16:9
+    // continue through the original renderer unchanged.
+    if (config.video.widescreen == 2 && page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
     {
         const int scale = config.s16_width / s16_width_noscale;
-        const int edge = ((static_cast<int>(s16_width_noscale) - 512) / 2) * scale;
+        const int edge = (static_cast<int>(s16_width_noscale) - 512) * scale;
         const int width = config.s16_width;
         const int height = config.s16_height;
 
