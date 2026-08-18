@@ -915,9 +915,9 @@ void OOutputs::do_motor_offroad()
             static_cast<int>(cmd) - MOTOR_CENTRE;
     }
 
-    // Reduce existing off-road vibration to 65%.
+    // Reduce existing off-road vibration to 55%.
     rumble_force =
-        (rumble_force * 50) / 100;
+        (rumble_force * 55) / 100;
 
     // Constant outward pull.
     //
