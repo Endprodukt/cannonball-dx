@@ -71,6 +71,7 @@ void OOutputs::init()
     movement_adjust2   = 0;
     movement_adjust3   = 0;
     skid_ffb_active = false;
+    offroad_pull_direction = 0;
     chute1.counter[0]  = 0;
     chute1.counter[1]  = 0;
     chute1.counter[2]  = 0;
@@ -845,16 +846,116 @@ void OOutputs::do_motor_crash()
 // Source: 0xE9BE
 void OOutputs::do_motor_offroad()
 {
-    const uint8_t* table = (oferrari.wheel_state != OFerrari::WHEELS_OFF) ? MOTOR_VALUES_OFFROAD2 : MOTOR_VALUES_OFFROAD1;
+    const uint8_t* table =
+        (oferrari.wheel_state != OFerrari::WHEELS_OFF)
+        ? MOTOR_VALUES_OFFROAD2
+        : MOTOR_VALUES_OFFROAD1;
 
-    const uint16_t car_inc = oinitengine.car_increment >> 16;
+    const uint16_t car_inc =
+        oinitengine.car_increment >> 16;
+
     uint8_t index;
-    if (car_inc <= 0x32)      index = 0;
-    else if (car_inc <= 0x50) index = 1;
-    else if (car_inc <= 0x6E) index = 2;
-    else                      index = 3;
 
-    set_value(table, index);
+    if (car_inc <= 0x32)
+        index = 0;
+    else if (car_inc <= 0x50)
+        index = 1;
+    else if (car_inc <= 0x6E)
+        index = 2;
+    else
+        index = 3;
+
+    // Preserve original behaviour for cabinet / non-FFB modes.
+    if (mode != MODE_FFEEDBACK)
+    {
+        set_value(table, index);
+        return;
+    }
+
+    // ---------------------------------------------------------------------
+    // FFB off-road handling
+    //
+    // Keep the original vibration pattern, but reduce its strength and
+    // add a constant force that pulls the wheel further away from the road.
+    // ---------------------------------------------------------------------
+
+    const uint8_t cmd =
+        table[(index << 3) + (counter & 7)];
+
+    counter++;
+
+    // Remember which side of the road we left.
+    if (oferrari.wheel_state == OFerrari::WHEELS_LEFT_OFF)
+    {
+        offroad_pull_direction = 1;
+    }
+    else if (oferrari.wheel_state == OFerrari::WHEELS_RIGHT_OFF)
+    {
+        offroad_pull_direction = -1;
+    }
+    else if (oferrari.wheel_state == OFerrari::WHEELS_OFF &&
+        offroad_pull_direction == 0)
+    {
+        // Fallback if both wheels leave the road in a single frame.
+        offroad_pull_direction =
+            (oinitengine.car_x_pos >= 0) ? -1 : 1;
+    }
+
+    // Convert original motor command into a signed force level:
+    //
+    // -7 = strong left
+    //  0 = centre
+    // +7 = strong right
+    int rumble_force = 0;
+
+    if (cmd != MOTOR_OFF &&
+        cmd != MOTOR_CENTRE)
+    {
+        rumble_force =
+            static_cast<int>(cmd) - MOTOR_CENTRE;
+    }
+
+    // Reduce existing off-road vibration to 65%.
+    rumble_force =
+        (rumble_force * 50) / 100;
+
+    // Constant outward pull.
+    //
+    // One side off-road: roughly 35% maximum force.
+    // Completely off-road: roughly 50% maximum force.
+    int pull_force;
+
+    if (oferrari.wheel_state == OFerrari::WHEELS_OFF)
+        pull_force = 4;
+    else
+        pull_force = 2;
+
+    pull_force *= offroad_pull_direction;
+
+    // Combine vibration and outward pull.
+    int combined_force =
+        rumble_force + pull_force;
+
+    if (combined_force > 7)
+        combined_force = 7;
+    else if (combined_force < -7)
+        combined_force = -7;
+
+    // No resulting constant force.
+    if (combined_force == 0)
+    {
+        hw_motor_control = MOTOR_CENTRE;
+        forcefeedback::stop();
+        done();
+        return;
+    }
+
+    // Convert back to CannonBall motor command.
+    hw_motor_control =
+        static_cast<uint8_t>(
+            MOTOR_CENTRE + combined_force);
+
+    done();
 }
 
 void OOutputs::set_value(const uint8_t* table, uint8_t index)
