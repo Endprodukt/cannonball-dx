@@ -176,7 +176,11 @@ void hwtiles::set_x_clamp(const uint16_t props)
     }
     else if (props == RIGHT)
     {
-        x_clamp = (512 - s16_width_noscale);
+        // A System 16 tilemap page is 512 pixels wide. Ultrawide is 524,
+        // so centre the 512-pixel safe region instead of clamping beyond it.
+        const int width = static_cast<int>(s16_width_noscale);
+        x_clamp = static_cast<int16_t>(
+            width > 512 ? (512 - width) / 2 : 512 - width);
     }
     else if (props == CENTRE)
     {
@@ -306,6 +310,30 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
             } // end priority check
         } // end for mx loop
     } // end for my loop
+
+    // A tilemap page is 512 pixels wide, while 21:9 uses 524 pixels.
+    // After both normal tile layers are present, mirror the tiny uncovered
+    // borders from the current frame instead of exposing partially updated
+    // pixels from the adjacent tilemap page.
+    if (page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
+    {
+        const int scale = config.s16_width / s16_width_noscale;
+        const int edge = ((static_cast<int>(s16_width_noscale) - 512) / 2) * scale;
+        const int width = config.s16_width;
+        const int height = config.s16_height;
+
+        for (int row_index = 0; row_index < height; ++row_index)
+        {
+            uint16_t* row = buf + (row_index * width);
+
+            for (int edge_x = 0; edge_x < edge; ++edge_x)
+            {
+                row[edge - 1 - edge_x] = row[edge + edge_x];
+                row[width - edge + edge_x] =
+                    row[width - edge - 1 - edge_x];
+            }
+        }
+    }
 }
 
 void hwtiles::render_text_layer(uint16_t* buf, uint8_t priority_draw)
