@@ -578,7 +578,6 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
                 if (!skid_ffb_active)
                 {
                     const int skid = ocrash.skid_counter;
-                    const int strength = std::abs(skid);
 
                     // Positive skid = car skids left.
                     // Negative skid = car skids right.
@@ -588,13 +587,7 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
                     // forcefeedback::set():
                     // 0 = strongest
                     // 7 = weakest
-                    int force =
-                       0;
-
-                    if (force < 0)
-                        force = 0;
-                    else if (force > 7)
-                        force = 7;
+                    const int force = 0;
 
                     forcefeedback::set(
                         direction,
@@ -769,8 +762,7 @@ void OOutputs::car_stationary()
 
     int16_t change = std::abs(motor_x_change);
 
-    const int centre_deadzone =
-        (mode == MODE_FFEEDBACK) ? 1 : 8;
+    const int centre_deadzone = 8;
 
     if (change <= centre_deadzone)
     {
