@@ -117,15 +117,22 @@ void Video::disable()
 
 int Video::set_video_mode(video_settings_t* settings)
 {
-    if (settings->widescreen)
+    switch (settings->widescreen)
     {
-        config.s16_width  = S16_WIDTH_WIDE;
+    case 2: // 21:9
+        config.s16_width = S16_WIDTH_ULTRAWIDE;
+        config.s16_x_off = (S16_WIDTH_ULTRAWIDE - S16_WIDTH) / 2;
+        break;
+
+    case 1: // 16:9
+        config.s16_width = S16_WIDTH_WIDE;
         config.s16_x_off = (S16_WIDTH_WIDE - S16_WIDTH) / 2;
-    }
-    else
-    {
+        break;
+
+    default: // 4:3
         config.s16_width = S16_WIDTH;
         config.s16_x_off = 0;
+        break;
     }
 
     config.s16_height = S16_HEIGHT;

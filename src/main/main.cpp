@@ -250,11 +250,11 @@ static void process_events(void)
                 break;
 
             case SDL_JOYDEVICEADDED:
-                input.open_joy();
+                input.add_joystick(event.jdevice.which);
                 break;
 
             case SDL_JOYDEVICEREMOVED:
-                input.close_joy();
+                input.remove_joystick(event.jdevice.which);
                 break;
 
             case SDL_QUIT:
@@ -789,7 +789,7 @@ static bool parse_command_line(int argc, char* argv[]) {
     }
     if (!fps_set)
         std::cout << "Automatic frame-rate selection enabled.\n";
-
+  
     return true;
 }
 
@@ -807,7 +807,11 @@ int main(int argc, char* argv[]) {
     bool ok = parse_command_line(argc, argv);
 
     if (ok) {
-        config.load(); // Load config.XML file, also loads custom music files
+        std::cout << "DEBUG: BEFORE CONFIG LOAD" << std::endl;
+
+        config.load();
+
+        std::cout << "DEBUG: AFTER CONFIG LOAD" << std::endl;
         ok = roms.load_revb_roms(config.sound.fix_samples);
 
         if (cannonball::singlecore_detect || cannonball::singlecore_mode) {
@@ -900,12 +904,30 @@ int main(int argc, char* argv[]) {
                config.controls.keyconfig, config.controls.padconfig,
                config.controls.analog,    config.controls.axis, config.controls.invert, config.controls.asettings);
 
+    input.scan_joysticks();
+    input.restore_axis_bindings();
+    input.sync_bound_axes();
+
     // Regardless to rumble, if haptic is enabled in config.xml, this is handled via ffeedback.cpp using either
     // DirectX (Windows) or /dev/input/event on Linux. This also includes control of real cabinet hardware via
     // SmartyPi. Therefore, haptic takes priority over simple rumble.
 
     if (config.controls.haptic)
-        config.controls.haptic = forcefeedback::init(config.controls.max_force, config.controls.min_force, config.controls.force_duration);
+    {
+        config.controls.haptic =
+            forcefeedback::init(
+                config.controls.max_force,
+                config.controls.min_force,
+                config.controls.force_duration);
+
+        if (config.controls.haptic)
+        {
+            forcefeedback::set_gain(
+                config.controls.ffb_strength);
+
+            forcefeedback::set_enabled(true);
+        }
+    }
 
     // Populate menus
     menu = new Menu();

@@ -23,4 +23,8 @@ namespace forcefeedback
     extern void close();
     extern int  set(int xdirection, int force);
     extern bool is_supported();
+    extern void set_centering_strength(int percent);
+    extern void set_enabled(bool enabled);
+    extern void set_gain(int percent);
+    extern void stop();
 };

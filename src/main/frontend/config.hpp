@@ -164,11 +164,20 @@ struct controls_settings_t
     int pad_id;        // Use the N'th joystick on the system.
     int analog;        // Use analog controls
     int axis[4];       // Analog Axis
+    std::string axis_device[4]; // Persistent device signature for each analog axis
     int asettings[2];  // Analog Settings
     bool invert[3];    // Invert Analog Axis
 
+    // Custom HAT bindings for UP, DOWN, LEFT, RIGHT
+    int hat[4];
+    int hat_value[4];
+    std::string hat_device[4];
+
+    int direction_custom[4];
+
     float rumble;      // Simple Controller Rumble Support
     int haptic;        // Force Feedback Enabled
+    int ffb_strength;  // Master FFB Strength 10-100%
     int max_force;
     int min_force;
     int force_duration;

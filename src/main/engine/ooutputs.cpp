@@ -581,7 +581,18 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
                     car_stationary();
             }
             else
-                car_moving(MODE);
+            {
+                if (MODE == MODE_FFEEDBACK &&
+                    oferrari.wheel_state == OFerrari::WHEELS_ON)
+                {
+                    hw_motor_control = MOTOR_OFF;
+                    forcefeedback::stop();
+                }
+                else
+                {
+                    car_moving(MODE);
+                }
+            }
         }
     }
     // Not In-Game: Act as though car is stationary / moving slow
@@ -709,31 +720,41 @@ void OOutputs::car_moving(const int MODE)
 // Source: 0xE822
 void OOutputs::car_stationary()
 {
+    if (mode == MODE_FFEEDBACK)
+    {
+        hw_motor_control = MOTOR_OFF;
+        forcefeedback::stop();
+        return;
+    }
+
     int16_t change = std::abs(motor_x_change);
 
-    if (change <= 8)
+    const int centre_deadzone =
+        (mode == MODE_FFEEDBACK) ? 1 : 8;
+
+    if (change <= centre_deadzone)
     {
         if (!is_centered)
         {
             hw_motor_control = MOTOR_CENTRE;
-            is_centered      = true;
+            is_centered = true;
         }
         else
         {
             hw_motor_control = MOTOR_OFF;
-            is_centered      = false;
+            is_centered = false;
             done();
         }
     }
     else
     {
-        int8_t motor_value = MOTOR_VALUES_STATIONARY[change >> 3];
+        int8_t motor_value =
+            MOTOR_VALUES_STATIONARY[change >> 3];
 
         if (motor_x_change >= 0)
             motor_value = -motor_value;
 
         hw_motor_control = motor_value + 8;
-
         done();
     }
 }
@@ -807,17 +828,19 @@ void OOutputs::set_value(const uint8_t* table, uint8_t index)
 // Source: 0xE94E
 void OOutputs::done()
 {
-    if (std::abs(motor_x_change) <= 8)
+    const int centre_deadzone =
+        (mode == MODE_FFEEDBACK) ? 1 : 8;
+
+    if (std::abs(motor_x_change) <= centre_deadzone)
     {
         was_small_change = true;
-        motor_control    = MOTOR_CENTRE;
+        motor_control = MOTOR_CENTRE;
     }
     else
     {
         was_small_change = false;
     }
 }
-
 // Send output commands to motor hardware
 // This is the equivalent to writing to register 0x140003
 void OOutputs::motor_output(uint8_t cmd)

@@ -9,6 +9,7 @@
 ***************************************************************************/
 
 #include <iostream>
+#include <algorithm>
 #include <cstring>
 #include <cstdlib> // abs
 #include "sdl2/input.hpp"
@@ -38,6 +39,16 @@
 
 Input input;
 
+static std::string make_device_signature(
+    const InputDevice& device)
+{
+    return
+        device.guid_string +
+        "|A" + std::to_string(device.axes) +
+        "|B" + std::to_string(device.buttons) +
+        "|H" + std::to_string(device.hats);
+}
+
 Input::Input(void)
 {
     stick      = NULL;
@@ -46,6 +57,20 @@ Input::Input(void)
 
     gamepad = false;
     rumble_supported = false;
+
+    joy_button_device = -1;
+    axis_last_device = -1;
+    axis_config_device = -1;
+
+    joy_hat = -1;
+    joy_hat_value = SDL_HAT_CENTERED;
+    joy_hat_device = -1;
+
+    for (auto& d : axis_device)
+        d = -1;
+
+    for (auto& d : button_device)
+        d = -1;
 }
 
 Input::~Input(void)
@@ -64,6 +89,201 @@ void Input::init(int pad_id, int* key_config, int* pad_config, int analog, int* 
     this->wheel_zone  = analog_settings[0];
     this->wheel_dead  = analog_settings[1];
     motor_limits[0] = motor_limits[1] = motor_limits[2] = 0;
+}
+
+void Input::scan_joysticks()
+{
+    const int count = SDL_NumJoysticks();
+
+    std::cout << "\n=== SDL INPUT DEVICES ===" << std::endl;
+    std::cout << "Devices found: " << count << std::endl;
+
+    for (int i = 0; i < count; i++)
+    {
+        add_joystick(i);
+    }
+
+    std::cout << "=========================\n" << std::endl;
+}
+
+void Input::add_joystick(int device_index)
+{
+    SDL_JoystickID prospective_id =
+        SDL_JoystickGetDeviceInstanceID(device_index);
+
+    // Don't open the same device twice.
+    for (const auto& device : devices)
+    {
+        if (device.instance_id == prospective_id)
+            return;
+    }
+
+    SDL_Joystick* joystick = SDL_JoystickOpen(device_index);
+
+    if (!joystick)
+    {
+        std::cout << "Failed to open joystick "
+            << device_index
+            << ": "
+            << SDL_GetError()
+            << std::endl;
+        return;
+    }
+
+    InputDevice device;
+
+    device.joystick = joystick;
+    device.instance_id = SDL_JoystickInstanceID(joystick);
+    device.guid = SDL_JoystickGetGUID(joystick);
+
+    char guid_string[33] = {};
+    SDL_JoystickGetGUIDString(
+        device.guid,
+        guid_string,
+        sizeof(guid_string));
+
+    device.guid_string = guid_string;
+
+    const char* name = SDL_JoystickName(joystick);
+    device.name = name ? name : "Unknown SDL Device";
+
+    device.axes = SDL_JoystickNumAxes(joystick);
+    device.buttons = SDL_JoystickNumButtons(joystick);
+    device.hats = SDL_JoystickNumHats(joystick);
+
+    std::cout
+        << "[" << device.instance_id << "] "
+        << device.name
+        << " | Axes: " << device.axes
+        << " | Buttons: " << device.buttons
+        << " | Hats: " << device.hats
+        << " | GUID: " << device.guid_string
+        << std::endl;
+
+    devices.push_back(std::move(device));
+
+    gamepad = !devices.empty();
+}
+
+void Input::remove_joystick(SDL_JoystickID instance_id)
+{
+    auto it = std::find_if(
+        devices.begin(),
+        devices.end(),
+        [instance_id](const InputDevice& device)
+        {
+            return device.instance_id == instance_id;
+        });
+
+    if (it == devices.end())
+        return;
+
+    std::cout
+        << "Input device removed: "
+        << it->name
+        << " ["
+        << instance_id
+        << "]"
+        << std::endl;
+
+    if (it->joystick)
+        SDL_JoystickClose(it->joystick);
+
+    devices.erase(it);
+
+    gamepad = !devices.empty();
+}
+
+const InputDevice* Input::find_device(SDL_JoystickID instance_id) const
+{
+    for (const auto& device : devices)
+    {
+        if (device.instance_id == instance_id)
+            return &device;
+    }
+
+    return nullptr;
+}
+
+void Input::restore_axis_bindings()
+{
+    for (int slot = 0; slot < 4; slot++)
+    {
+        axis_device[slot] = -1;
+
+        const std::string& wanted =
+            config.controls.axis_device[slot];
+
+        if (wanted.empty())
+            continue;
+
+        for (const auto& device : devices)
+        {
+            if (make_device_signature(device) == wanted)
+            {
+                axis_device[slot] =
+                    device.instance_id;
+
+                std::cout
+                    << "Restored axis binding "
+                    << slot
+                    << ": axis=" << axis[slot]
+                    << " device=" << device.instance_id
+                    << " (" << device.name << ")"
+                    << std::endl;
+
+                break;
+            }
+        }
+
+        if (axis_device[slot] == -1)
+        {
+            std::cout
+                << "Could not restore axis binding "
+                << slot
+                << ": "
+                << wanted
+                << std::endl;
+        }
+    }
+}
+
+void Input::sync_bound_axes()
+{
+    SDL_JoystickUpdate();
+
+    for (int slot = 0; slot < 4; slot++)
+    {
+        if (axis[slot] < 0 ||
+            axis_device[slot] < 0)
+        {
+            continue;
+        }
+
+        const InputDevice* device =
+            find_device(axis_device[slot]);
+
+        if (!device ||
+            !device->joystick)
+        {
+            continue;
+        }
+
+        if (axis[slot] >= device->axes)
+        {
+            continue;
+        }
+
+        const Sint16 value =
+            SDL_JoystickGetAxis(
+                device->joystick,
+                axis[slot]);
+
+        handle_axis(
+            device->instance_id,
+            static_cast<uint8_t>(axis[slot]),
+            value);
+    }
 }
 
 void Input::open_joy()
@@ -94,6 +314,8 @@ void Input::open_joy()
             bind_button(SDL_CONTROLLER_BUTTON_DPAD_DOWN, 9);
             bind_button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, 10);
             bind_button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 11);
+
+
 
 #ifdef WIN32
             std::cout << " without SDL rumble support." << std::endl;
@@ -226,7 +448,18 @@ void Input::open_joy()
 //      std::cout << "Joystick buttons detected: " << SDL_JoystickNumButtons() << std::endl;
 //    }
     reset_axis_config();
+
     wheel = a_wheel = CENTRE;
+
+    // Restore persistent device assignments.
+    restore_axis_bindings();
+
+    // Read the actual current position of the bound
+    // steering wheel and pedals immediately.
+    sync_bound_axes();
+
+    // Keep smoothed wheel state in sync with actual wheel.
+    wheel = a_wheel;
 }
 
 void Input::bind_axis(SDL_GameControllerAxis ax, int offset)
@@ -237,6 +470,79 @@ void Input::bind_axis(SDL_GameControllerAxis ax, int offset)
 void Input::bind_button(SDL_GameControllerButton button, int offset)
 {
     if (pad_config[offset] == -1) pad_config[offset] = button;
+}
+
+void Input::set_axis_binding(int slot, int ax, SDL_JoystickID device)
+{
+    if (slot < 0 || slot >= 4)
+        return;
+
+    axis[slot] = ax;
+    axis_device[slot] = device;
+
+    config.controls.axis_device[slot].clear();
+
+    const InputDevice* input_device =
+        find_device(device);
+
+    if (input_device)
+    {
+        config.controls.axis_device[slot] =
+            make_device_signature(*input_device);
+
+        std::cout
+            << "Axis binding "
+            << slot
+            << ": axis=" << ax
+            << " device="
+            << config.controls.axis_device[slot]
+            << std::endl;
+    }
+}
+
+void Input::set_hat_binding(
+    int slot,
+    int hat,
+    int value,
+    SDL_JoystickID device)
+{
+    if (slot < 0 || slot >= 4)
+        return;
+
+    config.controls.hat[slot] = hat;
+    config.controls.hat_value[slot] = value;
+    config.controls.hat_device[slot].clear();
+
+    // -1 means: no custom HAT binding
+    if (hat < 0 || device < 0)
+        return;
+
+    const InputDevice* input_device =
+        find_device(device);
+
+    if (input_device)
+    {
+        config.controls.hat_device[slot] =
+            make_device_signature(*input_device);
+
+        std::cout
+            << "Hat binding "
+            << slot
+            << ": hat=" << hat
+            << " value=" << value
+            << " device="
+            << config.controls.hat_device[slot]
+            << std::endl;
+    }
+}
+
+void Input::set_button_binding(int slot, int button, SDL_JoystickID device)
+{
+    if (slot < 0 || slot >= 15)
+        return;
+
+    pad_config[slot] = button;
+    button_device[slot] = device;
 }
 
 void Input::close_joy()
@@ -301,11 +607,20 @@ void Input::handle_key_down(SDL_Keysym* keysym)
 
 void Input::handle_key_up(SDL_Keysym* keysym)
 {
+    if (key_press == keysym->sym)
+        key_press = -1;
+
     handle_key(keysym->sym, false);
 }
 void Input::handle_key(const int key, const bool is_pressed)
 {
     // Redefinable Key Input
+    // Permanent menu navigation fallback.
+// Arrow keys must always remain usable.
+if (key == SDLK_UP)    keys[UP]    = is_pressed;
+if (key == SDLK_DOWN)  keys[DOWN]  = is_pressed;
+if (key == SDLK_LEFT)  keys[LEFT]  = is_pressed;
+if (key == SDLK_RIGHT) keys[RIGHT] = is_pressed;
     if (key == key_config[0])  keys[UP] = is_pressed;
     if (key == key_config[1])  keys[DOWN] = is_pressed;
     if (key == key_config[2])  keys[LEFT] = is_pressed;
@@ -318,6 +633,13 @@ void Input::handle_key(const int key, const bool is_pressed)
     if (key == key_config[9])  keys[COIN] = is_pressed;
     if (key == key_config[10]) keys[MENU] = is_pressed;
     if (key == key_config[11]) keys[VIEWPOINT] = is_pressed;
+
+    // Permanent menu navigation fallback.
+// Arrow keys must always remain usable.
+    if (key == SDLK_UP)    keys[UP] = is_pressed;
+    if (key == SDLK_DOWN)  keys[DOWN] = is_pressed;
+    if (key == SDLK_LEFT)  keys[LEFT] = is_pressed;
+    if (key == SDLK_RIGHT) keys[RIGHT] = is_pressed;
 
     // Function keys are not redefinable
     switch (key)
@@ -423,27 +745,30 @@ void Input::handle_key(const int key, const bool is_pressed)
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
-    if (controller != NULL) return;
-    handle_axis(evt->axis, evt->value);
+    if (controller != NULL)
+        return;
+
+    handle_axis(evt->which, evt->axis, evt->value);
 }
 
 void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 {
-    handle_axis(evt->axis, evt->value);
+    handle_axis(evt->which, evt->axis, evt->value);
 }
 
-void Input::handle_axis(const uint8_t ax, const int16_t value)
+void Input::handle_axis(SDL_JoystickID device, const uint8_t ax, const int16_t value)
 {
     // Analog Controls
     if (analog)
     {
         int workingv = value;
 //        if (ax!=0) std::cout << "ax: " << (int)ax << " value " << value << std::endl; // JJP
-        store_last_axis(ax, value);
+        store_last_axis(device, ax, value);
 
         // Steering
         // OutRun requires values between 0x48 and 0xb8. // JJP - 0x40 to 0xC0?
-        if (ax == axis[0])
+        if (ax == axis[0] &&
+            (axis_device[0] == -1 || axis_device[0] == device))
         {
             // JJP - convert Thrustmaster wheel input, -32768..+32767, to 0..128
             // first multiple the reading by the adjustment percentage
@@ -469,7 +794,8 @@ void Input::handle_axis(const uint8_t ax, const int16_t value)
             a_wheel = adjusted;
         }
         // Accelerator [Single Axis]
-        else if (ax == axis[1])
+        else if (ax == axis[1] &&
+            (axis_device[1] == -1 || axis_device[1] == device))
         {
             a_accel = scale_trigger(invert[1] ? -workingv : workingv);
             if (a_accel > 0xff) a_accel = 0xff;
@@ -477,7 +803,8 @@ void Input::handle_axis(const uint8_t ax, const int16_t value)
         }
 
         // Brake [Single Axis]
-        else if (ax == axis[2])
+        else if (ax == axis[2] &&
+            (axis_device[2] == -1 || axis_device[2] == device))
         {
             a_brake = scale_trigger(invert[2] ? -workingv : workingv);
             if (a_brake > 0xff) a_brake = 0xff;
@@ -485,7 +812,8 @@ void Input::handle_axis(const uint8_t ax, const int16_t value)
         }
 
         // Motor Banking (Moving Cabient Only with SmartyPi)
-        else if (ax == axis[3])
+        else if (ax == axis[3] &&
+            (axis_device[3] == -1 || axis_device[3] == device))
         {
             //a_motor = (workingv + 0x8000) / 0x100;
             a_motor = scale_trigger(workingv);
@@ -512,34 +840,54 @@ int Input::scale_trigger(const int value)
 // ------------------------------------------------------------------------------------------------
 // Store the last analog axis to be pressed and depressed beyond the cap value for config purposes
 // ------------------------------------------------------------------------------------------------
-void Input::store_last_axis(const uint8_t ax, const int16_t value)
+void Input::store_last_axis(SDL_JoystickID device,
+    const uint8_t ax,
+    const int16_t value)
 {
     const static int CAP = SDL_JOYSTICK_AXIS_MAX / 4;
 
     if (std::abs(value) > CAP)
+    {
         axis_last = ax;
-    else if (ax == axis_last)
+        axis_last_device = device;
+    }
+    else if (ax == axis_last && device == axis_last_device)
     {
         axis_last = -1;
+        axis_last_device = -1;
         axis_counter = 0;
     }
 
-    if (ax == axis_last)
+    if (ax == axis_last && device == axis_last_device)
     {
-        if (value > CAP*2 && axis_counter == 0) axis_counter = 1;
-        if (value < CAP*2 && axis_counter == 1) axis_counter = 2;
-        if (axis_counter == 2)                  axis_config = ax; // Store the axis
+        if (value > CAP * 2 && axis_counter == 0)
+            axis_counter = 1;
+
+        if (value < CAP * 2 && axis_counter == 1)
+            axis_counter = 2;
+
+        if (axis_counter == 2)
+        {
+            axis_config = ax;
+            axis_config_device = device;
+        }
     }
 }
 
-int Input::get_axis_config()
+int Input::get_axis_config(SDL_JoystickID* device)
 {
     if (axis_counter == 2)
     {
         int value = axis_config;
+
+        if (device)
+            *device = axis_config_device;
+
         reset_axis_config();
+
         return value;
     }
+
     return -1;
 }
 
@@ -548,64 +896,157 @@ void Input::reset_axis_config()
     axis_config = -1;
     axis_last = -1;
     axis_counter = 0;
+    axis_config_device = -1;
+    axis_last_device = -1;
 }
 
 void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
-    if (controller != NULL) return;
-    // Latch joystick button presses for redefines
+    if (controller != NULL)
+        return;
+
     joy_button = evt->button;
-//    std::cout << "Joystick button pressed event: Button " << joy_button << std::endl;
-    handle_joy(evt->button, true);
+    joy_button_device = evt->which;
+
+    handle_joy(evt->which, evt->button, true);
 }
 
 void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
-    if (controller != NULL) return;
-    handle_joy(evt->button, false);
+    if (controller != NULL)
+        return;
+
+    if (joy_button == evt->button &&
+        joy_button_device == evt->which)
+    {
+        joy_button = -1;
+        joy_button_device = -1;
+    }
+
+    handle_joy(evt->which, evt->button, false);
 }
 
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 {
     joy_button = evt->button;
-//    std::cout << "SDL Controller button pressed event: Button " << joy_button << std::endl;
-    handle_joy(evt->button, true);
+    joy_button_device = evt->which;
+
+    handle_joy(evt->which, evt->button, true);
 }
 
 void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
 {
-    handle_joy(evt->button, false);
+    if (joy_button == evt->button &&
+        joy_button_device == evt->which)
+    {
+        joy_button = -1;
+        joy_button_device = -1;
+    }
+
+    handle_joy(evt->which, evt->button, false);
 }
 
-void Input::handle_joy(const uint8_t button, const bool is_pressed)
-{	
-    if (button == pad_config[0])   keys[ACCEL]     = is_pressed;
-    if (button == pad_config[1])   keys[BRAKE]     = is_pressed;
-    if (button == pad_config[2])   keys[GEAR1]     = is_pressed;
-    if (button == pad_config[3])   keys[GEAR2]     = is_pressed;
-    if (button == pad_config[4])   keys[START]     = is_pressed;
-    if (button == pad_config[5])   keys[COIN]      = is_pressed;
-    if (button == pad_config[6])   keys[MENU]      = is_pressed;
-    if (button == pad_config[7])   keys[VIEWPOINT] = is_pressed;
-    if (button == pad_config[8])   keys[UP]        = is_pressed;
-    if (button == pad_config[9])   keys[DOWN]      = is_pressed;
-    if (button == pad_config[10])  keys[LEFT]      = is_pressed;
-    if (button == pad_config[11])  keys[RIGHT]     = is_pressed;
-   
-    // Limit Input Switches
-    if (button == pad_config[12])  motor_limits[SW_LEFT]   = is_pressed;
-    if (button == pad_config[13])  motor_limits[SW_CENTRE] = is_pressed;
-    if (button == pad_config[14])  motor_limits[SW_RIGHT]  = is_pressed;
+void Input::handle_joy(SDL_JoystickID device,
+    const uint8_t button,
+    const bool is_pressed)
+{
+    auto matches = [&](int slot)
+        {
+            return button == pad_config[slot] &&
+                (button_device[slot] == -1 || button_device[slot] == device);
+        };
+
+    if (matches(0))  keys[ACCEL] = is_pressed;
+    if (matches(1))  keys[BRAKE] = is_pressed;
+    if (matches(2))  keys[GEAR1] = is_pressed;
+    if (matches(3))  keys[GEAR2] = is_pressed;
+    if (matches(4))  keys[START] = is_pressed;
+    if (matches(5))  keys[COIN] = is_pressed;
+    if (matches(6))  keys[MENU] = is_pressed;
+    if (matches(7))  keys[VIEWPOINT] = is_pressed;
+    if (matches(8))  keys[UP] = is_pressed;
+    if (matches(9))  keys[DOWN] = is_pressed;
+    if (matches(10)) keys[LEFT] = is_pressed;
+    if (matches(11)) keys[RIGHT] = is_pressed;
+
+    if (matches(12)) motor_limits[SW_LEFT] = is_pressed;
+    if (matches(13)) motor_limits[SW_CENTRE] = is_pressed;
+    if (matches(14)) motor_limits[SW_RIGHT] = is_pressed;
 }
 
 void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 {
-    if (controller != NULL) return;
+    const Uint8 value = evt->value;
 
-    keys[UP] = evt->value == SDL_HAT_UP;
-    keys[DOWN] = evt->value == SDL_HAT_DOWN;
-    keys[LEFT] = evt->value == SDL_HAT_LEFT;
-    keys[RIGHT] = evt->value == SDL_HAT_RIGHT;
+    // Capture a cardinal HAT direction for the configuration wizard.
+    // Ignore diagonals while binding to avoid accidental combinations.
+    if (value == SDL_HAT_UP ||
+        value == SDL_HAT_DOWN ||
+        value == SDL_HAT_LEFT ||
+        value == SDL_HAT_RIGHT)
+    {
+        joy_hat = evt->hat;
+        joy_hat_value = value;
+        joy_hat_device = evt->which;
+    }
+
+    const InputDevice* device =
+        find_device(evt->which);
+
+    std::string signature;
+
+    if (device)
+        signature = make_device_signature(*device);
+
+    static const int action[4] =
+    {
+        UP,
+        DOWN,
+        LEFT,
+        RIGHT
+    };
+
+    // Check whether THIS physical HAT has a custom mapping.
+    bool custom_hat = false;
+
+    for (int slot = 0; slot < 4; slot++)
+    {
+        if (config.controls.hat[slot] >= 0 &&
+            evt->hat == config.controls.hat[slot] &&
+            !signature.empty() &&
+            signature == config.controls.hat_device[slot])
+        {
+            custom_hat = true;
+            break;
+        }
+    }
+
+    if (!custom_hat)
+    {
+        // No custom mapping for this physical HAT.
+        // Always use it as a natural navigation fallback.
+        keys[UP] = (value & SDL_HAT_UP) != 0;
+        keys[DOWN] = (value & SDL_HAT_DOWN) != 0;
+        keys[LEFT] = (value & SDL_HAT_LEFT) != 0;
+        keys[RIGHT] = (value & SDL_HAT_RIGHT) != 0;
+    }
+    else
+    {
+        // This physical HAT has been explicitly configured.
+        // Use the custom assignments instead of its natural directions.
+        for (int slot = 0; slot < 4; slot++)
+        {
+            const bool matches_hat =
+                config.controls.hat[slot] >= 0 &&
+                evt->hat == config.controls.hat[slot] &&
+                !signature.empty() &&
+                signature == config.controls.hat_device[slot];
+
+            keys[action[slot]] =
+                matches_hat &&
+                ((value & config.controls.hat_value[slot]) != 0);
+        }
+    }
 }
 
 void Input::set_rumble(bool enable, float strength, int mode)
@@ -656,14 +1097,6 @@ void Input::set_rumble(bool enable, float strength, int mode)
     else
 #endif
     {
-        // If DI/evdev backend is available, prefer it
-        if (forcefeedback::is_supported())
-        {
-            int level = 1 + int((1.0f - std::max(0.0f, std::min(1.0f, strength))) * 4.0f); // 1 strong .. 5 soft
-            forcefeedback::set(mode, level);
-            return;
-        }
-
         // SDL rumble fallback
         if (haptic == NULL || !rumble_supported || strength == 0) return;
 

@@ -453,12 +453,14 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         int32_t rawh      =   ramBuff[data+7]; // JJP - height of sprite in rows
         int32_t y, ytarget, yacc = 0;
 
-        int16_t offset    =   ramBuff[data+15]; // JJP - provides horizontal offset for hires sprite rendering
+        int16_t offset = ramBuff[data + 15];
+
         // adjust X coordinate
         // note: the threshhold below is a guess. If it is too high, rachero will draw garbage
         // If it is too low, smgp won't draw the bottom part of the road
-        if (xpos < 0x80 && xdelta < 0)
+        if (config.video.widescreen != 2 && xpos < 0x80 && xdelta < 0)
             xpos += 0x200;
+
         xpos -= 0xbe;
 
  //       // initialize the end address to the start address

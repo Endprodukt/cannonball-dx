@@ -26,6 +26,7 @@
 
 #include <iostream>
 
+#include "directx/ffeedback.hpp"
 
 // Drop Boost string predicates; use lightweight std helpers instead
 #include <string>
@@ -251,19 +252,24 @@ void Menu::populate_controls()
         menu_controls.clear();
 
     menu_controls.push_back(ENTRY_GEAR);
-    if (input.gamepad) menu_controls.push_back(ENTRY_CONFIGUREGP);
-    menu_controls.push_back(ENTRY_REDEFKEY);
+    menu_controls.push_back(ENTRY_ANALOG);
+
+    menu_controls.push_back(ENTRY_FFB);
+    menu_controls.push_back(ENTRY_FFB_STRENGTH);
+
+    if (input.rumble_supported)
+        menu_controls.push_back(ENTRY_RUMBLE);
+
+    // Unified keyboard / wheel / gamepad / joystick binding
+    menu_controls.push_back(ENTRY_REDEFJOY);
+
     menu_controls.push_back(ENTRY_DSTEER);
     menu_controls.push_back(ENTRY_DPEDAL);
     menu_controls.push_back(ENTRY_BACK);
 
+    // Old gamepad submenu is no longer used
     if (menu_controls_gp.size() > 0)
         menu_controls_gp.clear();
-
-    menu_controls_gp.push_back(ENTRY_ANALOG);
-    if (input.rumble_supported) menu_controls_gp.push_back(ENTRY_RUMBLE);
-    menu_controls_gp.push_back(ENTRY_REDEFJOY);
-    menu_controls_gp.push_back(ENTRY_BACK);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -651,8 +657,9 @@ void Menu::tick_menu()
                     config.master_break_key = SDLK_F10;
                 else
                     config.master_break_key = SDLK_ESCAPE;
-            } else if (SELECTED(ENTRY_CONTROLS)) {
-                display_message(input.gamepad ? "GAMEPAD FOUND" : "NO GAMEPAD FOUND!");
+            }
+            else if (SELECTED(ENTRY_CONTROLS))
+            {
                 populate_controls();
                 set_menu(&menu_controls);
             }
@@ -763,7 +770,9 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_WIDESCREEN))
             {
-                config.video.widescreen ^= 1;
+                if (++config.video.widescreen > 2)
+                    config.video.widescreen = 0;
+
                 // restart_video();
                 config.videoRestartRequired = true;
             }
@@ -1079,14 +1088,75 @@ void Menu::tick_menu()
                 if (++config.controls.gear > config.controls.GEAR_AUTO)
                     config.controls.gear = config.controls.GEAR_BUTTON;
             }
-            else if (SELECTED(ENTRY_CONFIGUREGP))
-                set_menu(&menu_controls_gp);
-            else if (SELECTED(ENTRY_REDEFKEY))
+            else if (SELECTED(ENTRY_ANALOG))
             {
-                display_message("PRESS MENU TO END AT ANY STAGE");
-                state = STATE_REDEFINE_KEYS;
+                if (++config.controls.analog == 3)
+                    config.controls.analog = 0;
+
+                input.analog = config.controls.analog;
+            }
+            else if (SELECTED(ENTRY_FFB))
+            {
+                config.controls.haptic ^= 1;
+
+                if (config.controls.haptic)
+                {
+                    // FFB may not have been initialized if the game was
+                    // started with haptic disabled in config.xml.
+                    if (!forcefeedback::is_supported())
+                    {
+                        config.controls.haptic =
+                            forcefeedback::init(
+                                config.controls.max_force,
+                                config.controls.min_force,
+                                config.controls.force_duration)
+                            ? 1 : 0;
+                    }
+
+                    if (config.controls.haptic)
+                    {
+                        forcefeedback::set_gain(
+                            config.controls.ffb_strength);
+
+                        forcefeedback::set_enabled(true);
+                    }
+                    else
+                    {
+                        display_message("NO FORCE FEEDBACK DEVICE FOUND");
+                    }
+                }
+                else
+                {
+                    forcefeedback::set_enabled(false);
+                }
+            }
+            else if (SELECTED(ENTRY_FFB_STRENGTH))
+            {
+                config.controls.ffb_strength += 10;
+
+                if (config.controls.ffb_strength > 100)
+                    config.controls.ffb_strength = 10;
+
+                forcefeedback::set_gain(
+                    config.controls.ffb_strength);
+            }
+            else if (SELECTED(ENTRY_RUMBLE))
+            {
+                config.controls.rumble += 0.25f;
+
+                if (config.controls.rumble > 1.0f)
+                    config.controls.rumble = 0;
+            }
+            else if (SELECTED(ENTRY_REDEFJOY))
+            {
+                state = STATE_REDEFINE_JOY;
                 redef_state = 0;
+
                 input.key_press = -1;
+                input.joy_button = -1;
+                input.joy_button_device = -1;
+
+                input.reset_axis_config();
             }
             else if (SELECTED(ENTRY_DSTEER))
             {
@@ -1099,8 +1169,10 @@ void Menu::tick_menu()
                     config.controls.pedal_speed = 1;
             }
             else if (SELECTED(ENTRY_BACK))
+            {
                 menu_back();
-        }
+            }
+}
         else if (menu_selected == &menu_controls_gp)
         {
             if (SELECTED(ENTRY_ANALOG))
@@ -1116,10 +1188,12 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_REDEFJOY))
             {
-                //display_message("PRESS MENU TO END AT ANY STAGE");
                 state = STATE_REDEFINE_JOY;
                 redef_state = 0;
+
                 input.joy_button = -1;
+                input.joy_button_device = -1;
+
                 input.reset_axis_config();
             }
             else if (SELECTED(ENTRY_BACK))
@@ -1296,7 +1370,7 @@ void Menu::refresh_menu()
         {
             if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FULLSCREEN))    set_menu_text(ENTRY_FULLSCREEN, VIDEO_LABELS[config.video.mode]);
-            else if (SELECTED(ENTRY_WIDESCREEN))    set_menu_text(ENTRY_WIDESCREEN, config.video.widescreen ? "ON" : "OFF");
+            else if (SELECTED(ENTRY_WIDESCREEN))    set_menu_text(ENTRY_WIDESCREEN, ASPECT_LABELS[config.video.widescreen]);
             else if (SELECTED(ENTRY_SCALE))         set_menu_text(ENTRY_SCALE, Utils::to_string(config.video.scale) + "X");
             else if (SELECTED(ENTRY_X_OFFSET))      set_menu_text(ENTRY_X_OFFSET, Utils::to_string(config.video.x_offset));
             else if (SELECTED(ENTRY_Y_OFFSET))      set_menu_text(ENTRY_Y_OFFSET, Utils::to_string(config.video.y_offset));
@@ -1464,18 +1538,43 @@ void Menu::refresh_menu()
             }
         }
         // JJP end of insert
-
         else if (menu_selected == &menu_controls)
         {
-            if (SELECTED(ENTRY_GEAR))               set_menu_text(ENTRY_GEAR, GEAR_LABELS[config.controls.gear]);
-            else if (SELECTED(ENTRY_DSTEER))        set_menu_text(ENTRY_DSTEER, Utils::to_string(config.controls.steer_speed));
-            else if (SELECTED(ENTRY_DPEDAL))        set_menu_text(ENTRY_DPEDAL, Utils::to_string(config.controls.pedal_speed));
-        }
-        else if (menu_selected == &menu_controls_gp)
-        {
-            if (SELECTED(ENTRY_ANALOG))             set_menu_text(ENTRY_ANALOG, ANALOG_LABELS[config.controls.analog]);
-            else if (SELECTED(ENTRY_RUMBLE))        set_menu_text(ENTRY_RUMBLE, RUMBLE_LABELS[(int)(config.controls.rumble / 0.25f)]);
-        }
+            if (SELECTED(ENTRY_GEAR))
+                set_menu_text(
+                    ENTRY_GEAR,
+                    GEAR_LABELS[config.controls.gear]);
+
+            else if (SELECTED(ENTRY_ANALOG))
+                set_menu_text(
+                    ENTRY_ANALOG,
+                    ANALOG_LABELS[config.controls.analog]);
+
+            else if (SELECTED(ENTRY_FFB))
+                set_menu_text(
+                    ENTRY_FFB,
+                    config.controls.haptic ? "ON" : "OFF");
+
+            else if (SELECTED(ENTRY_FFB_STRENGTH))
+                set_menu_text(
+                    ENTRY_FFB_STRENGTH,
+                    Utils::to_string(config.controls.ffb_strength) + "%");
+
+            else if (SELECTED(ENTRY_RUMBLE))
+                set_menu_text(
+                    ENTRY_RUMBLE,
+                    RUMBLE_LABELS[(int)(config.controls.rumble / 0.25f)]);
+
+            else if (SELECTED(ENTRY_DSTEER))
+                set_menu_text(
+                    ENTRY_DSTEER,
+                    Utils::to_string(config.controls.steer_speed));
+
+            else if (SELECTED(ENTRY_DPEDAL))
+                set_menu_text(
+                    ENTRY_DPEDAL,
+                    Utils::to_string(config.controls.pedal_speed));
+                    }
         else if (menu_selected == &menu_engine || menu_selected == &menu_s_dips)
         {
             if (SELECTED(ENTRY_TRACKS))             set_menu_text(ENTRY_TRACKS, config.engine.jap ? "JAPAN" : "WORLD");
@@ -1585,42 +1684,486 @@ void Menu::redefine_keyboard()
 
 void Menu::redefine_joystick()
 {
-    if (redef_state == 3 && config.controls.gear != config.controls.GEAR_SEPARATE) // Skip redefine of second gear press
-        redef_state++;
+    // ---------------------------------------------------------
+    // Release handling
+    //
+    // We only wait for the control that was JUST captured.
+    // Other buttons that were already held (e.g. H-shifter)
+    // do not block configuration.
+    // ---------------------------------------------------------
 
-    switch (redef_state)
+    enum WaitType
     {
-        case 0:
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 6:
-        case 7:
-            draw_text(text_redefine.at(redef_state + 4));
-            // Analog controls enabled (Accelerator & Brake): Read axis being pressed
-            if (config.controls.analog == 1 && (redef_state == 0 || redef_state == 1))
-            {
-                int last_axis = input.get_axis_config();
+        WAIT_NONE,
+        WAIT_KEYBOARD,
+        WAIT_BUTTON,
+        WAIT_HAT
+    };
 
-                if (last_axis != -1)
-                {
-                    config.controls.axis[redef_state + 1] = last_axis;
-                    redef_state++;
-                }
-            }
-            else if (input.joy_button != -1)
+    static WaitType wait_type = WAIT_NONE;
+
+    static SDL_Keycode wait_key = SDLK_UNKNOWN;
+
+    static SDL_JoystickID wait_device = -1;
+    static int wait_button = -1;
+    static int wait_hat = -1;
+    static int wait_hat_value = SDL_HAT_CENTERED;
+
+    static int next_state = 0;
+
+
+    // ---------------------------------------------------------
+    // Wait until the control we just captured is released
+    // ---------------------------------------------------------
+
+    if (wait_type != WAIT_NONE)
+    {
+        draw_text("RELEASE CONTROL");
+
+        bool released = false;
+
+        // Keyboard
+        if (wait_type == WAIT_KEYBOARD)
+        {
+            const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
+
+            SDL_Scancode scancode =
+                SDL_GetScancodeFromKey(wait_key);
+
+            if (scancode == SDL_SCANCODE_UNKNOWN ||
+                keyboard_state[scancode] == 0)
             {
-                config.controls.padconfig[redef_state] = input.joy_button;
-                redef_state++;
+                released = true;
+            }
+        }
+
+        // Wheel / Gamepad / Joystick / Shifter button
+        else if (wait_type == WAIT_BUTTON)
+        {
+            const InputDevice* device =
+                input.find_device(wait_device);
+
+            // Device disappeared or button was released
+            if (device == nullptr ||
+                SDL_JoystickGetButton(
+                    device->joystick,
+                    wait_button) == 0)
+            {
+                released = true;
+            }
+        }
+        else if (wait_type == WAIT_HAT)
+        {
+            const InputDevice* device =
+                input.find_device(wait_device);
+
+            if (device == nullptr ||
+                device->joystick == nullptr ||
+                wait_hat < 0 ||
+                wait_hat >= device->hats)
+            {
+                released = true;
+            }
+            else
+            {
+                const Uint8 value =
+                    SDL_JoystickGetHat(
+                        device->joystick,
+                        wait_hat);
+
+                if ((value & wait_hat_value) == 0)
+                    released = true;
+            }
+        }
+
+        if (released)
+        {
+            wait_type = WAIT_NONE;
+
+            wait_key = SDLK_UNKNOWN;
+
+            wait_device = -1;
+            wait_button = -1;
+            wait_hat = -1;
+            wait_hat_value = SDL_HAT_CENTERED;
+
+            input.joy_hat = -1;
+            input.joy_hat_value = SDL_HAT_CENTERED;
+            input.joy_hat_device = -1;
+            // Clear old captured events.
+            // Anything that was already held stays ignored.
+            input.key_press = -1;
+            input.joy_button = -1;
+            input.joy_button_device = -1;
+
+            input.reset_axis_config();
+
+            redef_state = next_state;
+        }
+
+        return;
+    }
+
+
+    // ---------------------------------------------------------
+    // State 0:
+    // Steering axis
+    // ---------------------------------------------------------
+
+    if (redef_state == 0)
+    {
+        draw_text("MOVE STEERING WHEEL - ENTER TO SKIP");
+
+        SDL_JoystickID device = -1;
+
+        int axis =
+            input.get_axis_config(&device);
+
+        if (axis != -1)
+        {
+            input.set_axis_binding(0, axis, device);
+            input.reset_axis_config();
+
+            input.key_press = -1;
+            input.joy_button = -1;
+            input.joy_button_device = -1;
+
+            // Clear any stale HAT event used to navigate the menu
+            input.joy_hat = -1;
+            input.joy_hat_value = SDL_HAT_CENTERED;
+            input.joy_hat_device = -1;
+
+            redef_state = 1;
+            return;
+        }
+
+
+        // Keyboard-only setup:
+        // Enter skips analog steering.
+        if (input.key_press == SDLK_RETURN)
+        {
+            wait_type = WAIT_KEYBOARD;
+            wait_key = SDLK_RETURN;
+
+            next_state = 1;
+
+            input.key_press = -1;
+
+            input.joy_hat = -1;
+            input.joy_hat_value = SDL_HAT_CENTERED;
+            input.joy_hat_device = -1;
+
+            return;
+        }
+
+        return;
+    }
+
+
+    // ---------------------------------------------------------
+    // Unified binding order:
+    //
+    //  1 = UP
+    //  2 = DOWN
+    //  3 = LEFT
+    //  4 = RIGHT
+    //  5 = ACCELERATE
+    //  6 = BRAKE
+    //  7 = GEAR LOW
+    //  8 = GEAR HIGH
+    //  9 = START
+    // 10 = COIN
+    // 11 = MENU
+    // 12 = VIEW
+    // ---------------------------------------------------------
+
+
+    // Skip Gear High unless separate gears are enabled
+    if (redef_state == 8 &&
+        config.controls.gear !=
+        config.controls.GEAR_SEPARATE)
+    {
+        redef_state = 9;
+    }
+
+
+    if (redef_state >= 1 &&
+        redef_state <= 12)
+    {
+        const int key_slot =
+            redef_state - 1;
+
+
+        // Keyboard and joystick arrays use different ordering.
+        static const int PAD_SLOT[12] =
+        {
+            8,      // UP
+            9,      // DOWN
+            10,     // LEFT
+            11,     // RIGHT
+
+            0,      // ACCELERATE
+            1,      // BRAKE
+
+            2,      // GEAR LOW
+            3,      // GEAR HIGH
+
+            4,      // START
+            5,      // COIN
+            6,      // MENU
+            7       // VIEW
+        };
+
+
+        const int pad_slot =
+            PAD_SLOT[key_slot];
+
+
+        draw_text(
+            text_redefine.at(key_slot)
+        );
+
+
+        // -----------------------------------------------------
+        // Accelerator / Brake:
+        // Allow analog axis
+        // -----------------------------------------------------
+
+        if (config.controls.analog == 1 &&
+            (redef_state == 5 ||
+                redef_state == 6))
+        {
+            SDL_JoystickID device = -1;
+
+            int axis =
+                input.get_axis_config(&device);
+
+            if (axis != -1)
+            {
+                const int axis_slot =
+                    (redef_state == 5) ? 1 : 2;
+
+
+                input.set_axis_binding(
+                    axis_slot,
+                    axis,
+                    device
+                );
+
+
+                // Remove previous digital bindings
+                config.controls.keyconfig[key_slot] = -1;
+
+                input.set_button_binding(
+                    pad_slot,
+                    -1,
+                    -1
+                );
+
+
+                input.key_press = -1;
                 input.joy_button = -1;
-            }
-            break;
+                input.joy_button_device = -1;
 
-        case 8:
-            state = STATE_MENU;
-            break;
+                input.reset_axis_config();
+
+
+                redef_state++;
+
+                return;
+            }
+        }
+
+        // UP / DOWN / LEFT / RIGHT can also be bound to a HAT.
+        if (key_slot < 4 &&
+            input.joy_hat != -1 &&
+            input.joy_hat_value != SDL_HAT_CENTERED)
+        {
+            const int captured_hat = input.joy_hat;
+            const int captured_value = input.joy_hat_value;
+            const SDL_JoystickID captured_device =
+                input.joy_hat_device;
+
+            input.set_hat_binding(
+                key_slot,
+                captured_hat,
+                captured_value,
+                captured_device);
+
+            // HAT becomes the custom binding for this direction.
+            config.controls.keyconfig[key_slot] = -1;
+            input.set_button_binding(pad_slot, -1, -1);
+            config.controls.direction_custom[key_slot] = 1;
+
+            next_state = redef_state + 1;
+
+            wait_type = WAIT_HAT;
+            wait_device = captured_device;
+            wait_hat = captured_hat;
+            wait_hat_value = captured_value;
+
+            input.joy_hat = -1;
+            input.joy_hat_value = SDL_HAT_CENTERED;
+            input.joy_hat_device = -1;
+
+            return;
+        }
+
+        // -----------------------------------------------------
+        // Keyboard
+        //
+        // Only a NEW key-down event gets here.
+        // -----------------------------------------------------
+
+        if (input.key_press != -1)
+        {
+            SDL_Keycode captured_key =
+                input.key_press;
+
+            if (key_slot < 4)
+            {
+                input.set_hat_binding(
+                    key_slot,
+                    -1,
+                    SDL_HAT_CENTERED,
+                    -1);
+
+                static const SDL_Keycode fallback_key[4] =
+                {
+                    SDLK_UP,
+                    SDLK_DOWN,
+                    SDLK_LEFT,
+                    SDLK_RIGHT
+                };
+
+                // Selecting the natural arrow key resets this direction
+                // to the standard Arrow + HAT fallback.
+                config.controls.direction_custom[key_slot] =
+                    captured_key == fallback_key[key_slot] ? 0 : 1;
+            }
+
+            config.controls.keyconfig[key_slot] =
+                captured_key;
+
+
+            // Remove old joystick/gamepad binding
+            input.set_button_binding(
+                pad_slot,
+                -1,
+                -1
+            );
+
+
+            next_state =
+                redef_state + 1;
+
+
+            if (next_state == 8 &&
+                config.controls.gear !=
+                config.controls.GEAR_SEPARATE)
+            {
+                next_state = 9;
+            }
+
+
+            // Wait ONLY for this keyboard key
+            wait_type =
+                WAIT_KEYBOARD;
+
+            wait_key =
+                captured_key;
+
+
+            // Do not allow this event to be consumed again
+            input.key_press = -1;
+
+            return;
+        }
+
+
+        // -----------------------------------------------------
+        // Wheel / Gamepad / Joystick / Shifter Button
+        //
+        // A button that was already held before entering this
+        // screen does NOT appear here. It must first be released
+        // and pressed again.
+        // -----------------------------------------------------
+
+        if (input.joy_button != -1)
+        {
+            const int captured_button =
+                input.joy_button;
+
+            const SDL_JoystickID captured_device =
+                input.joy_button_device;
+
+
+            input.set_button_binding(
+                pad_slot,
+                captured_button,
+                captured_device
+            );
+
+
+            // Remove old keyboard binding
+            config.controls.keyconfig[key_slot] = -1;
+
+
+            next_state =
+                redef_state + 1;
+
+
+            if (next_state == 8 &&
+                config.controls.gear !=
+                config.controls.GEAR_SEPARATE)
+            {
+                next_state = 9;
+            }
+
+
+            // Wait ONLY for this particular button.
+            wait_type =
+                WAIT_BUTTON;
+
+            wait_device =
+                captured_device;
+
+            wait_button =
+                captured_button;
+
+
+            // Important:
+            // Clear the captured event immediately.
+            // The actual physical release is checked directly
+            // using SDL_JoystickGetButton above.
+            input.joy_button = -1;
+            input.joy_button_device = -1;
+
+            return;
+        }
+
+
+        return;
+    }
+
+
+    // ---------------------------------------------------------
+    // Finished
+    // ---------------------------------------------------------
+
+    if (redef_state >= 13)
+    {
+        wait_type = WAIT_NONE;
+
+        input.key_press = -1;
+        input.joy_button = -1;
+        input.joy_button_device = -1;
+
+        input.reset_axis_config();
+
+        state = STATE_MENU;
+
+        refresh_menu();
     }
 }
 

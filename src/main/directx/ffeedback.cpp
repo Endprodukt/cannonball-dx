@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <iostream>
 
 #ifdef __linux__
 // --------------------------- Linux (evdev) ---------------------------
@@ -31,6 +32,9 @@ namespace forcefeedback {
 
 static int fd = -1;
 static bool g_supported = false;
+static int g_max_force = 10000;
+static int g_min_force = 0;
+static int g_force_duration = 20;
 static struct ff_effect effects[6]; // 0 unused, 1..5 = soft..strong (or vice versa)
 
 static bool has_bit(const unsigned long* bits, int bit)
@@ -129,6 +133,12 @@ int set(int command, int force) // command is unused; keep for ABI compatibility
     return 0;
 }
 
+void stop()
+{
+    if (g_pEffect)
+        g_pEffect->Stop();
+}
+
 void close()
 {
     if (fd >= 0)
@@ -159,197 +169,1189 @@ bool is_supported()
 } // namespace forcefeedback
 
 #elif defined(_WIN32)
+
 // --------------------------- Windows (DirectInput 8) ---------------------------
+
 #define DIRECTINPUT_VERSION 0x0800
 #define NOMINMAX
+
 #include <windows.h>
 #include <dinput.h>
+#include <SDL.h>
+#include <SDL_syswm.h>
 
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-namespace forcefeedback {
-
-static LPDIRECTINPUT8       g_pDI        = nullptr;
-static LPDIRECTINPUTDEVICE8 g_pDevice    = nullptr;
-static LPDIRECTINPUTEFFECT  g_pEffect    = nullptr;
-static bool                 g_supported  = false;
-
-static unsigned short parse_hex4(const char* s) {
-    unsigned v=0; if (!s) return 0;
-    std::sscanf(s, "%x", &v); return (unsigned short)v;
-}
-
-static bool match_target_vidpid(LPDIRECTINPUTDEVICE8 dev)
+namespace forcefeedback
 {
-    // Use DIPROP_VIDPID to match against env var FF_TARGET_VIDPID="0xAAAA:0xBBBB"
-    char* env = std::getenv("FF_TARGET_VIDPID");
-    if (!env) return true; // no filter set
+    
+    static LPDIRECTINPUT8       g_pDI = nullptr;
+    static LPDIRECTINPUTDEVICE8 g_pDevice = nullptr;
+    static LPDIRECTINPUTEFFECT  g_pEffect = nullptr;
+    static LPDIRECTINPUTEFFECT  g_pSpringEffect = nullptr;
+    static bool g_supported = false;
+    static bool g_enabled = true;
+    static int  g_centering_percent = 30;
+    static int  g_gain_percent = 100;
+    static int g_max_force = 10000;
+    static int g_min_force = 0;
+    static int g_force_duration = 20;
 
-    DIPROPDWORD dp; std::memset(&dp, 0, sizeof(dp));
-    dp.diph.dwSize = sizeof(DIPROPDWORD);
-    dp.diph.dwHeaderSize = sizeof(DIPROPHEADER);
-    dp.diph.dwHow = DIPH_DEVICE;
+    static DWORD g_num_ff_axes = 0;
 
-    if (FAILED(dev->GetProperty(DIPROP_VIDPID, &dp.diph))) return true; // can't read, allow
+    void set_enabled(bool enabled)
+    {
+        g_enabled = enabled;
 
-    unsigned short vid = LOWORD(dp.dwData);
-    unsigned short pid = HIWORD(dp.dwData);
-
-    unsigned short tvid = 0, tpid = 0;
-    const char* colon = std::strchr(env, ':');
-    if (colon) {
-        tvid = parse_hex4(env);
-        tpid = parse_hex4(colon + 1);
-    }
-    return (!tvid || tvid == vid) && (!tpid || tpid == pid);
-}
-
-static BOOL CALLBACK EnumFFDevicesCallback(const DIDEVICEINSTANCE* pdidInstance, VOID*)
-{
-    if (!g_pDI || g_pDevice) return DIENUM_CONTINUE;
-
-    LPDIRECTINPUTDEVICE8 dev = nullptr;
-    if (FAILED(g_pDI->CreateDevice(pdidInstance->guidInstance, &dev, nullptr)))
-        return DIENUM_CONTINUE;
-
-    if (!match_target_vidpid(dev)) { dev->Release(); return DIENUM_CONTINUE; }
-
-    if (FAILED(dev->SetDataFormat(&c_dfDIJoystick2))) { dev->Release(); return DIENUM_CONTINUE; }
-
-    // Non-exclusive, foreground to avoid conflicts with SDL/XInput
-    HWND hwnd = GetForegroundWindow();
-    if (FAILED(dev->SetCooperativeLevel(hwnd, DISCL_NONEXCLUSIVE | DISCL_FOREGROUND))) {
-        dev->Release(); return DIENUM_CONTINUE;
+        if (!g_enabled && g_pEffect)
+            g_pEffect->Stop();
     }
 
-    // Query FFB support
-    DIDEVCAPS caps; std::memset(&caps, 0, sizeof(caps)); caps.dwSize = sizeof(caps);
-    if (FAILED(dev->GetCapabilities(&caps)) || !(caps.dwFlags & DIDC_FORCEFEEDBACK)) {
-        dev->Release(); return DIENUM_CONTINUE;
+    void set_gain(int percent)
+    {
+        if (percent < 10)
+            percent = 10;
+        else if (percent > 100)
+            percent = 100;
+
+        g_gain_percent = percent;
     }
 
-    // Try to create a constant force effect; fall back to sine if needed
-    DIEFFECT eff; std::memset(&eff, 0, sizeof(eff));
-    LONG lDirection[2] = { 0, 0 };
-    DICONSTANTFORCE cf; std::memset(&cf, 0, sizeof(cf));
-    cf.lMagnitude = DI_FFNOMINALMAX;
+    void set_centering_strength(int percent)
+    {
+        if (percent < 0)
+            percent = 0;
+        else if (percent > 100)
+            percent = 100;
 
-    eff.dwSize = sizeof(DIEFFECT);
-    eff.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
-    eff.cAxes = 1;
+        g_centering_percent = percent;
 
-    // JJP - this line doesn't compile on Windows
-    // eff.rgdwAxes = (DWORD*)(& (DWORD){ DIJOFS_X });
-    static const DWORD axisX = DIJOFS_X;          // storage for the value
-    eff.rgdwAxes = const_cast<DWORD*>(&axisX);
 
-    eff.rglDirection = lDirection;
-    eff.lpEnvelope = 0;
-    eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
-    eff.lpvTypeSpecificParams = &cf;
-    eff.dwDuration = INFINITE;
-    eff.dwGain = DI_FFNOMINALMAX;
+        // Spring not created yet.
+        // The stored percentage will be used by create_spring_effect().
+        if (!g_pSpringEffect)
+            return;
 
-    LPDIRECTINPUTEFFECT effect = nullptr;
-    HRESULT hr = dev->CreateEffect(GUID_ConstantForce, &eff, &effect, nullptr);
-    if (FAILED(hr)) {
-        // Try sine
-        DIPERIODIC per; std::memset(&per, 0, sizeof(per));
-        per.dwMagnitude = DI_FFNOMINALMAX;
-        per.dwPeriod = (DWORD)(0.05f * DI_SECONDS);
-        per.lOffset = 0;
-        per.dwPhase = 0;
 
-        eff.cbTypeSpecificParams = sizeof(DIPERIODIC);
-        eff.lpvTypeSpecificParams = &per;
-        hr = dev->CreateEffect(GUID_Sine, &eff, &effect, nullptr);
-    }
+        // 0% means completely disable centering.
+        if (g_centering_percent == 0)
+        {
+            g_pSpringEffect->Stop();
+            return;
+        }
 
-    if (FAILED(hr)) {
-        dev->Release(); return DIENUM_CONTINUE;
-    }
 
-    g_pDevice = dev;
-    g_pEffect = effect;
-    return DIENUM_STOP;
-}
+        DICONDITION condition{};
 
-bool init(int, int, int)
-{
-    if (g_supported) return true;
+        condition.lOffset = 0;
 
-    if (FAILED(DirectInput8Create(GetModuleHandle(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&g_pDI, nullptr)))
-        return false;
 
-    if (FAILED(g_pDI->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumFFDevicesCallback, nullptr, DIEDFL_ATTACHEDONLY)))
-        return false;
+        const LONG strength =
+            DI_FFNOMINALMAX *
+            g_centering_percent /
+            100;
 
-    if (!g_pDevice || !g_pEffect) return false;
 
-    if (FAILED(g_pDevice->Acquire())) {
-        // try later in set()
-    }
+        condition.lPositiveCoefficient =
+            strength;
 
-    g_supported = true;
-    return true;
-}
+        condition.lNegativeCoefficient =
+            strength;
 
-static HRESULT start_or_reacquire(DIEFFECT* peff, DWORD flags)
-{
-    if (!g_pEffect || !g_pDevice) return E_FAIL;
-    HRESULT r = g_pEffect->SetParameters(peff, flags);
-    if (r == DIERR_INPUTLOST || r == DIERR_NOTACQUIRED) {
-        if (SUCCEEDED(g_pDevice->Acquire())) {
-            r = g_pEffect->SetParameters(peff, flags);
+        condition.dwPositiveSaturation =
+            DI_FFNOMINALMAX;
+
+        condition.dwNegativeSaturation =
+            DI_FFNOMINALMAX;
+
+        condition.lDeadBand = 0;
+
+
+        DWORD axis =
+            DIJOFS_X;
+
+
+        LONG direction[1] =
+        {
+            1
+        };
+
+
+        DIEFFECT effect{};
+
+        effect.dwSize =
+            sizeof(DIEFFECT);
+
+        effect.dwFlags =
+            DIEFF_CARTESIAN |
+            DIEFF_OBJECTOFFSETS;
+
+        effect.cAxes =
+            1;
+
+        effect.rgdwAxes =
+            &axis;
+
+        effect.rglDirection =
+            direction;
+
+        effect.cbTypeSpecificParams =
+            sizeof(DICONDITION);
+
+        effect.lpvTypeSpecificParams =
+            &condition;
+
+
+        HRESULT hr =
+            g_pSpringEffect->SetParameters(
+                &effect,
+                DIEP_DIRECTION |
+                DIEP_TYPESPECIFICPARAMS |
+                DIEP_START);
+
+
+        if (hr == DIERR_INPUTLOST ||
+            hr == DIERR_NOTACQUIRED ||
+            hr == DIERR_NOTEXCLUSIVEACQUIRED)
+        {
+            g_pDevice->Unacquire();
+
+            if (SUCCEEDED(g_pDevice->Acquire()))
+            {
+                hr =
+                    g_pSpringEffect->SetParameters(
+                        &effect,
+                        DIEP_DIRECTION |
+                        DIEP_TYPESPECIFICPARAMS |
+                        DIEP_START);
+            }
+        }
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: unable to update centering strength: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+        }
+        else
+        {
+            std::cout
+                << "DirectInput: centering strength = "
+                << g_centering_percent
+                << "%"
+                << std::endl;
         }
     }
-    return r;
+
+    static SDL_Window* g_ffb_window = nullptr;
+
+
+    // -----------------------------------------------------------------------------
+    // VID / PID filter
+    // -----------------------------------------------------------------------------
+
+    static unsigned short parse_hex4(const char* s)
+    {
+        unsigned v = 0;
+
+        if (!s)
+            return 0;
+
+        std::sscanf(s, "%x", &v);
+
+        return (unsigned short)v;
+    }
+
+
+    static bool match_target_vidpid(LPDIRECTINPUTDEVICE8 dev)
+    {
+        const char* env =
+            std::getenv("FF_TARGET_VIDPID");
+
+        // No target specified:
+        // accept the first actual FFB-capable DirectInput device.
+        if (!env)
+            return true;
+
+
+        DIPROPDWORD dp{};
+
+        dp.diph.dwSize =
+            sizeof(DIPROPDWORD);
+
+        dp.diph.dwHeaderSize =
+            sizeof(DIPROPHEADER);
+
+        dp.diph.dwHow =
+            DIPH_DEVICE;
+
+
+        if (FAILED(
+            dev->GetProperty(
+                DIPROP_VIDPID,
+                &dp.diph)))
+        {
+            return true;
+        }
+
+
+        unsigned short vid =
+            LOWORD(dp.dwData);
+
+        unsigned short pid =
+            HIWORD(dp.dwData);
+
+
+        unsigned short target_vid = 0;
+        unsigned short target_pid = 0;
+
+
+        const char* colon =
+            std::strchr(env, ':');
+
+
+        if (colon)
+        {
+            target_vid =
+                parse_hex4(env);
+
+            target_pid =
+                parse_hex4(colon + 1);
+        }
+
+
+        return
+            (!target_vid || target_vid == vid) &&
+            (!target_pid || target_pid == pid);
+    }
+
+
+    // -----------------------------------------------------------------------------
+    // DirectInput device enumeration
+    //
+    // IMPORTANT:
+    // Do NOT configure or create effects here.
+    // Only select the DirectInput FFB device.
+    // -----------------------------------------------------------------------------
+
+    static BOOL CALLBACK EnumFFDevicesCallback(
+        const DIDEVICEINSTANCE* instance,
+        VOID*)
+    {
+        if (!g_pDI || g_pDevice)
+            return DIENUM_STOP;
+
+
+        LPDIRECTINPUTDEVICE8 device =
+            nullptr;
+
+
+        HRESULT hr =
+            g_pDI->CreateDevice(
+                instance->guidInstance,
+                &device,
+                nullptr);
+
+
+        if (FAILED(hr))
+            return DIENUM_CONTINUE;
+
+
+        if (!match_target_vidpid(device))
+        {
+            device->Release();
+
+            return DIENUM_CONTINUE;
+        }
+
+
+        // Device accepted.
+        g_pDevice = device;
+
+
+        std::cout
+            << "DirectInput: FFB device selected"
+            << std::endl;
+
+
+        return DIENUM_STOP;
+    }
+
+
+    // -----------------------------------------------------------------------------
+    // Count actual force-feedback actuator axes
+    // -----------------------------------------------------------------------------
+
+    static BOOL CALLBACK EnumAxesCallback(
+        const DIDEVICEOBJECTINSTANCE* object,
+        VOID* context)
+    {
+        DWORD* count =
+            static_cast<DWORD*>(context);
+
+
+        if (object->dwFlags & DIDOI_FFACTUATOR)
+            (*count)++;
+
+
+        return DIENUM_CONTINUE;
+    }
+
+
+    // -----------------------------------------------------------------------------
+    // Create initial constant-force effect
+    // -----------------------------------------------------------------------------
+
+    static bool create_force_effect()
+    {
+        DWORD axes[2] =
+        {
+            DIJOFS_X,
+            DIJOFS_Y
+        };
+
+
+        LONG direction[2] =
+        {
+            0,
+            0
+        };
+
+
+        DICONSTANTFORCE constant_force{};
+
+        constant_force.lMagnitude = 0;
+
+
+        DIEFFECT effect{};
+
+        effect.dwSize =
+            sizeof(DIEFFECT);
+
+        effect.dwFlags =
+            DIEFF_CARTESIAN |
+            DIEFF_OBJECTOFFSETS;
+
+
+        if (g_force_duration <= 0)
+            g_force_duration = 20;
+
+
+        effect.dwDuration =
+            DI_SECONDS /
+            g_force_duration;
+
+
+        effect.dwSamplePeriod = 0;
+
+        effect.dwGain =
+            DI_FFNOMINALMAX;
+
+        effect.dwTriggerButton =
+            DIEB_NOTRIGGER;
+
+        effect.dwTriggerRepeatInterval = 0;
+
+
+        effect.cAxes =
+            g_num_ff_axes;
+
+        effect.rgdwAxes =
+            axes;
+
+        effect.rglDirection =
+            direction;
+
+
+        effect.lpEnvelope =
+            nullptr;
+
+
+        effect.cbTypeSpecificParams =
+            sizeof(DICONSTANTFORCE);
+
+        effect.lpvTypeSpecificParams =
+            &constant_force;
+
+
+        effect.dwStartDelay = 0;
+
+
+        HRESULT hr =
+            g_pDevice->CreateEffect(
+                GUID_ConstantForce,
+                &effect,
+                &g_pEffect,
+                nullptr);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: CreateEffect failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        if (!g_pEffect)
+        {
+            std::cout
+                << "DirectInput: CreateEffect returned no effect"
+                << std::endl;
+
+            return false;
+        }
+
+
+        return true;
+    }
+
+    static bool create_spring_effect()
+    {
+        if (!g_pDevice)
+            return false;
+
+        DICONDITION condition{};
+
+        condition.lOffset = 0;
+
+        const LONG strength =
+            DI_FFNOMINALMAX * g_centering_percent / 100;
+
+        // DirectInput spring coefficient
+        condition.lPositiveCoefficient = strength;
+        condition.lNegativeCoefficient = strength;
+
+        condition.dwPositiveSaturation =
+            DI_FFNOMINALMAX;
+
+        condition.dwNegativeSaturation =
+            DI_FFNOMINALMAX;
+
+        condition.lDeadBand = 0;
+
+
+        DWORD axis = DIJOFS_X;
+
+        LONG direction[1] =
+        {
+            1
+        };
+
+
+        DIEFFECT effect{};
+
+        effect.dwSize =
+            sizeof(DIEFFECT);
+
+        effect.dwFlags =
+            DIEFF_CARTESIAN |
+            DIEFF_OBJECTOFFSETS;
+
+        effect.dwDuration =
+            INFINITE;
+
+        effect.dwSamplePeriod =
+            0;
+
+        effect.dwGain =
+            DI_FFNOMINALMAX;
+
+        effect.dwTriggerButton =
+            DIEB_NOTRIGGER;
+
+        effect.dwTriggerRepeatInterval =
+            0;
+
+        effect.cAxes =
+            1;
+
+        effect.rgdwAxes =
+            &axis;
+
+        effect.rglDirection =
+            direction;
+
+        effect.lpEnvelope =
+            nullptr;
+
+        effect.cbTypeSpecificParams =
+            sizeof(DICONDITION);
+
+        effect.lpvTypeSpecificParams =
+            &condition;
+
+        effect.dwStartDelay =
+            0;
+
+
+        HRESULT hr =
+            g_pDevice->CreateEffect(
+                GUID_Spring,
+                &effect,
+                &g_pSpringEffect,
+                nullptr);
+
+
+        std::cout
+            << "DirectInput: Create spring result = 0x"
+            << std::hex
+            << (unsigned long)hr
+            << std::dec
+            << std::endl;
+
+
+        if (FAILED(hr))
+        {
+            g_pSpringEffect = nullptr;
+            return false;
+        }
+
+
+        hr =
+            g_pSpringEffect->Start(
+                1,
+                0);
+
+
+        std::cout
+            << "DirectInput: Start spring result = 0x"
+            << std::hex
+            << (unsigned long)hr
+            << std::dec
+            << std::endl;
+
+
+        if (hr == DIERR_INPUTLOST ||
+            hr == DIERR_NOTACQUIRED ||
+            hr == DIERR_NOTEXCLUSIVEACQUIRED)
+        {
+            g_pDevice->Unacquire();
+
+            HRESULT acquire_hr =
+                g_pDevice->Acquire();
+
+            std::cout
+                << "DirectInput: spring Acquire result = 0x"
+                << std::hex
+                << (unsigned long)acquire_hr
+                << std::dec
+                << std::endl;
+
+            if (SUCCEEDED(acquire_hr))
+            {
+                hr =
+                    g_pSpringEffect->Start(
+                        1,
+                        0);
+
+                std::cout
+                    << "DirectInput: spring retry result = 0x"
+                    << std::hex
+                    << (unsigned long)hr
+                    << std::dec
+                    << std::endl;
+            }
+        }
+
+
+        if (FAILED(hr))
+        {
+            g_pSpringEffect->Release();
+            g_pSpringEffect = nullptr;
+
+            return false;
+        }
+
+
+        std::cout
+            << "DirectInput: native centering spring enabled at 30%"
+            << std::endl;
+
+        return true;
+    }
+    // -----------------------------------------------------------------------------
+    // Initialise
+    // -----------------------------------------------------------------------------
+
+    bool init(
+        int max_force,
+        int min_force,
+        int force_duration)
+    {
+        if (g_supported)
+            return true;
+
+
+        g_max_force =
+            max_force;
+
+        g_min_force =
+            min_force;
+
+        g_force_duration =
+            force_duration;
+
+
+        // -------------------------------------------------------------------------
+        // DirectInput FFB requires a valid HWND.
+        //
+        // This is the same basic approach used by original CannonBall:
+        // create a tiny hidden SDL window and retrieve its native Windows handle.
+        // -------------------------------------------------------------------------
+
+        if (!g_ffb_window)
+        {
+            g_ffb_window =
+                SDL_CreateWindow(
+                    "CannonBall FFB",
+                    SDL_WINDOWPOS_UNDEFINED,
+                    SDL_WINDOWPOS_UNDEFINED,
+                    1,
+                    1,
+                    SDL_WINDOW_HIDDEN);
+
+
+            if (!g_ffb_window)
+            {
+                std::cout
+                    << "DirectInput: Could not create FFB window: "
+                    << SDL_GetError()
+                    << std::endl;
+
+                return false;
+            }
+        }
+
+
+        SDL_SysWMinfo wm_info{};
+
+        SDL_VERSION(
+            &wm_info.version);
+
+
+        if (!SDL_GetWindowWMInfo(
+            g_ffb_window,
+            &wm_info))
+        {
+            std::cout
+                << "DirectInput: SDL_GetWindowWMInfo failed: "
+                << SDL_GetError()
+                << std::endl;
+
+            return false;
+        }
+
+
+        HWND hwnd =
+            wm_info.info.win.window;
+
+
+        // -------------------------------------------------------------------------
+        // Create DirectInput
+        // -------------------------------------------------------------------------
+
+        HRESULT hr =
+            DirectInput8Create(
+                GetModuleHandle(nullptr),
+                DIRECTINPUT_VERSION,
+                IID_IDirectInput8,
+                reinterpret_cast<void**>(&g_pDI),
+                nullptr);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: DirectInput8Create failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        const char* target =
+            std::getenv("FF_TARGET_VIDPID");
+
+
+        if (target)
+        {
+            std::cout
+                << "DirectInput: target VID/PID = "
+                << target
+                << std::endl;
+        }
+        else
+        {
+            std::cout
+                << "DirectInput: no VID/PID filter set"
+                << std::endl;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Find an attached force-feedback device
+        // -------------------------------------------------------------------------
+
+        hr =
+            g_pDI->EnumDevices(
+                DI8DEVCLASS_GAMECTRL,
+                EnumFFDevicesCallback,
+                nullptr,
+                DIEDFL_ATTACHEDONLY |
+                DIEDFL_FORCEFEEDBACK);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: device enumeration failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        if (!g_pDevice)
+        {
+            std::cout
+                << "DirectInput: No FFB device found"
+                << std::endl;
+
+            return false;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Standard joystick format.
+        //
+        // Original CannonBall uses c_dfDIJoystick rather than c_dfDIJoystick2.
+        // -------------------------------------------------------------------------
+
+        hr =
+            g_pDevice->SetDataFormat(
+                &c_dfDIJoystick);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: SetDataFormat failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Force feedback requires exclusive access.
+        // -------------------------------------------------------------------------
+
+        hr =
+            g_pDevice->SetCooperativeLevel(
+                hwnd,
+                DISCL_EXCLUSIVE |
+                DISCL_BACKGROUND);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: SetCooperativeLevel failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Disable driver-controlled centering spring
+        // -------------------------------------------------------------------------
+
+        DIPROPDWORD autocenter{};
+
+        autocenter.diph.dwSize =
+            sizeof(DIPROPDWORD);
+
+        autocenter.diph.dwHeaderSize =
+            sizeof(DIPROPHEADER);
+
+        autocenter.diph.dwObj =
+            0;
+
+        autocenter.diph.dwHow =
+            DIPH_DEVICE;
+
+        autocenter.dwData =
+            DIPROPAUTOCENTER_OFF;
+
+
+        hr =
+            g_pDevice->SetProperty(
+                DIPROP_AUTOCENTER,
+                &autocenter.diph);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: warning - unable to disable autocenter: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            // Not fatal.
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Determine actual FFB axes
+        // -------------------------------------------------------------------------
+
+        g_num_ff_axes = 0;
+
+
+        hr =
+            g_pDevice->EnumObjects(
+                EnumAxesCallback,
+                &g_num_ff_axes,
+                DIDFT_AXIS);
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: EnumObjects failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            return false;
+        }
+
+
+        std::cout
+            << "DirectInput: FFB actuator axes = "
+            << g_num_ff_axes
+            << std::endl;
+
+
+        if (g_num_ff_axes == 0)
+        {
+            std::cout
+                << "DirectInput: device has no FFB actuator axes"
+                << std::endl;
+
+            return false;
+        }
+
+
+        if (g_num_ff_axes > 2)
+            g_num_ff_axes = 2;
+
+
+        // -------------------------------------------------------------------------
+        // Acquire
+        // -------------------------------------------------------------------------
+
+        hr =
+            g_pDevice->Acquire();
+
+
+        if (FAILED(hr))
+        {
+            std::cout
+                << "DirectInput: initial Acquire failed: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << " - will retry later"
+                << std::endl;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Create constant-force effect
+        // -------------------------------------------------------------------------
+
+        if (!create_force_effect())
+        {
+            return false;
+        }
+
+
+        // -------------------------------------------------------------------------
+        // Create native centering spring
+        // -------------------------------------------------------------------------
+
+        if (!create_spring_effect())
+        {
+            std::cout
+                << "DirectInput: native centering spring unavailable"
+                << std::endl;
+
+            // Not fatal. Constant-force FFB remains available.
+        }
+
+
+        g_supported = true;
+
+
+        std::cout
+            << "DirectInput force feedback enabled"
+            << std::endl;
+
+
+        return true;
 }
+    // -----------------------------------------------------------------------------
+    // Send force
+    //
+    // xdirection:
+    // < 8 = left
+    //   8 = centre
+    // > 8 = right
+    //
+    // Larger force number = softer force.
+    // -----------------------------------------------------------------------------
 
-int set(int, int force)
-{
-    if (!g_supported || !g_pEffect) return -1;
+    int set(
+        int xdirection,
+        int force)
+    {
+        if (!g_supported ||
+            !g_pDevice ||
+            !g_pEffect ||
+            force < 0)
+        {
+            return -1;
+        }
 
-    // map 1..5 → 100%..20%
-    force = (std::max)(1, (std::min)(5, force));
-    //force = std::clamp(force, 1, 5);
-    LONG mag = (LONG)(DI_FFNOMINALMAX * (1.0f - (force - 1) * 0.2f));
+        static int debug_count = 0;
 
-    DICONSTANTFORCE cf; std::memset(&cf, 0, sizeof(cf));
-    cf.lMagnitude = mag;
+        if (debug_count < 30)
+        {
+            std::cout
+                << "FFB SET: direction="
+                << xdirection
+                << " force="
+                << force
+                << std::endl;
 
-    DIEFFECT eff; std::memset(&eff, 0, sizeof(eff));
-    LONG lDirection[2] = { 0, 0 };
+            debug_count++;
+        }
 
-    eff.dwSize = sizeof(DIEFFECT);
-    eff.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
-    eff.cAxes = 1;
-    DWORD axis = DIJOFS_X;
-    eff.rgdwAxes = &axis;
-    eff.rglDirection = lDirection;
-    eff.lpEnvelope = 0;
-    eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
-    eff.lpvTypeSpecificParams = &cf;
-    eff.dwDuration = INFINITE;
-    eff.dwGain = DI_FFNOMINALMAX;
+        LONG direction[2] =
+        {
+            0,
+            0
+        };
 
-    HRESULT hr = start_or_reacquire(&eff, DIEP_DIRECTION | DIEP_TYPESPECIFICPARAMS | DIEP_START);
-    return FAILED(hr) ? -1 : 0;
-}
 
-void close()
-{
-    if (g_pEffect) { g_pEffect->Release(); g_pEffect = nullptr; }
-    if (g_pDevice) { g_pDevice->Unacquire(); g_pDevice->Release(); g_pDevice = nullptr; }
-    if (g_pDI)     { g_pDI->Release(); g_pDI = nullptr; }
-    g_supported = false;
-}
+        if (xdirection > 0x08)
+            direction[0] = 1;
 
-bool is_supported()
-{
-    return g_supported;
-}
+        else if (xdirection < 0x08)
+            direction[0] = -1;
+
+
+        if (force > 7)
+            force = 7;
+
+
+        LONG magnitude =
+            g_max_force -
+            (((g_max_force - g_min_force) / 7) * force);
+
+        // Apply independent master FFB strength
+        magnitude =
+            static_cast<LONG>(
+                (static_cast<long long>(magnitude) * g_gain_percent) / 100
+                );
+
+        if (magnitude > DI_FFNOMINALMAX)
+            magnitude = DI_FFNOMINALMAX;
+
+        else if (magnitude < -DI_FFNOMINALMAX)
+            magnitude = -DI_FFNOMINALMAX;
+
+
+        DICONSTANTFORCE constant_force{};
+
+        constant_force.lMagnitude =
+            magnitude;
+
+
+        DIEFFECT effect{};
+
+        effect.dwSize =
+            sizeof(DIEFFECT);
+
+        effect.dwFlags =
+            DIEFF_CARTESIAN |
+            DIEFF_OBJECTOFFSETS;
+
+        effect.cAxes =
+            g_num_ff_axes;
+
+        effect.rglDirection =
+            direction;
+
+        effect.cbTypeSpecificParams =
+            sizeof(DICONSTANTFORCE);
+
+        effect.lpvTypeSpecificParams =
+            &constant_force;
+
+
+        HRESULT hr =
+            g_pEffect->SetParameters(
+                &effect,
+                DIEP_DIRECTION |
+                DIEP_TYPESPECIFICPARAMS |
+                DIEP_START);
+
+        static int result_debug_count = 0;
+
+        if (result_debug_count < 30)
+        {
+            std::cout
+                << "FFB RESULT: 0x"
+                << std::hex
+                << (unsigned long)hr
+                << std::dec
+                << std::endl;
+
+            result_debug_count++;
+        }
+        // Device temporarily lost or no longer exclusively acquired?
+        if (hr == DIERR_INPUTLOST ||
+            hr == DIERR_NOTACQUIRED ||
+            hr == DIERR_NOTEXCLUSIVEACQUIRED)
+        {
+            // Make absolutely sure we're starting from a clean state
+            g_pDevice->Unacquire();
+
+            HRESULT acquire_hr =
+                g_pDevice->Acquire();
+
+            std::cout
+                << "FFB REACQUIRE: 0x"
+                << std::hex
+                << (unsigned long)acquire_hr
+                << std::dec
+                << std::endl;
+
+            if (SUCCEEDED(acquire_hr))
+            {
+                hr =
+                    g_pEffect->SetParameters(
+                        &effect,
+                        DIEP_DIRECTION |
+                        DIEP_TYPESPECIFICPARAMS |
+                        DIEP_START);
+
+                std::cout
+                    << "FFB RETRY RESULT: 0x"
+                    << std::hex
+                    << (unsigned long)hr
+                    << std::dec
+                    << std::endl;
+            }
+        }
+
+
+        return FAILED(hr)
+            ? -1
+            : 0;
+    }
+
+
+    void stop()
+    {
+        if (g_pEffect)
+            g_pEffect->Stop();
+    }
+
+    // -----------------------------------------------------------------------------
+    // Close
+    // -----------------------------------------------------------------------------
+
+    void close()
+    {
+        if (g_pSpringEffect)
+        {
+            g_pSpringEffect->Stop();
+            g_pSpringEffect->Release();
+            g_pSpringEffect = nullptr;
+        }
+
+        if (g_pEffect)
+        {
+            g_pEffect->Stop();
+            g_pEffect->Release();
+            g_pEffect = nullptr;
+        }
+
+
+        if (g_pDevice)
+        {
+            g_pDevice->Unacquire();
+            g_pDevice->Release();
+            g_pDevice = nullptr;
+        }
+
+
+        if (g_pDI)
+        {
+            g_pDI->Release();
+            g_pDI = nullptr;
+        }
+
+
+        if (g_ffb_window)
+        {
+            SDL_DestroyWindow(
+                g_ffb_window);
+
+            g_ffb_window = nullptr;
+        }
+
+
+        g_num_ff_axes = 0;
+
+        g_supported = false;
+    }
+
+
+    bool is_supported()
+    {
+        return g_supported;
+    }
 
 } // namespace forcefeedback
 

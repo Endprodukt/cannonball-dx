@@ -317,12 +317,41 @@ void Config::load()
     controls.axis[1]       = cfg.get_int("controls.analog.axis.accel",  -1);
     controls.axis[2]       = cfg.get_int("controls.analog.axis.brake",  -1);
     controls.axis[3]       = cfg.get_int("controls.analog.axis.motor",  -1);
+    controls.axis_device[0] = cfg.get_string("controls.analog.axis_device.wheel", "");
+    controls.axis_device[1] = cfg.get_string("controls.analog.axis_device.accel", "");
+    controls.axis_device[2] = cfg.get_string("controls.analog.axis_device.brake", "");
+    controls.axis_device[3] = cfg.get_string("controls.analog.axis_device.motor", "");
     controls.invert[1]     = cfg.get_int("controls.analog.axis.accel.<xmlattr>.invert", 0);
     controls.invert[2]     = cfg.get_int("controls.analog.axis.brake.<xmlattr>.invert", 0);
     controls.asettings[0]  = cfg.get_int("controls.analog.wheel.zone",  75);
     controls.asettings[1]  = cfg.get_int("controls.analog.wheel.dead",  0);
 
+    controls.hat[0] = cfg.get_int("controls.hat.up.index", -1);
+    controls.hat[1] = cfg.get_int("controls.hat.down.index", -1);
+    controls.hat[2] = cfg.get_int("controls.hat.left.index", -1);
+    controls.hat[3] = cfg.get_int("controls.hat.right.index", -1);
+
+    controls.hat_value[0] = cfg.get_int("controls.hat.up.value", 0);
+    controls.hat_value[1] = cfg.get_int("controls.hat.down.value", 0);
+    controls.hat_value[2] = cfg.get_int("controls.hat.left.value", 0);
+    controls.hat_value[3] = cfg.get_int("controls.hat.right.value", 0);
+
+    controls.hat_device[0] = cfg.get_string("controls.hat.up.device", "");
+    controls.hat_device[1] = cfg.get_string("controls.hat.down.device", "");
+    controls.hat_device[2] = cfg.get_string("controls.hat.left.device", "");
+    controls.hat_device[3] = cfg.get_string("controls.hat.right.device", "");
+
+    controls.direction_custom[0] = cfg.get_int("controls.direction_custom.up", 0);
+    controls.direction_custom[1] = cfg.get_int("controls.direction_custom.down", 0);
+    controls.direction_custom[2] = cfg.get_int("controls.direction_custom.left", 0);
+    controls.direction_custom[3] = cfg.get_int("controls.direction_custom.right", 0);
+
     controls.haptic        = cfg.get_int("controls.analog.haptic.<xmlattr>.enabled",    1);
+    controls.ffb_strength  = cfg.get_int("controls.analog.haptic.strength", 50); 
+    if (controls.ffb_strength < 10)
+    controls.ffb_strength  = 10;
+    else if (controls.ffb_strength > 100)
+    controls.ffb_strength = 100;
     controls.max_force     = cfg.get_int("controls.analog.haptic.max_force",            9000);
     controls.min_force     = cfg.get_int("controls.analog.haptic.min_force",            8500);
     controls.force_duration= cfg.get_int("controls.analog.haptic.force_duration",       20);
@@ -468,14 +497,41 @@ bool Config::save()
     cfg.put_int("controls.analog.axis.wheel", controls.axis[0]);
     cfg.put_int("controls.analog.axis.accel", controls.axis[1]);
     cfg.put_int("controls.analog.axis.brake", controls.axis[2]);
+    cfg.put_int("controls.analog.axis.motor", controls.axis[3]);
+
+    cfg.put_string("controls.analog.axis_device.wheel", controls.axis_device[0]);
+    cfg.put_string("controls.analog.axis_device.accel", controls.axis_device[1]);
+    cfg.put_string("controls.analog.axis_device.brake", controls.axis_device[2]);
+    cfg.put_string("controls.analog.axis_device.motor", controls.axis_device[3]);
     cfg.put_int("controls.analog.axis.accel.<xmlattr>.invert", controls.invert[1]);
     cfg.put_int("controls.analog.axis.brake.<xmlattr>.invert", controls.invert[2]);
     cfg.put_int("controls.analog.wheel.zone", controls.asettings[0]);
     cfg.put_int("controls.analog.wheel.dead", controls.asettings[1]);
     cfg.put_int("controls.analog.haptic.<xmlattr>.enabled", controls.haptic);
+    cfg.put_int("controls.analog.haptic.strength", controls.ffb_strength);
     cfg.put_int("controls.analog.haptic.max_force", controls.max_force);
     cfg.put_int("controls.analog.haptic.min_force", controls.min_force);
     cfg.put_int("controls.analog.haptic.force_duration", controls.force_duration);
+
+    cfg.put_int("controls.hat.up.index", controls.hat[0]);
+    cfg.put_int("controls.hat.down.index", controls.hat[1]);
+    cfg.put_int("controls.hat.left.index", controls.hat[2]);
+    cfg.put_int("controls.hat.right.index", controls.hat[3]);
+
+    cfg.put_int("controls.hat.up.value", controls.hat_value[0]);
+    cfg.put_int("controls.hat.down.value", controls.hat_value[1]);
+    cfg.put_int("controls.hat.left.value", controls.hat_value[2]);
+    cfg.put_int("controls.hat.right.value", controls.hat_value[3]);
+
+    cfg.put_string("controls.hat.up.device", controls.hat_device[0]);
+    cfg.put_string("controls.hat.down.device", controls.hat_device[1]);
+    cfg.put_string("controls.hat.left.device", controls.hat_device[2]);
+    cfg.put_string("controls.hat.right.device", controls.hat_device[3]);
+
+    cfg.put_int("controls.direction_custom.up", controls.direction_custom[0]);
+    cfg.put_int("controls.direction_custom.down", controls.direction_custom[1]);
+    cfg.put_int("controls.direction_custom.left", controls.direction_custom[2]);
+    cfg.put_int("controls.direction_custom.right", controls.direction_custom[3]);
 
     cfg.put_int("engine.freeplay",        (int) engine.freeplay);
     cfg.put_int("engine.time",            engine.freeze_timer ? 4 : engine.dip_time);

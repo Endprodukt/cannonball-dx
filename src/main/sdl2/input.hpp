@@ -11,10 +11,45 @@
 #pragma once
 
 #include <SDL.h>
+#include <vector>
+#include <string>
+
+struct InputDevice
+{
+    SDL_Joystick* joystick = nullptr;
+    SDL_JoystickID instance_id = -1;
+    SDL_JoystickGUID guid{};
+
+    std::string guid_string;
+    std::string name;
+
+    int axes = 0;
+    int buttons = 0;
+    int hats = 0;
+};
 
 class Input
 {
 public:
+
+    SDL_JoystickID joy_button_device;
+
+    int joy_hat = -1;
+    Uint8 joy_hat_value = SDL_HAT_CENTERED;
+    SDL_JoystickID joy_hat_device = -1;
+
+    void set_axis_binding(int slot, int axis, SDL_JoystickID device);
+    void set_button_binding(int slot, int button, SDL_JoystickID device);
+    void set_hat_binding(int slot, int hat, int value, SDL_JoystickID device);
+    void scan_joysticks();
+    void add_joystick(int device_index);
+    void remove_joystick(SDL_JoystickID instance_id);
+
+    void restore_axis_bindings();
+    void sync_bound_axes();
+
+    const InputDevice* find_device(SDL_JoystickID instance_id) const;
+
     enum presses
     {
         LEFT  = 0,
@@ -89,11 +124,19 @@ public:
     bool is_pressed_clear(presses p);
     bool has_pressed(presses p);
     void reset_axis_config();
-    int get_axis_config();
+    int get_axis_config(SDL_JoystickID* device = nullptr);
     void set_rumble(bool, float strength = 1.0f, int mode = 0);
 
 private:
+    SDL_JoystickID axis_device[4];
+    SDL_JoystickID button_device[15];
+
+    SDL_JoystickID axis_last_device;
+    SDL_JoystickID axis_config_device;
+
     static const int CENTRE = 0x80;
+
+    std::vector<InputDevice> devices;
 
     // SDL Joystick / Keypad
     SDL_Joystick *stick;
@@ -117,9 +160,9 @@ private:
     void bind_axis(SDL_GameControllerAxis ax, int offset);
     void bind_button(SDL_GameControllerButton button, int offset);
     void handle_key(const int, const bool);
-    void handle_joy(const uint8_t, const bool);
-    void handle_axis(const uint8_t axis, const int16_t value);
-    void store_last_axis(const uint8_t axis, const int16_t value);
+    void handle_joy(SDL_JoystickID device, const uint8_t button, const bool is_pressed);
+    void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
+    void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     int scale_trigger(const int);
 };
 
