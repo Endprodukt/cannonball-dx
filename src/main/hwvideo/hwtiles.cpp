@@ -307,26 +307,28 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
         } // end for mx loop
     } // end for my loop
 
-    // 21:9 only: the visible tilemap is 524 pixels wide, while a System 16
-    // tilemap page is 512 pixels. Preserve the original tilemap position and
-    // mirror only the 12-pixel excess at the extreme edges. 4:3 and 16:9
-    // continue through the original renderer unchanged.
+    // 21:9 only. The original RIGHT clamp keeps the useful tilemap area
+    // aligned to the right edge, leaving 12 extra pixels exposed on the left.
+    // Stretch only the left half of the completed background so those pixels
+    // are absorbed without moving the screen centre or the entire right half.
     if (config.video.widescreen == 2 && page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
     {
         const int scale = config.s16_width / s16_width_noscale;
-        const int edge = (static_cast<int>(s16_width_noscale) - 512) * scale;
+        const int excess = (static_cast<int>(s16_width_noscale) - 512) * scale;
         const int width = config.s16_width;
         const int height = config.s16_height;
+        const int centre = width >> 1;
+        uint16_t row_copy[S16_WIDTH_ULTRAWIDE * 2];
 
         for (int row_index = 0; row_index < height; ++row_index)
         {
             uint16_t* row = buf + (row_index * width);
+            std::memcpy(row_copy, row, width * sizeof(uint16_t));
 
-            for (int edge_x = 0; edge_x < edge; ++edge_x)
+            for (int dst_x = 0; dst_x < centre; ++dst_x)
             {
-                row[edge - 1 - edge_x] = row[edge + edge_x];
-                row[width - edge + edge_x] =
-                    row[width - edge - 1 - edge_x];
+                const int src_x = excess + ((centre - excess) * dst_x) / centre;
+                row[dst_x] = row_copy[src_x];
             }
         }
     }
