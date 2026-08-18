@@ -925,6 +925,9 @@ int main(int argc, char* argv[]) {
             forcefeedback::set_gain(
                 config.controls.ffb_strength);
 
+            forcefeedback::set_centering_strength(
+                config.controls.centering_strength);
+
             forcefeedback::set_enabled(true);
         }
     }

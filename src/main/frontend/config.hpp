@@ -175,9 +175,10 @@ struct controls_settings_t
 
     int direction_custom[4];
 
-    float rumble;      // Simple Controller Rumble Support
-    int haptic;        // Force Feedback Enabled
-    int ffb_strength;  // Master FFB Strength 10-100%
+    float rumble;              // Simple Controller Rumble Support
+    int haptic;                // Force Feedback Enabled
+    int ffb_strength;          // FFB Effects Strength 10-100%
+    int centering_strength;    // Native Centering Spring Strength 0-100%
     int max_force;
     int min_force;
     int force_duration;

@@ -256,6 +256,7 @@ void Menu::populate_controls()
 
     menu_controls.push_back(ENTRY_FFB);
     menu_controls.push_back(ENTRY_FFB_STRENGTH);
+    menu_controls.push_back(ENTRY_CENTERING_STRENGTH);
 
     if (input.rumble_supported)
         menu_controls.push_back(ENTRY_RUMBLE);
@@ -1140,6 +1141,23 @@ void Menu::tick_menu()
                 forcefeedback::set_gain(
                     config.controls.ffb_strength);
             }
+            else if (SELECTED(ENTRY_CENTERING_STRENGTH))
+            {
+                config.controls.centering_strength += 10;
+
+                if (config.controls.centering_strength > 100)
+                    config.controls.centering_strength = 0;
+
+                forcefeedback::set_centering_strength(
+                    config.controls.centering_strength);
+            }
+            else if (SELECTED(ENTRY_RUMBLE))
+            {
+                config.controls.rumble += 0.25f;
+
+                if (config.controls.rumble > 1.0f)
+                    config.controls.rumble = 0;
+            }
             else if (SELECTED(ENTRY_RUMBLE))
             {
                 config.controls.rumble += 0.25f;
@@ -1559,6 +1577,11 @@ void Menu::refresh_menu()
                 set_menu_text(
                     ENTRY_FFB_STRENGTH,
                     Utils::to_string(config.controls.ffb_strength) + "%");
+
+            else if (SELECTED(ENTRY_CENTERING_STRENGTH))
+                set_menu_text(
+                    ENTRY_CENTERING_STRENGTH,
+                    Utils::to_string(config.controls.centering_strength) + "%");
 
             else if (SELECTED(ENTRY_RUMBLE))
                 set_menu_text(
