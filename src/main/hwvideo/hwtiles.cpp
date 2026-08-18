@@ -307,17 +307,16 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
         } // end for mx loop
     } // end for my loop
 
-    // 21:9 only. The original RIGHT clamp keeps the useful tilemap area
-    // aligned to the right edge, leaving 12 extra pixels exposed on the left.
-    // Stretch only the left half of the completed background so those pixels
-    // are absorbed without moving the screen centre or the entire right half.
+    // 21:9 only. Apply a small centred overscan to the completed background
+    // so tilemap build-up at the extreme edges stays outside the visible area.
+    // Road foreground, sprites and HUD are rendered later and are unaffected.
     if (config.video.widescreen == 2 && page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
     {
         const int scale = config.s16_width / s16_width_noscale;
-        const int excess = (static_cast<int>(s16_width_noscale) - 512) * scale;
+        const int overscan = 20 * scale;
         const int width = config.s16_width;
         const int height = config.s16_height;
-        const int centre = width >> 1;
+        const int source_width = width - (overscan << 1);
         uint16_t row_copy[S16_WIDTH_ULTRAWIDE * 2];
 
         for (int row_index = 0; row_index < height; ++row_index)
@@ -325,9 +324,10 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
             uint16_t* row = buf + (row_index * width);
             std::memcpy(row_copy, row, width * sizeof(uint16_t));
 
-            for (int dst_x = 0; dst_x < centre; ++dst_x)
+            for (int dst_x = 0; dst_x < width; ++dst_x)
             {
-                const int src_x = excess + ((centre - excess) * dst_x) / centre;
+                const int src_x = overscan +
+                    ((source_width - 1) * dst_x) / (width - 1);
                 row[dst_x] = row_copy[src_x];
             }
         }
