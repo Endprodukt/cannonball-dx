@@ -838,8 +838,11 @@ void OOutputs::do_motor_crash()
 // Source: 0xE9BE
 void OOutputs::do_motor_offroad()
 {
+    // For FFB, keep the denser vibration pattern even when all wheels
+    // are off-road. Cabinet/non-FFB modes retain the original table choice.
     const uint8_t* table =
-        (oferrari.wheel_state != OFerrari::WHEELS_OFF)
+        (mode == MODE_FFEEDBACK ||
+         oferrari.wheel_state != OFerrari::WHEELS_OFF)
         ? MOTOR_VALUES_OFFROAD2
         : MOTOR_VALUES_OFFROAD1;
 
@@ -907,9 +910,9 @@ void OOutputs::do_motor_offroad()
             static_cast<int>(cmd) - MOTOR_CENTRE;
     }
 
-    // Reduce existing off-road vibration to 35%.
+    // Reduce existing off-road vibration to 50%.
     rumble_force =
-        (rumble_force * 35) / 100;
+        (rumble_force * 50) / 100;
 
     // Constant outward pull.
     //
