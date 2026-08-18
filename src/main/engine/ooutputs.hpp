@@ -133,6 +133,7 @@ private:
     int16_t movement_adjust2;
     // 0x26: Adjusted movement value based on steering 3
     int16_t movement_adjust3;
+    bool skid_ffb_active;
 
     // Counter control for motor tests
     int16_t counter;

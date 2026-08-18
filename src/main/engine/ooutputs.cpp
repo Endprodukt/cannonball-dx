@@ -70,6 +70,7 @@ void OOutputs::init()
     movement_adjust1   = 0;
     movement_adjust2   = 0;
     movement_adjust3   = 0;
+    skid_ffb_active = false;
     chute1.counter[0]  = 0;
     chute1.counter[1]  = 0;
     chute1.counter[2]  = 0;
@@ -562,6 +563,8 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
     {
         if (ocrash.crash_counter)
         {
+            skid_ffb_active = false;
+
             if ((oinitengine.car_increment >> 16) <= 0x14)
                 car_stationary();
             else
@@ -569,10 +572,46 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
         }
         else if (ocrash.skid_counter)
         {
-            do_motor_crash();
+            if (MODE == MODE_FFEEDBACK)
+            {
+                if (!skid_ffb_active)
+                {
+                    const int skid = ocrash.skid_counter;
+                    const int strength = std::abs(skid);
+
+                    // Positive skid = car skids left.
+                    // Negative skid = car skids right.
+                    const int direction =
+                        skid > 0 ? 0x07 : 0x09;
+
+                    // forcefeedback::set():
+                    // 0 = strongest
+                    // 7 = weakest
+                    int force =
+                       0;
+
+                    if (force < 0)
+                        force = 0;
+                    else if (force > 7)
+                        force = 7;
+
+                    forcefeedback::set(
+                        direction,
+                        force);
+
+                    skid_ffb_active = true;
+                }
+            }
+            else
+            {
+                // Preserve original non-FFB behaviour
+                do_motor_crash();
+            }
         }
         else
         {
+            skid_ffb_active = false;
+
             if ((oinitengine.car_increment >> 16) <= 0x14)
             {
                 if (!was_small_change)

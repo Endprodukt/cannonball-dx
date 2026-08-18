@@ -357,9 +357,9 @@ void Config::load()
         controls.centering_strength = 0;
     else if (controls.centering_strength > 100)
         controls.centering_strength = 100;
-    controls.max_force     = cfg.get_int("controls.analog.haptic.max_force",            9000);
+    controls.max_force     = cfg.get_int("controls.analog.haptic.max_force",            10000);
     controls.min_force     = cfg.get_int("controls.analog.haptic.min_force",            8500);
-    controls.force_duration= cfg.get_int("controls.analog.haptic.force_duration",       20);
+    controls.force_duration= cfg.get_int("controls.analog.haptic.force_duration",       1);
 
     // ------------------------------------------------------------------------
     // Engine Settings
