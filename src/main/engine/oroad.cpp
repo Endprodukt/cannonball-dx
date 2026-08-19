@@ -156,7 +156,7 @@ void ORoad::init()
 //
 // Original: Same as Arcade
 // Elevated: Camera positioned further above car
-// In Car  : Lower viewpoint
+// In Car  : Bumper-height viewpoint
 // ----------------------------------------------------------------------------
 
 uint8_t ORoad::get_view_mode()
@@ -178,7 +178,7 @@ void ORoad::set_view_mode(uint8_t mode, bool snap)
     }
     else if (mode == VIEW_INCAR)
     {
-        horizon_target = -0x70;
+        horizon_target = -0x200;
     }
 
     if (snap)
