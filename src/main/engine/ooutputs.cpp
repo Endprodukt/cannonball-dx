@@ -137,8 +137,8 @@ namespace
                 forcefeedback::stop();
         }
         // -----------------------------------------------------------------
-        // Medium-speed spin: strong initial contact followed by a slower
-        // alternating load while the car rotates/slides.
+        // Medium-speed spin: strong initial contact followed by clear,
+        // sustained left/right yanks while the car rotates/slides.
         // -----------------------------------------------------------------
         else if (g_crash_ffb_type == CRASH_FFB_SPIN)
         {
@@ -148,12 +148,15 @@ namespace
             }
             else if (state >= 1 && state <= 4)
             {
+                // Hold each direction for several game ticks. The previous
+                // two-tick/soft pattern felt like impacts rather than a wheel
+                // being physically torn from side to side.
                 const bool phase =
-                    ((age / 2) & 1) != 0;
+                    ((age / 4) & 1) != 0;
 
                 forcefeedback::set(
                     phase ? primary : rebound,
-                    5);
+                    1);
             }
             else
             {
@@ -176,24 +179,31 @@ namespace
                 }
                 else
                 {
+                    // Stronger, longer pre-flip side loads make the initial
+                    // spin visibly translate into steering-wheel movement.
                     const bool phase =
-                        ((age / 2) & 1) != 0;
+                        ((age / 4) & 1) != 0;
 
                     forcefeedback::set(
                         phase ? primary : rebound,
-                        5);
+                        1);
                 }
             }
             else if (state == 2)
             {
-                // The wheel goes almost light while airborne. Each completed
-                // flip generates one short alternating jolt.
-                if (spin_changed && spin_count > 0)
+                // Keep a real lateral load on the wheel throughout the flip.
+                // crash_spin_count changes with the flip animation, so every
+                // new rotation reverses the pull. The transition frame gets a
+                // full-strength kick, then the pull remains strong until the
+                // next rotation instead of disappearing after one tick.
+                if (spin_count > 0)
                 {
                     const int direction =
                         (spin_count & 1) ? primary : rebound;
 
-                    forcefeedback::set(direction, 2);
+                    forcefeedback::set(
+                        direction,
+                        spin_changed ? 0 : 2);
                 }
                 else
                 {
