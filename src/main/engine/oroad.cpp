@@ -178,7 +178,7 @@ void ORoad::set_view_mode(uint8_t mode, bool snap)
     }
     else if (mode == VIEW_INCAR)
     {
-        horizon_target = -0x160;
+        horizon_target = -0x170;
     }
 
     if (snap)
@@ -609,7 +609,7 @@ void ORoad::do_road_offset(int16_t* dst_x, int16_t width, bool invert)
 // Each block is interchangeable and can be used with any segment of road.
 // Each block can vary in length.
 //
-// The format of each height block is as follows.
+// The format of each height block is as follows:
 //
 // +0  [Byte] Jump Table Control
 //            0 = Elevated section
