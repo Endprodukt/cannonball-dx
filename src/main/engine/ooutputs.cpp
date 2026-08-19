@@ -122,20 +122,36 @@ void OOutputs::update_centering_strength()
         const uint16_t car_inc =
             oinitengine.car_increment >> 16;
 
-        const bool sharp_curve =
-            road_curve <= 0x3C;
+        // Scale continuously instead of using discrete speed/curve bands.
+        // This keeps the response immediate while avoiding noticeable steps.
+        const int speed_start = 0x64;
+        const int speed_full  = 0xF0;
+        const int speed_span  = speed_full - speed_start;
 
-        int boost_points = 0;
+        int speed_factor =
+            static_cast<int>(car_inc) - speed_start;
 
-        // Deliberately strong test values so the dynamic cornering spring
-        // is easy to identify. The configured base strength is preserved
-        // on straights and at low speed.
-        if (car_inc > 0xDC)
-            boost_points = sharp_curve ? 50 : 35;
-        else if (car_inc > 0xA0)
-            boost_points = sharp_curve ? 35 : 25;
-        else if (car_inc > 0x64)
-            boost_points = sharp_curve ? 20 : 15;
+        if (speed_factor < 0)
+            speed_factor = 0;
+        else if (speed_factor > speed_span)
+            speed_factor = speed_span;
+
+        // Preserve some extra weight even in gentle curves, while sharper
+        // curves progressively approach the full boost.
+        int curve_percent =
+            50 + ((0x5A - road_curve) * 50) / 0x59;
+
+        if (curve_percent < 50)
+            curve_percent = 50;
+        else if (curve_percent > 100)
+            curve_percent = 100;
+
+        const int max_boost_points = 30;
+
+        const int boost_points =
+            (max_boost_points * speed_factor * curve_percent +
+             (speed_span * 50)) /
+            (speed_span * 100);
 
         target_strength += boost_points;
 
@@ -392,7 +408,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
             ohud.blit_text_big(      2,  "MOTOR CALIBRATION");
             ohud.blit_text_new(col1, 10, "MOVE LEFT   -");
             ohud.blit_text_new(col1, 12, "MOVE RIGHT  -");
-            ohud.blit_text_new(col1, 14, "MOVE CENTRE -");
+            ohud.blit_text_new(col1, 14, "CENTRE");
             counter          = 25;
             motor_centre_pos = 0;
             motor_enabled    = true;
@@ -940,8 +956,8 @@ void OOutputs::do_motor_offroad()
     // ---------------------------------------------------------------------
     // FFB off-road handling
     //
-    // Keep the original vibration pattern, but reduce its strength and
-    // add a constant force that pulls the wheel further away from the road.
+    // Keep the original vibration pattern and add a constant force that
+    // pulls the wheel further away from the road.
     // ---------------------------------------------------------------------
 
     const uint8_t cmd =
@@ -980,20 +996,22 @@ void OOutputs::do_motor_offroad()
             static_cast<int>(cmd) - MOTOR_CENTRE;
     }
 
-    // Reduce existing off-road vibration to 50%.
+    const bool fully_offroad =
+        oferrari.wheel_state == OFerrari::WHEELS_OFF;
+
+    // With one wheel off-road, keep the existing restrained vibration so
+    // the outward pull remains dominant. With all four wheels off-road,
+    // restore the full vibration amplitude so it cannot be masked by pull.
+    const int rumble_percent =
+        fully_offroad ? 100 : 50;
+
     rumble_force =
-        (rumble_force * 50) / 100;
+        (rumble_force * rumble_percent) / 100;
 
-    // Constant outward pull.
-    //
-    // One side off-road: roughly 45% maximum force.
-    // Completely off-road: roughly 70% maximum force.
-    int pull_force;
-
-    if (oferrari.wheel_state == OFerrari::WHEELS_OFF)
-        pull_force = 5;
-    else
-        pull_force = 3;
+    // Constant outward pull. Once the whole car is off-road the bias is
+    // deliberately reduced, leaving enough headroom for alternating rumble.
+    int pull_force =
+        fully_offroad ? 2 : 3;
 
     pull_force *= offroad_pull_direction;
 
