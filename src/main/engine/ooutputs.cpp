@@ -387,7 +387,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
     {
         // Initalize
         case STATE_INIT:
-            col1 = 10;
+            col1 = 11;
             col2 = 25;
             ohud.blit_text_big(      2,  "MOTOR CALIBRATION");
             ohud.blit_text_new(col1, 10, "MOVE LEFT   -");
@@ -437,7 +437,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
 
 void OOutputs::calibrate_left(int16_t input_motor, uint8_t hw_motor_limit)
 {
-    // If Right Limit Reached, Move Left
+    // If Right Limit Set, Move Left
     if (hw_motor_limit & BIT_5)
     {
         if (--counter >= 0)
@@ -612,7 +612,7 @@ const static uint8_t MOTOR_VALUES_OFFROAD3[] =
 const static uint8_t MOTOR_VALUES_OFFROAD4[] = 
 {
     0x8, 0xB, 0xB, 0x8, 0x5, 0x8, 0x0, 0x8, 0x8, 0xC, 0xC, 0x8, 0x4, 0x8, 0x0, 0x8,
-    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x2, 0x8, 0x0, 0x8,
+    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x8, 0x0, 0x8,
 };
 
 
