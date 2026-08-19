@@ -10,8 +10,6 @@
 #pragma once
 
 #include "outrun.hpp"
-#include "engine/oinputs.hpp"
-#include "directx/ffeedback.hpp"
 
 class RomLoader;
 
@@ -30,58 +28,11 @@ public:
     void play_music(int index = -1);
     void cycle_music();
 
-    // Called by the post-output FFB hook while the music-selection screen is active.
-    // Instead of a short timed pulse, create three stable steering zones: the normal
-    // centering spring holds the middle position, while a continuous low constant
-    // force biases the wheel outward in the left/right zones. The spring and the
-    // outward bias balance each other like a mechanical selector detent.
-    int get_music_selected() const
-    {
-        if (config.controls.haptic && forcefeedback::is_supported())
-        {
-            const int steering = static_cast<int>(oinputs.steering_adjust);
-            const int spring_strength = config.controls.centering_strength;
-
-            if (spring_strength > 0)
-            {
-                // Keep the bias proportional to the native spring. With the default
-                // 30% spring this gives roughly 20% constant-force gain, enough to
-                // form a distinct side equilibrium without dragging the wheel to lock.
-                int detent_gain = (spring_strength * 2 + 1) / 3;
-                if (detent_gain < 10)
-                    detent_gain = 10;
-                else if (detent_gain > 100)
-                    detent_gain = 100;
-
-                if (steering <= -43)
-                {
-                    forcefeedback::set_gain(detent_gain);
-                    forcefeedback::set(0x09, 7); // Hold the left selector position.
-                    forcefeedback::set_gain(config.controls.ffb_strength);
-                }
-                else if (steering >= 43)
-                {
-                    forcefeedback::set_gain(detent_gain);
-                    forcefeedback::set(0x07, 7); // Hold the right selector position.
-                    forcefeedback::set_gain(config.controls.ffb_strength);
-                }
-                else
-                {
-                    // Centre selector position: let the native spring do the work.
-                    forcefeedback::stop();
-                }
-            }
-            else
-            {
-                forcefeedback::stop();
-            }
-        }
-
-        // The previous event-based detector in main.cpp is intentionally kept quiet.
-        // The actual selected track remains stored in music_selected and is used by
-        // OMusic itself; this accessor exists only for the FFB hook.
-        return 0;
-    }
+    // Called by the existing post-output FFB hook in main.cpp. The actual
+    // music selection is handled inside OMusic; this call refreshes the
+    // continuous selector detent and deliberately returns a stable value so
+    // the older timed music-kick code remains inactive.
+    int get_music_selected();
 
 private:
     // Modified Widescreen version of the Music Select Tilemap
@@ -107,6 +58,12 @@ private:
     int16_t last_music_selected;
     int8_t preview_counter;
 
+    // Music-selector FFB tracking. The spring is made progressively stronger
+    // when many tracks are present so closely spaced virtual detents remain
+    // distinguishable.
+    int ffb_detent_spring_applied;
+    int ffb_detent_target_applied;
+
     const static short HAND_LEFT = 0, HAND_CENTRE = 1, HAND_RIGHT = 2;
     
 	void setup_sprite1();
@@ -118,6 +75,11 @@ private:
     void tick_enhanced(oentry*, oentry*, oentry*);
     void set_hand(short, oentry*, oentry*, oentry*);
     void blit_music_select();
+
+    int track_from_steering(int steering) const;
+    int steering_for_track(int track) const;
+    void apply_music_detent_ffb();
+    void reset_music_detent_ffb();
 };
 
 extern OMusic omusic;

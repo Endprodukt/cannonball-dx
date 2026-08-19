@@ -16,6 +16,7 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/ostats.hpp"
+#include "directx/ffeedback.hpp"
 
 OMusic omusic;
 
@@ -23,6 +24,8 @@ OMusic::OMusic(void)
 {
     tilemap    = NULL;
     tile_patch = NULL;
+    ffb_detent_spring_applied = -1;
+    ffb_detent_target_applied = 0;
 }
 
 
@@ -30,6 +33,143 @@ OMusic::~OMusic(void)
 {
     if (tilemap)    delete tilemap;
     if (tile_patch) delete tile_patch;
+}
+
+int OMusic::get_music_selected()
+{
+    apply_music_detent_ffb();
+
+    // Keep the older event-based music detent in main.cpp quiet. The actual
+    // selection remains in music_selected and is used directly by OMusic.
+    return 0;
+}
+
+int OMusic::track_from_steering(int steering) const
+{
+    if (total_tracks <= 1)
+        return 0;
+
+    if (steering < -127)
+        steering = -127;
+    else if (steering > 127)
+        steering = 127;
+
+    // Divide the full -127..+127 steering range into one equal-width zone per
+    // track. Using 255 as the divisor keeps +127 inside the final track zone.
+    const int normalized = steering + 127;
+    int track = (normalized * total_tracks) / 255;
+
+    if (track < 0)
+        track = 0;
+    else if (track >= total_tracks)
+        track = total_tracks - 1;
+
+    return track;
+}
+
+int OMusic::steering_for_track(int track) const
+{
+    if (total_tracks <= 1)
+        return 0;
+
+    if (track < 0)
+        track = 0;
+    else if (track >= total_tracks)
+        track = total_tracks - 1;
+
+    // Return the centre of this track's steering zone. With three tracks this
+    // naturally produces the familiar left / centre / right positions; extra
+    // tracks are inserted evenly between them.
+    const int normalized =
+        ((2 * track + 1) * 255) /
+        (2 * total_tracks);
+
+    int steering = normalized - 127;
+
+    if (steering < -127)
+        steering = -127;
+    else if (steering > 127)
+        steering = 127;
+
+    return steering;
+}
+
+void OMusic::apply_music_detent_ffb()
+{
+    if (!config.controls.haptic ||
+        !forcefeedback::is_supported() ||
+        total_tracks <= 0)
+    {
+        return;
+    }
+
+    // More tracks means closer virtual switch positions. Strengthen the menu
+    // spring progressively so those positions remain mechanically distinct.
+    // Three tracks retain roughly the current feel; the boost is capped so a
+    // large custom playlist cannot make the selector excessively heavy.
+    int spring_strength = config.controls.centering_strength;
+
+    if (spring_strength < 30)
+        spring_strength = 30;
+
+    if (total_tracks > 3)
+        spring_strength += (total_tracks - 3) * 5;
+
+    if (spring_strength > 80)
+        spring_strength = 80;
+
+    if (spring_strength != ffb_detent_spring_applied)
+    {
+        forcefeedback::set_centering_strength(spring_strength);
+        ffb_detent_spring_applied = spring_strength;
+    }
+
+    const int target = steering_for_track(cursor_pos);
+
+    if (target == 0)
+    {
+        if (ffb_detent_target_applied != 0)
+            forcefeedback::stop();
+
+        ffb_detent_target_applied = 0;
+        return;
+    }
+
+    const int target_abs = target < 0 ? -target : target;
+
+    // Balance a continuous ConstantForce against the native centre spring.
+    // Using the strongest raw ConstantForce level and scaling only its gain
+    // keeps the equilibrium point close to the centre of each selected zone.
+    int detent_gain =
+        (spring_strength * target_abs + 63) /
+        127;
+
+    if (detent_gain < 10)
+        detent_gain = 10;
+    else if (detent_gain > 100)
+        detent_gain = 100;
+
+    forcefeedback::set_gain(detent_gain);
+    forcefeedback::set(
+        target < 0 ? 0x09 : 0x07,
+        0);
+    forcefeedback::set_gain(config.controls.ffb_strength);
+
+    ffb_detent_target_applied = target;
+}
+
+void OMusic::reset_music_detent_ffb()
+{
+    if (forcefeedback::is_supported())
+    {
+        forcefeedback::stop();
+        forcefeedback::set_gain(config.controls.ffb_strength);
+        forcefeedback::set_centering_strength(
+            config.controls.centering_strength);
+    }
+
+    ffb_detent_spring_applied = -1;
+    ffb_detent_target_applied = 0;
 }
 
 // Load Modified Widescreen version of tilemap
@@ -101,12 +241,18 @@ void OMusic::enable()
     }
 
     video.tile_layer->set_x_clamp(video.tile_layer->CENTRE);
-    cursor_pos = 1;
+
     total_tracks = (int)config.sound.music.size();
+    cursor_pos = track_from_steering(oinputs.steering_adjust);
+    music_selected = cursor_pos;
+    ffb_detent_spring_applied = -1;
+    ffb_detent_target_applied = 0;
 }
 
 void OMusic::disable()
 {
+    reset_music_detent_ffb();
+
     // Disable block of sprites
     for (int i = entry_start; i < entry_start + 5; i++)
     {
@@ -328,22 +474,74 @@ void OMusic::tick_original(oentry* fm, oentry* dial, oentry* hand)
     }
 }
 
-// Enhanced Version of music selection with infinite tracks.
+// Enhanced music selection: one physical wheel zone per available track.
 void OMusic::tick_enhanced(oentry* fm, oentry* dial, oentry* hand)
 {
-    if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
-        if (--cursor_pos < 0) cursor_pos = total_tracks - 1;  
-    if (input.has_pressed(Input::RIGHT) || oinputs.is_analog_r())
-        if (++cursor_pos >= total_tracks) cursor_pos = 0;
+    const bool analog_selector = input.analog && input.gamepad;
 
-    if (oinputs.steering_adjust + 0x80 <= 0x70)
+    if (analog_selector)
+    {
+        const int steering = static_cast<int>(oinputs.steering_adjust);
+        const int mapped_track = track_from_steering(steering);
+
+        if (mapped_track != cursor_pos && total_tracks > 1)
+        {
+            // A small hysteresis stops wheel noise from flickering between two
+            // songs while sitting directly on a virtual selector boundary.
+            const int HYSTERESIS = 2;
+
+            if (mapped_track > cursor_pos)
+            {
+                const int boundary =
+                    -127 +
+                    ((cursor_pos + 1) * 255) /
+                    total_tracks;
+
+                if (steering >= boundary + HYSTERESIS)
+                    cursor_pos = mapped_track;
+            }
+            else
+            {
+                const int boundary =
+                    -127 +
+                    (cursor_pos * 255) /
+                    total_tracks;
+
+                if (steering <= boundary - HYSTERESIS)
+                    cursor_pos = mapped_track;
+            }
+        }
+    }
+    else
+    {
+        // Keyboard/D-pad input remains discrete: one press moves exactly one
+        // track instead of the old held-direction repeat timer.
+        if (input.has_pressed(Input::LEFT))
+        {
+            if (--cursor_pos < 0)
+                cursor_pos = total_tracks - 1;
+        }
+        else if (input.has_pressed(Input::RIGHT))
+        {
+            if (++cursor_pos >= total_tracks)
+                cursor_pos = 0;
+        }
+    }
+
+    music_selected = cursor_pos;
+
+    // The original radio artwork only contains three hand/dial frames. Use the
+    // selected track's virtual position to choose the nearest visual frame while
+    // the actual selector can have any number of physical FFB positions.
+    const int selector_position = steering_for_track(cursor_pos);
+
+    if (selector_position < -42)
         set_hand(HAND_LEFT, fm, dial, hand);
-    else if (oinputs.steering_adjust + 0x80 <= 0x90)
+    else if (selector_position <= 42)
         set_hand(HAND_CENTRE, fm, dial, hand);
     else
         set_hand(HAND_RIGHT, fm, dial, hand);
 
-    music_selected = cursor_pos;    
     ohud.blit_text_big(11, config.sound.music.at(music_selected).title.c_str(), true);
 }
 
