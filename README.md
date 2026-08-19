@@ -4,7 +4,7 @@
 
 CannonBall-SE is designed with home-made cabinets in mind and gives OutRun enthusiasts an improved experience on modern displays with minimal hardware requirements - anything from a Raspberry Pi Zero to a modern Windows PC.
 
-This repository is based on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to preserve the work and features of both projects while extending controller, multi-device and steering-wheel / force-feedback support.
+This repository is based on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to preserve the work and features of both projects while extending controller, multi-device, ultrawide and steering-wheel / force-feedback support.
 
 > **Note:** Official CannonBall-SE Windows releases are available from the upstream CannonBall-SE project: https://github.com/J1mbo/cannonball-se/releases
 
@@ -18,11 +18,11 @@ CannonBall-SE tries to create what feels like an authentic arcade-cab experience
 
 The SE project adds a fully configurable two-stage video-processing system with effects including NTSC filtering, screen curvature, shadow-mask emulation, analogue noise, vignette and desaturation. It also contains substantial performance, audio and cabinet-oriented improvements over the original CannonBall project.
 
-This fork keeps those features and adds a new input and force-feedback layer aimed especially at PC racing cabinets where the steering wheel, pedals, shifter and buttons may be separate USB devices.
+This fork keeps those features and extends the input, display and existing force-feedback systems, aimed especially at PC racing cabinets where the steering wheel, pedals, shifter and buttons may be separate USB devices.
 
 ### Original CannonBall features
 
-The underlying game engine is **Chris White's CannonBall**, a C++ recreation / enhancement of the Sega OutRun engine. CannonBall provides the core OutRun game engine, ROM loading, enhanced game modes, controls, widescreen support and the large body of fixes and enhancements on which CannonBall-SE is built.
+The underlying game engine is **Chris White's CannonBall**, a C++ recreation / enhancement of the Sega OutRun engine. CannonBall provides the core OutRun game engine, ROM loading, enhanced game modes, controls, widescreen support, wheel force feedback / haptic support and the large body of fixes and enhancements on which CannonBall-SE is built.
 
 ### CannonBall-SE features
 
@@ -61,6 +61,9 @@ CannonBall-SE by **James Pearce (J1mbo)** adds and improves, among other things:
 
 The `multi-device-input` work adds:
 
+- **21:9 ultrawide display support**
+  - Adds a dedicated 21:9 mode for ultrawide displays
+  - Extends the existing widescreen support beyond the standard 16:9 presentation
 - **True multi-device input support**
   - Steering, accelerator and brake can come from different SDL devices
   - Useful for separate USB wheels, pedals, shifters and button interfaces
@@ -72,7 +75,8 @@ The `multi-device-input` work adds:
   - Input configuration records both the axis/button and the device that generated it
   - Custom HAT bindings for menu directions are supported
   - Direction bindings can be stored independently
-- **Reworked Windows force feedback using DirectInput 8**
+- **Reworked Windows force-feedback path using DirectInput 8**
+  - Builds on CannonBall's existing wheel force-feedback / haptic support rather than replacing simple rumble-only behaviour
   - Native constant-force steering effects
   - Separate centering spring
   - Runtime enable / disable support
@@ -83,7 +87,7 @@ The `multi-device-input` work adds:
 - **Adjustable Centering Strength**
   - 0-100% in 10% steps
   - 0% disables the centering spring completely
-- **Improved OutRun steering feedback**
+- **Refined OutRun steering feedback**
   - Cornering forces are sent as directional constant-force effects
   - Skids generate a strong directional kick
   - Off-road driving combines vibration with an outward steering pull
@@ -100,7 +104,7 @@ The `multi-device-input` work adds:
 
 For Linux, a desktop is not required - the command-line version of the OS can be used. Compiling is automated on both platforms.
 
-The new DirectInput steering-wheel force-feedback implementation is primarily intended for **Windows**. Linux retains the existing evdev-based force-feedback path.
+The reworked DirectInput steering-wheel force-feedback path is primarily intended for **Windows**. Linux retains the existing evdev-based force-feedback path.
 
 ---
 
@@ -221,7 +225,7 @@ Custom HAT / directional bindings are also stored in the config when configured 
 
 ### Force Feedback notes
 
-On Windows, the new FFB implementation uses **DirectInput 8** rather than treating all steering effects as simple gamepad rumble.
+CannonBall already included **force feedback / haptic support for steering wheels**. The Windows changes in this fork rework and extend that existing FFB path using **DirectInput 8**, with configurable overall strength and a separate centering spring.
 
 The two main user-facing settings are:
 
@@ -281,7 +285,7 @@ USB steering wheels, joysticks and gamepads are supported.
 
 The multi-device branch is specifically designed to avoid the old assumption that every analog control has to live on one joystick. Separate wheel and pedal USB devices can therefore be configured independently.
 
-For Windows steering wheels, DirectInput force feedback provides dynamic steering force and an independent centering spring. Basic SDL/controller rumble remains available for suitable gamepads.
+CannonBall already supported wheel force feedback. On Windows, this fork extends that support through the reworked DirectInput path, including dynamic steering force, adjustable overall strength and an independent centering spring. Basic SDL/controller rumble remains available for suitable gamepads.
 
 ---
 
@@ -339,7 +343,7 @@ This fork exists because of the work of the projects and contributors before it.
 - **Shay Green (Blargg)** - `snes_ntsc` NTSC filter library.
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback work merged into this fork.
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements accumulated by both upstream projects.
-- **Endprodukt fork** - multi-device controller support and the current Windows steering-wheel / force-feedback extensions documented above.
+- **Endprodukt fork** - multi-device controller support, 21:9 ultrawide support and the current Windows steering-wheel / force-feedback extensions documented above.
 
 Upstream projects:
 
