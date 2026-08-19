@@ -757,6 +757,20 @@ if ((calc_width < width) || (calc_height < height)) {
 //    input->width = width;
     input->width = calc_width;
 
+    // Bumper view: visually move the camera forward without altering gameplay Z or collision sizes.
+    if (oroad.get_view_mode() == ORoad::VIEW_INCAR && input->road_priority > 0)
+    {
+        calc_width += calc_width >> 4;
+        calc_height += calc_height >> 4;
+
+        uint32_t render_zoom = (zoom * 16) / 17;
+        if (render_zoom == 0)
+            render_zoom = 1;
+
+        output->set_vzoom(render_zoom);
+        output->set_hzoom(render_zoom);
+    }
+
     // JJP - pass width through to sprite renderer
 //    output->set_width(width);
     output->set_width(calc_width);
@@ -926,7 +940,12 @@ void OSprites::set_sprite_xy(oentry* input, osprite* output, uint16_t width, uin
     // Set Y Render Point
     // -------------------------------------------------------------------------
 
-    int16_t y = input->y;
+    int32_t y = input->y;
+    if (oroad.get_view_mode() == ORoad::VIEW_INCAR && input->road_priority > 0)
+    {
+        const int32_t horizon = oroad.horizon_y2;
+        y = horizon + (((y - horizon) * 17) / 16);
+    }
 
     switch((anchor & 0xC) >> 2)
     {
@@ -954,7 +973,9 @@ void OSprites::set_sprite_xy(oentry* input, osprite* output, uint16_t width, uin
     // Set X Render Point
     // -------------------------------------------------------------------------
 
-    int16_t x = input->x;
+    int32_t x = input->x;
+    if (oroad.get_view_mode() == ORoad::VIEW_INCAR && input->road_priority > 0)
+        x = (x * 17) / 16;
 
     switch(anchor & 0x3)
     {
