@@ -188,6 +188,11 @@ Audio cannonball::audio;
 Menu* menu;
 bool pause_engine;
 
+// Short transient applied after normal game FFB when changing gear.
+static bool ffb_shift_active = false;
+static int ffb_shift_direction = 1;
+static Uint32 ffb_shift_start_ms = 0;
+
 
 // ------------------------------------------------------------------------------------------------
 
@@ -278,7 +283,20 @@ static void tick()
 
     if (tick_frame) {
         oinputs.tick();           // Do Controls
+
+        const bool gear_before = oinputs.gear;
         oinputs.do_gear();        // Digital Gear
+
+        if (oinputs.gear != gear_before &&
+            config.controls.haptic &&
+            forcefeedback::is_supported() &&
+            cannonball::state == STATE_GAME &&
+            outrun.game_state == GS_INGAME)
+        {
+            ffb_shift_active = true;
+            ffb_shift_direction = oinputs.gear ? 1 : -1;
+            ffb_shift_start_ms = SDL_GetTicks();
+        }
     }
 
     switch (cannonball::state) {
@@ -332,6 +350,39 @@ static void tick()
             input.set_rumble(true, config.controls.rumble, 1);
         else
             input.set_rumble(outrun.outputs->is_set(OOutputs::D_MOTOR), config.controls.rumble, 0);
+    }
+
+    // Gear shift kick. This runs after normal game FFB so the on-road code
+    // cannot stop the transient in the same frame.
+    if (ffb_shift_active)
+    {
+        if (!config.controls.haptic ||
+            !forcefeedback::is_supported() ||
+            cannonball::state != STATE_GAME ||
+            outrun.game_state != GS_INGAME)
+        {
+            ffb_shift_active = false;
+        }
+        else
+        {
+            const Uint32 elapsed = SDL_GetTicks() - ffb_shift_start_ms;
+            const int primary_direction = ffb_shift_direction > 0 ? 0x09 : 0x07;
+            const int rebound_direction = ffb_shift_direction > 0 ? 0x07 : 0x09;
+
+            if (elapsed < 45)
+            {
+                forcefeedback::set(primary_direction, 0);
+            }
+            else if (elapsed < 80)
+            {
+                forcefeedback::set(rebound_direction, 7);
+            }
+            else
+            {
+                forcefeedback::stop();
+                ffb_shift_active = false;
+            }
+        }
     }
 }
 
