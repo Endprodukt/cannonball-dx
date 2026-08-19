@@ -72,17 +72,86 @@ void OOutputs::init()
     movement_adjust3   = 0;
     skid_ffb_active = false;
     offroad_pull_direction = 0;
+    ffb_centering_strength = -1;
     chute1.counter[0]  = 0;
     chute1.counter[1]  = 0;
     chute1.counter[2]  = 0;
     chute2.counter[0]  = 0;
     chute2.counter[1]  = 0;
     chute2.counter[2]  = 0;
+
+    // Always restore the configured base spring when outputs are reset,
+    // for example when returning to the menu after a high-speed curve.
+    if (mode == MODE_FFEEDBACK && forcefeedback::is_supported())
+    {
+        forcefeedback::set_centering_strength(
+            config.controls.centering_strength);
+        ffb_centering_strength =
+            config.controls.centering_strength;
+    }
 }
 
 void OOutputs::set_mode(int m)
 {
     mode = m;
+}
+
+void OOutputs::update_centering_strength()
+{
+    if (!forcefeedback::is_supported())
+        return;
+
+    const int base_strength =
+        config.controls.centering_strength;
+
+    int target_strength =
+        base_strength;
+
+    // Dynamic spring is only an on-road cornering effect.
+    // Do not stack it with skid, crash or off-road constant-force effects.
+    const int road_curve =
+        std::abs(static_cast<int>(oinitengine.road_curve));
+
+    if (outrun.game_state == GS_INGAME &&
+        !ocrash.crash_counter &&
+        !ocrash.skid_counter &&
+        oferrari.wheel_state == OFerrari::WHEELS_ON &&
+        road_curve > 0 &&
+        road_curve <= 0x5A)
+    {
+        const uint16_t car_inc =
+            oinitengine.car_increment >> 16;
+
+        const bool sharp_curve =
+            road_curve <= 0x3C;
+
+        int boost_percent = 0;
+
+        // Keep low-speed steering exactly as configured. At higher speeds,
+        // progressively increase self-centering in curves only.
+        if (car_inc > 0xDC)
+            boost_percent = sharp_curve ? 35 : 20;
+        else if (car_inc > 0xA0)
+            boost_percent = sharp_curve ? 25 : 15;
+        else if (car_inc > 0x64)
+            boost_percent = sharp_curve ? 15 : 10;
+
+        target_strength +=
+            (base_strength * boost_percent + 50) / 100;
+
+        if (target_strength > 100)
+            target_strength = 100;
+    }
+
+    // Avoid sending identical DirectInput parameter updates every frame.
+    if (target_strength == ffb_centering_strength)
+        return;
+
+    forcefeedback::set_centering_strength(
+        target_strength);
+
+    ffb_centering_strength =
+        target_strength;
 }
 
 void OOutputs::tick(int16_t input_motor)
@@ -94,6 +163,7 @@ void OOutputs::tick(int16_t input_motor)
 
         // Force Feedback Steering Wheels
         case MODE_FFEEDBACK:
+            update_centering_strength();
             do_motors(mode, input_motor);   // Use X-Position of wheel instead of motor position
             motor_output(hw_motor_control); // Force Feedback Handling
             break;
@@ -317,7 +387,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
     {
         // Initalize
         case STATE_INIT:
-            col1 = 11;
+            col1 = 10;
             col2 = 25;
             ohud.blit_text_big(      2,  "MOTOR CALIBRATION");
             ohud.blit_text_new(col1, 10, "MOVE LEFT   -");
@@ -367,7 +437,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
 
 void OOutputs::calibrate_left(int16_t input_motor, uint8_t hw_motor_limit)
 {
-    // If Right Limit Set, Move Left
+    // If Right Limit Reached, Move Left
     if (hw_motor_limit & BIT_5)
     {
         if (--counter >= 0)
@@ -542,7 +612,7 @@ const static uint8_t MOTOR_VALUES_OFFROAD3[] =
 const static uint8_t MOTOR_VALUES_OFFROAD4[] = 
 {
     0x8, 0xB, 0xB, 0x8, 0x5, 0x8, 0x0, 0x8, 0x8, 0xC, 0xC, 0x8, 0x4, 0x8, 0x0, 0x8,
-    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x8, 0x0, 0x8,
+    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x2, 0x8, 0x0, 0x8,
 };
 
 
