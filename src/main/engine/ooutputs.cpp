@@ -85,7 +85,7 @@ namespace
             gain_percent = config.controls.ffb_strength;
 
         forcefeedback::set_gain(gain_percent);
-        forcefeedback::set(0x09, 7);
+        forcefeedback::set(0x07, 7);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 
