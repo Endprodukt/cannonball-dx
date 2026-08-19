@@ -125,19 +125,19 @@ void OOutputs::update_centering_strength()
         const bool sharp_curve =
             road_curve <= 0x3C;
 
-        int boost_percent = 0;
+        int boost_points = 0;
 
-        // Keep low-speed steering exactly as configured. At higher speeds,
-        // progressively increase self-centering in curves only.
+        // Deliberately strong test values so the dynamic cornering spring
+        // is easy to identify. The configured base strength is preserved
+        // on straights and at low speed.
         if (car_inc > 0xDC)
-            boost_percent = sharp_curve ? 35 : 20;
+            boost_points = sharp_curve ? 50 : 35;
         else if (car_inc > 0xA0)
-            boost_percent = sharp_curve ? 25 : 15;
+            boost_points = sharp_curve ? 35 : 25;
         else if (car_inc > 0x64)
-            boost_percent = sharp_curve ? 15 : 10;
+            boost_points = sharp_curve ? 20 : 15;
 
-        target_strength +=
-            (base_strength * boost_percent + 50) / 100;
+        target_strength += boost_points;
 
         if (target_strength > 100)
             target_strength = 100;
