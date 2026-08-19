@@ -1,6 +1,6 @@
 # CannonBall-SE
 
-*A fork of Chris White's incredible OutRun engine, CannonBall, with enhancements by James Pearce and additional input / force-feedback work in this fork.*
+*A fork of Chris White's incredible OutRun engine, CannonBall, with enhancements by James Pearce and additional input, display and force-feedback work in this fork.*
 
 CannonBall-SE is designed with home-made cabinets in mind and gives OutRun enthusiasts an improved experience on modern displays with minimal hardware requirements - anything from a Raspberry Pi Zero to a modern Windows PC.
 
@@ -61,9 +61,14 @@ CannonBall-SE by **James Pearce (J1mbo)** adds and improves, among other things:
 
 The `multi-device-input` work adds:
 
+#### Display
+
 - **21:9 ultrawide display support**
-  - Adds a dedicated 21:9 mode for ultrawide displays
-  - Extends the existing widescreen support beyond the standard 16:9 presentation
+  - Adds a dedicated 21:9 presentation for ultrawide displays
+  - Extends the existing CannonBall / CannonBall-SE widescreen support beyond standard 16:9
+
+#### Multi-device controls
+
 - **True multi-device input support**
   - Steering, accelerator and brake can come from different SDL devices
   - Useful for separate USB wheels, pedals, shifters and button interfaces
@@ -75,10 +80,14 @@ The `multi-device-input` work adds:
   - Input configuration records both the axis/button and the device that generated it
   - Custom HAT bindings for menu directions are supported
   - Direction bindings can be stored independently
+
+#### Force feedback
+
 - **Reworked Windows force-feedback path using DirectInput 8**
-  - Builds on CannonBall's existing wheel force-feedback / haptic support rather than replacing simple rumble-only behaviour
+  - Extends CannonBall's existing steering-wheel force-feedback / haptic system
   - Native constant-force steering effects
-  - Separate centering spring
+  - Independent centering spring
+  - Periodic sine effect for tyre-slip / vibration feedback
   - Runtime enable / disable support
   - Reacquisition handling if the DirectInput device is temporarily lost
 - **Adjustable Force Feedback Strength**
@@ -87,13 +96,143 @@ The `multi-device-input` work adds:
 - **Adjustable Centering Strength**
   - 0-100% in 10% steps
   - 0% disables the centering spring completely
-- **Refined OutRun steering feedback**
-  - Cornering forces are sent as directional constant-force effects
-  - Skids generate a strong directional kick
-  - Off-road driving combines vibration with an outward steering pull
-  - Off-road vibration is deliberately reduced so the directional pull remains clear instead of becoming a violent full-strength oscillation
+- **Expanded driving and presentation FFB**
+  - Speed- and corner-dependent steering weight
+  - Tyre-slip vibration
+  - Gear-change kick
+  - Off-road vibration and outward pull
+  - Different feedback profiles for bumps, spins, high-speed flips and landings
+  - Start-sequence steering and throttle/rev feedback
+  - Physical steering-wheel detents on the music-selection screen
 - **Cleaner FFB configuration**
-  - Old low-level `max_force`, `min_force` and `force_duration` XML options are now internal tuning values and are removed from existing config files when saved
+  - Old low-level `max_force`, `min_force` and `force_duration` XML options are internal tuning values and are removed from existing config files when saved
+
+---
+
+## Force Feedback Effects
+
+CannonBall already included force-feedback / haptic support for steering wheels. The Windows work in this fork does **not** replace a rumble-only system; it reworks and expands CannonBall's existing wheel FFB using DirectInput 8.
+
+The current `multi-device-input` branch combines the original OutRun motor logic with additional effects that use game state, vehicle speed, road curvature, wheel state and presentation events.
+
+### Normal cornering
+
+The normal directional OutRun steering force remains present, but the centering spring now also changes dynamically while driving on-road.
+
+- Steering weight increases smoothly with **vehicle speed**.
+- Sharper bends receive more spring boost than gentle bends.
+- The change is continuous rather than jumping between obvious strength bands.
+- The dynamic cornering boost is disabled during crashes, skids and off-road states so separate effects do not simply stack on top of each other.
+- The user's configured `centering_strength` remains the base value, so lowering the spring also lowers the extra cornering weight.
+
+This is intended to make fast corners feel heavier without turning normal straight-line driving into an excessively stiff centering spring.
+
+### Gear-change kick
+
+Changing between low and high gear produces a very short mechanical kick through the wheel.
+
+- The initial kick is strong and deliberately brief.
+- A smaller rebound follows immediately afterwards.
+- The direction changes depending on whether the car is shifted into high or low gear.
+- The effect runs on top of the normal in-game steering feedback and ends automatically after the short transient.
+
+### Tyre slip / on-road skid vibration
+
+When the tyres are visibly slipping on the road, the Windows DirectInput path runs a periodic sine effect through the steering axis.
+
+- The vibration uses a relatively high-frequency sine wave rather than repeatedly replacing the main steering force with simple left/right commands.
+- The centering load is temporarily reduced while the tyres are slipping, making the steering feel slightly looser.
+- As soon as grip returns, the previous configured / dynamic centering strength is restored.
+
+This is separate from the stronger directional feedback used for collision-related spins.
+
+### Off-road feedback
+
+Off-road driving combines the original alternating motor pattern with a directional pull that tries to drag the steering wheel farther away from the road.
+
+- With **one side of the car off-road**, the vibration component is deliberately restrained to roughly 50% so the outward pull remains easy to feel.
+- When the car is **fully off-road**, the vibration returns to full amplitude while the constant outward bias is reduced. This leaves enough range for the alternating rough-surface effect instead of having the pull mask it.
+- The pull direction follows the side of the road the car left.
+
+The result is meant to distinguish "one wheel in the dirt" from "the whole car is off the road" instead of treating both states as the same rumble pattern.
+
+### Crash feedback
+
+Crash feedback is now state-aware rather than using one generic vibration for every accident.
+
+- **Low-speed scenery bump**
+  - One blunt impact
+  - Followed by a small rebound
+- **Medium-speed spin / collision**
+  - Strong initial contact
+  - Followed by sustained alternating steering yanks while the car rotates or slides
+  - Centering is reduced so the wheel feels less planted than during normal driving
+- **High-speed flip**
+  - Very strong initial impact
+  - Alternating lateral loads through the pre-flip spin
+  - Continued steering load while the Ferrari is airborne, reversing with the flip animation
+  - Steering becomes much lighter in the air
+  - A separate landing impact and rebound is generated when the car comes back down
+
+The crash effects deliberately alter both constant-force direction and steering weight so a bump, spin and full airborne crash do not all feel identical.
+
+### Start-sequence feedback
+
+Force feedback is also active before normal gameplay begins.
+
+- During the Ferrari's animated drive into the starting position, a restrained steering load follows the car's movement toward the centre of the screen.
+- Once the Ferrari is sitting on the grid, pressing the accelerator generates a light engine / rev vibration through the wheel.
+- Rev vibration strength follows the actual accelerator value.
+- A short internal ramp prevents a fully pressed pedal from producing an instant full-strength buzz.
+- The normal driving FFB takes over when the race begins.
+
+### Music-selection wheel detents
+
+The music-selection screen now uses the steering wheel itself as a physical selector.
+
+Each available track occupies a virtual position across the wheel's steering range. Force feedback creates a mechanical detent at the selected track position, making the radio selector feel more like a real switch than a free-moving analog axis.
+
+- With the original three songs, the familiar left / centre / right positions are retained naturally.
+- If custom music adds more tracks, additional selector positions are distributed evenly across the available steering range.
+- A small hysteresis prevents steering noise from rapidly flickering between two tracks at a boundary.
+- The selector uses a combination of the centering spring and constant force to pull the wheel toward the currently selected song position.
+- As more tracks are added and the virtual positions move closer together, the selector spring is strengthened progressively so individual detents remain distinguishable.
+- The selector spring is capped internally so a large playlist cannot make the wheel excessively heavy.
+- Leaving the music-selection screen restores the normal user-configured FFB gain and centering strength.
+
+This effect works with the existing CannonBall-SE custom-music system, so added WAV/MP3/YM tracks can also receive their own physical selector positions.
+
+### FFB configuration philosophy
+
+The individual effects above are currently **automatic game-state effects** rather than separate XML sliders for every event.
+
+The two main user-facing controls remain:
+
+```xml
+<haptic enabled="1">
+    <strength>50</strength>
+    <centering_strength>30</centering_strength>
+</haptic>
+```
+
+- `strength` controls the master level used by dynamic / transient FFB effects.
+- `centering_strength` controls the base centering spring and also acts as the starting point for dynamic cornering weight.
+- Both settings can be changed from the Controls menu without manually editing XML.
+- Setting centering to `0` disables the normal centering spring while leaving dynamic FFB available.
+
+The former experimental `max_force`, `min_force` and `force_duration` values are **not user-facing settings anymore**. The current code uses internal values for those parameters and removes legacy entries from the XML when the configuration is saved.
+
+### Selecting a specific Windows FFB device
+
+If multiple DirectInput force-feedback devices are connected, the Windows backend can optionally target a specific VID/PID through the `FF_TARGET_VIDPID` environment variable.
+
+Example:
+
+```text
+FF_TARGET_VIDPID=0x046d:0xc24f
+```
+
+If no target is specified, the first suitable force-feedback device is used.
 
 ---
 
@@ -104,7 +243,7 @@ The `multi-device-input` work adds:
 
 For Linux, a desktop is not required - the command-line version of the OS can be used. Compiling is automated on both platforms.
 
-The reworked DirectInput steering-wheel force-feedback path is primarily intended for **Windows**. Linux retains the existing evdev-based force-feedback path.
+The reworked DirectInput steering-wheel force-feedback path and the newer DirectInput-specific effects documented above are primarily intended for **Windows**. Linux retains the existing evdev-based force-feedback path.
 
 ---
 
@@ -218,30 +357,10 @@ If hardware is changed, or a saved device can no longer be found, simply redefin
 | `controls.analog.wheel.dead` | integer | Steering dead zone around centre. |
 | `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback. |
 | `controls.analog.haptic.strength` | `10`-`100` | Overall FFB strength in percent. Values are clamped to this range. |
-| `controls.analog.haptic.centering_strength` | `0`-`100` | Native centering-spring strength in percent. `0` disables the spring. |
+| `controls.analog.haptic.centering_strength` | `0`-`100` | Native centering-spring strength in percent. `0` disables the normal spring. |
 | `controls.rumble` | `0.0`-`1.0` | Basic controller rumble level. |
 
 Custom HAT / directional bindings are also stored in the config when configured through the menu. These are primarily intended to make menu navigation work cleanly with devices whose D-pad is exposed by SDL as a HAT rather than normal buttons.
-
-### Force Feedback notes
-
-CannonBall already included **force feedback / haptic support for steering wheels**. The Windows changes in this fork rework and extend that existing FFB path using **DirectInput 8**, with configurable overall strength and a separate centering spring.
-
-The two main user-facing settings are:
-
-```xml
-<haptic enabled="1">
-    <strength>50</strength>
-    <centering_strength>30</centering_strength>
-</haptic>
-```
-
-- `strength` controls the overall strength of the dynamic OutRun steering forces.
-- `centering_strength` controls the independent centering spring.
-- Both settings can be changed from the Controls menu without manually editing XML.
-- Setting centering to `0` disables the spring while leaving dynamic FFB available.
-
-The former experimental `max_force`, `min_force` and `force_duration` values are **not user-facing settings anymore**. The current code uses internal values for those parameters and removes legacy entries from the XML when the configuration is saved.
 
 ---
 
@@ -285,7 +404,7 @@ USB steering wheels, joysticks and gamepads are supported.
 
 The multi-device branch is specifically designed to avoid the old assumption that every analog control has to live on one joystick. Separate wheel and pedal USB devices can therefore be configured independently.
 
-CannonBall already supported wheel force feedback. On Windows, this fork extends that support through the reworked DirectInput path, including dynamic steering force, adjustable overall strength and an independent centering spring. Basic SDL/controller rumble remains available for suitable gamepads.
+CannonBall already supported wheel force feedback. On Windows, this fork extends that support through the reworked DirectInput path, including dynamic steering weight, transient effects, tyre-slip vibration, music-selector detents, adjustable overall strength and an independent centering spring. Basic SDL/controller rumble remains available for suitable gamepads.
 
 ---
 
@@ -299,6 +418,8 @@ Place audio files in `./res/` using the scheme:
 ```
 
 Indexes **01-03** replace the built-in tracks (`01` = *Magical Sound Shower*); **04+** add entries to the radio list. For WAV files, use **44.1 kHz, 16-bit stereo** where possible.
+
+On the `multi-device-input` branch, analog steering divides the wheel range into one selector zone per available track. The FFB music-selector detent follows those positions, including additional custom tracks.
 
 ---
 
@@ -336,7 +457,7 @@ On hardware with a watchdog, including Raspberry Pi boards, CannonBall-SE can in
 
 ## Project Lineage & Credits
 
-This fork exists because of the work of the projects and contributors before it. Please do not treat the additions in this repository as a replacement for that work.
+This fork exists because of the work of the projects and contributors before it. The additions in this repository are extensions of that work, not a replacement for it.
 
 - **Chris White** - creator of the original **CannonBall** engine and the core OutRun recreation on which everything here is based.
 - **James Pearce (J1mbo)** - creator and maintainer of **CannonBall-SE**, including its cabinet focus, video / CRT processing, performance work, audio improvements and many SE-specific fixes and enhancements.
