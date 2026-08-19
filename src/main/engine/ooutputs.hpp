@@ -135,6 +135,7 @@ private:
     int16_t movement_adjust3;
     bool skid_ffb_active;
     int8_t offroad_pull_direction;
+    int16_t ffb_centering_strength;
 
     // Counter control for motor tests
     int16_t counter;
@@ -152,6 +153,7 @@ private:
     void calibrate_centre(int16_t input_motor, uint8_t hw_motor_limit);
     void calibrate_done();
 
+    void update_centering_strength();
     void do_motors(const int MODE, int16_t input_motor);
     void car_moving(const int MODE);
     void car_stationary();
