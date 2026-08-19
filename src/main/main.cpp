@@ -211,7 +211,7 @@ static void set_music_detent_force(int direction, int gain_percent)
         scaled_gain = 100;
 
     forcefeedback::set_gain(scaled_gain);
-    forcefeedback::set(direction, 7);
+    forcefeedback::set(direction, 0);
     forcefeedback::set_gain(config.controls.ffb_strength);
 }
 
@@ -417,19 +417,21 @@ static void tick()
 
             // On this DirectInput path 0x07 physically pulls the current wheel
             // right and 0x09 left. First resist the player's movement, then
-            // briefly snap into the newly selected position.
+            // clearly snap into the newly selected position.
             const int resistance_direction =
                 ffb_music_detent_direction > 0 ? 0x09 : 0x07;
             const int snap_direction =
                 ffb_music_detent_direction > 0 ? 0x07 : 0x09;
 
-            if (elapsed < 55)
+            if (elapsed < 110)
             {
-                set_music_detent_force(resistance_direction, 70);
+                // Deliberately strong: prove the detent is physically present.
+                // At the default 50% master this runs at 65% effective gain.
+                set_music_detent_force(resistance_direction, 130);
             }
-            else if (elapsed < 85)
+            else if (elapsed < 170)
             {
-                set_music_detent_force(snap_direction, 45);
+                set_music_detent_force(snap_direction, 100);
             }
             else
             {
