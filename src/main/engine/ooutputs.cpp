@@ -30,6 +30,210 @@
 #include "engine/ooutputs.hpp"
 #include "directx/ffeedback.hpp"
 
+namespace
+{
+    enum CrashFfbType
+    {
+        CRASH_FFB_NONE = 0,
+        CRASH_FFB_BUMP,
+        CRASH_FFB_SPIN,
+        CRASH_FFB_FLIP,
+    };
+
+    static int g_crash_ffb_type = CRASH_FFB_NONE;
+    static int g_crash_ffb_last_state = -1;
+    static int g_crash_ffb_last_spin_count = -1;
+    static int g_crash_ffb_direction = 1;
+    static int g_crash_ffb_landing_frames = 0;
+
+    static int crash_ffb_command(int direction)
+    {
+        return direction < 0 ? 0x07 : 0x09;
+    }
+
+    static void reset_crash_ffb_tracking()
+    {
+        g_crash_ffb_type = CRASH_FFB_NONE;
+        g_crash_ffb_last_state = -1;
+        g_crash_ffb_last_spin_count = -1;
+        g_crash_ffb_direction = 1;
+        g_crash_ffb_landing_frames = 0;
+    }
+
+    static void prepare_crash_ffb_tracking()
+    {
+        if (!ocrash.crash_counter)
+        {
+            if (g_crash_ffb_type != CRASH_FFB_NONE)
+                forcefeedback::stop();
+
+            reset_crash_ffb_tracking();
+            return;
+        }
+
+        if (g_crash_ffb_type != CRASH_FFB_NONE)
+            return;
+
+        if (ocrash.is_flip())
+        {
+            g_crash_ffb_type = CRASH_FFB_FLIP;
+        }
+        else if (ocrash.crash_state == 1 &&
+                 (oinitengine.car_increment >> 16) == 0)
+        {
+            // Low-speed scenery collision. collide_slow() explicitly clears
+            // the integer car speed when it enters the bump state.
+            g_crash_ffb_type = CRASH_FFB_BUMP;
+        }
+        else
+        {
+            g_crash_ffb_type = CRASH_FFB_SPIN;
+        }
+
+        if (oferrari.car_x_diff < 0)
+            g_crash_ffb_direction = -1;
+        else if (oferrari.car_x_diff > 0)
+            g_crash_ffb_direction = 1;
+        else
+            g_crash_ffb_direction =
+                (oinitengine.car_x_pos < 0) ? -1 : 1;
+
+        g_crash_ffb_last_state = -1;
+        g_crash_ffb_last_spin_count = ocrash.crash_spin_count;
+        g_crash_ffb_landing_frames = 0;
+    }
+
+    static void apply_crash_ffb_force()
+    {
+        if (!ocrash.crash_counter ||
+            g_crash_ffb_type == CRASH_FFB_NONE)
+        {
+            return;
+        }
+
+        const int state = ocrash.crash_state;
+        const int spin_count = ocrash.crash_spin_count;
+        const int age = ocrash.crash_counter;
+
+        const int primary =
+            crash_ffb_command(g_crash_ffb_direction);
+        const int rebound =
+            crash_ffb_command(-g_crash_ffb_direction);
+
+        const bool spin_changed =
+            g_crash_ffb_last_spin_count >= 0 &&
+            spin_count != g_crash_ffb_last_spin_count;
+
+        // -----------------------------------------------------------------
+        // Low-speed bump: one blunt hit followed by a small rebound.
+        // -----------------------------------------------------------------
+        if (g_crash_ffb_type == CRASH_FFB_BUMP)
+        {
+            if (age <= 2)
+                forcefeedback::set(primary, 2);
+            else if (age == 3)
+                forcefeedback::set(rebound, 7);
+            else
+                forcefeedback::stop();
+        }
+        // -----------------------------------------------------------------
+        // Medium-speed spin: strong initial contact followed by a slower
+        // alternating load while the car rotates/slides.
+        // -----------------------------------------------------------------
+        else if (g_crash_ffb_type == CRASH_FFB_SPIN)
+        {
+            if (age <= 2)
+            {
+                forcefeedback::set(primary, 1);
+            }
+            else if (state >= 1 && state <= 4)
+            {
+                const bool phase =
+                    ((age / 2) & 1) != 0;
+
+                forcefeedback::set(
+                    phase ? primary : rebound,
+                    5);
+            }
+            else
+            {
+                forcefeedback::stop();
+            }
+        }
+        // -----------------------------------------------------------------
+        // High-speed flip:
+        //   state 1 = initial collision / pre-flip spin
+        //   state 2 = airborne flip
+        //   state 5+ = landing / post-crash recovery
+        // -----------------------------------------------------------------
+        else if (g_crash_ffb_type == CRASH_FFB_FLIP)
+        {
+            if (state <= 1)
+            {
+                if (age <= 2)
+                {
+                    forcefeedback::set(primary, 0);
+                }
+                else
+                {
+                    const bool phase =
+                        ((age / 2) & 1) != 0;
+
+                    forcefeedback::set(
+                        phase ? primary : rebound,
+                        5);
+                }
+            }
+            else if (state == 2)
+            {
+                // The wheel goes almost light while airborne. Each completed
+                // flip generates one short alternating jolt.
+                if (spin_changed && spin_count > 0)
+                {
+                    const int direction =
+                        (spin_count & 1) ? primary : rebound;
+
+                    forcefeedback::set(direction, 2);
+                }
+                else
+                {
+                    forcefeedback::stop();
+                }
+            }
+            else
+            {
+                // A flip transitions directly from the airborne state to the
+                // post-crash state. Treat that edge as the landing impact.
+                if (g_crash_ffb_last_state == 2 && state >= 5)
+                    g_crash_ffb_landing_frames = 3;
+
+                if (g_crash_ffb_landing_frames == 3)
+                {
+                    forcefeedback::set(primary, 0);
+                    g_crash_ffb_landing_frames--;
+                }
+                else if (g_crash_ffb_landing_frames == 2)
+                {
+                    forcefeedback::set(rebound, 3);
+                    g_crash_ffb_landing_frames--;
+                }
+                else if (g_crash_ffb_landing_frames == 1)
+                {
+                    forcefeedback::set(primary, 7);
+                    g_crash_ffb_landing_frames--;
+                }
+                else
+                {
+                    forcefeedback::stop();
+                }
+            }
+        }
+
+        g_crash_ffb_last_state = state;
+        g_crash_ffb_last_spin_count = spin_count;
+    }
+}
+
 OOutputs::OOutputs(void)
 {
     mode = MODE_DISABLED;
@@ -79,6 +283,8 @@ void OOutputs::init()
     chute2.counter[0]  = 0;
     chute2.counter[1]  = 0;
     chute2.counter[2]  = 0;
+
+    reset_crash_ffb_tracking();
 
     // Always restore the configured base spring when outputs are reset,
     // for example when returning to the menu after a high-speed curve.
@@ -163,6 +369,52 @@ void OOutputs::update_centering_strength()
             target_strength = 100;
     }
 
+    // Accident-specific steering weight. Dynamic cornering is already disabled
+    // in these states, so scale from the user's base spring value.
+    if (outrun.game_state == GS_INGAME)
+    {
+        int crash_spring_percent = 100;
+
+        if (ocrash.crash_counter)
+        {
+            if (g_crash_ffb_type == CRASH_FFB_BUMP)
+            {
+                crash_spring_percent = 65;
+            }
+            else if (g_crash_ffb_type == CRASH_FFB_SPIN)
+            {
+                crash_spring_percent =
+                    ocrash.crash_state <= 4 ? 35 : 70;
+            }
+            else if (g_crash_ffb_type == CRASH_FFB_FLIP)
+            {
+                if (ocrash.crash_state <= 1)
+                    crash_spring_percent = 45;
+                else if (ocrash.crash_state == 2)
+                    crash_spring_percent = 10;
+                else if (ocrash.crash_state <= 4)
+                    crash_spring_percent = 25;
+                else if (ocrash.crash_state == 5)
+                    crash_spring_percent = 45;
+                else
+                    crash_spring_percent = 70;
+            }
+        }
+        else if (ocrash.skid_counter)
+        {
+            // Traffic collision / spin: keep some steering weight, but make
+            // the loss of control clearly different from normal cornering.
+            crash_spring_percent = 50;
+        }
+
+        if (crash_spring_percent < 100)
+        {
+            target_strength =
+                (base_strength * crash_spring_percent + 50) /
+                100;
+        }
+    }
+
     // Avoid sending identical DirectInput parameter updates every frame.
     if (target_strength == ffb_centering_strength)
         return;
@@ -192,9 +444,23 @@ void OOutputs::tick(int16_t input_motor)
                 oferrari.wheel_state == OFerrari::WHEELS_ON;
 
             forcefeedback::set_tyre_slip(tyre_slip);
+
+            prepare_crash_ffb_tracking();
             update_centering_strength();
-            do_motors(mode, input_motor);   // Use X-Position of wheel instead of motor position
-            motor_output(hw_motor_control); // Force Feedback Handling
+
+            if (ocrash.crash_counter)
+            {
+                // The modern FFB crash sequence replaces the old moving-cabinet
+                // vibration table while a scenery crash is active.
+                hw_motor_control = MOTOR_OFF;
+                skid_ffb_active = false;
+                apply_crash_ffb_force();
+            }
+            else
+            {
+                do_motors(mode, input_motor);   // Use X-Position of wheel instead of motor position
+                motor_output(hw_motor_control); // Force Feedback Handling
+            }
             break;
         }
 
