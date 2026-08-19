@@ -868,7 +868,7 @@ namespace forcefeedback
         DIPERIODIC periodic{};
         periodic.dwMagnitude =
             static_cast<DWORD>(
-                (static_cast<long long>(DI_FFNOMINALMAX) * 12 * g_gain_percent) /
+                (static_cast<long long>(DI_FFNOMINALMAX) * 15 * g_gain_percent) /
                 10000);
         periodic.lOffset = 0;
         periodic.dwPhase = 0;
