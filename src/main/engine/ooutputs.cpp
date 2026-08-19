@@ -57,6 +57,19 @@ namespace
         return direction < 0 ? 0x07 : 0x09;
     }
 
+    static void set_crash_yank(int direction, int force)
+    {
+        int boosted_gain =
+            (config.controls.ffb_strength * 130 + 50) / 100;
+
+        if (boosted_gain > 100)
+            boosted_gain = 100;
+
+        forcefeedback::set_gain(boosted_gain);
+        forcefeedback::set(direction, force);
+        forcefeedback::set_gain(config.controls.ffb_strength);
+    }
+
     static void reset_crash_ffb_tracking()
     {
         g_crash_ffb_type = CRASH_FFB_NONE;
@@ -316,7 +329,7 @@ namespace
                 const bool phase =
                     ((age / 4) & 1) != 0;
 
-                forcefeedback::set(
+                set_crash_yank(
                     phase ? primary : rebound,
                     1);
             }
@@ -346,7 +359,7 @@ namespace
                     const bool phase =
                         ((age / 4) & 1) != 0;
 
-                    forcefeedback::set(
+                    set_crash_yank(
                         phase ? primary : rebound,
                         1);
                 }
@@ -363,7 +376,7 @@ namespace
                     const int direction =
                         (spin_count & 1) ? primary : rebound;
 
-                    forcefeedback::set(
+                    set_crash_yank(
                         direction,
                         spin_changed ? 0 : 2);
                 }
