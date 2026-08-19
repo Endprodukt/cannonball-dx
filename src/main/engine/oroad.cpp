@@ -178,7 +178,7 @@ void ORoad::set_view_mode(uint8_t mode, bool snap)
     }
     else if (mode == VIEW_INCAR)
     {
-        horizon_target = -0x200;
+        horizon_target = -0x140;
     }
 
     if (snap)
