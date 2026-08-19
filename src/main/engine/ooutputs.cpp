@@ -408,7 +408,7 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
             ohud.blit_text_big(      2,  "MOTOR CALIBRATION");
             ohud.blit_text_new(col1, 10, "MOVE LEFT   -");
             ohud.blit_text_new(col1, 12, "MOVE RIGHT  -");
-            ohud.blit_text_new(col1, 14, "CENTRE");
+            ohud.blit_text_new(col1, 14, "MOVE CENTRE -");
             counter          = 25;
             motor_centre_pos = 0;
             motor_enabled    = true;
