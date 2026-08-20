@@ -65,7 +65,7 @@ This fork adds:
 
 - **21:9 ultrawide display support**
   - Adds a dedicated 21:9 presentation for ultrawide displays
-  - Extends the existing CannonBall / CannonBall-SE widescreen support beyond standard 16:9
+  - Extends the original 4:3 presentation with an additional ultrawide display option
 
 #### Multi-device controls
 
