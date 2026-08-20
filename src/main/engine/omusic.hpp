@@ -34,6 +34,11 @@ public:
     // the older timed music-kick code remains inactive.
     int get_music_selected();
 
+    // Read-only selector position for non-FFB consumers such as gamepad
+    // rumble. Unlike get_music_selected(), this exposes the real cursor and
+    // has no side effects on the wheel detent implementation.
+    int get_music_position() const { return cursor_pos; }
+
 private:
     // Modified Widescreen version of the Music Select Tilemap
     RomLoader* tilemap;
@@ -83,4 +88,3 @@ private:
 };
 
 extern OMusic omusic;
-
