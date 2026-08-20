@@ -42,17 +42,38 @@ public:
     void set_button_binding(int slot, int button, SDL_JoystickID device);
     void set_hat_binding(int slot, int hat, int value, SDL_JoystickID device);
 
-    // New binding-matrix helpers. The editor addresses real SDL devices rather
-    // than one global "pad" slot, so wheel/gamepad/shifter assignments can
-    // coexist without replacing one another.
+    // The editor has three logical input groups. KEYBOARD is handled by the
+    // existing keyconfig array. GAMEPAD uses the primary SDL GameController.
+    // WHEEL is deliberately an aggregate bucket: any raw SDL joystick device
+    // can contribute bindings (wheel, pedals, shifter, button box, joystick,
+    // or even the raw side of a gamepad).
+    enum binding_groups
+    {
+        BINDING_GAMEPAD = 0,
+        BINDING_WHEEL = 1,
+    };
+
     const std::vector<InputDevice>& get_devices() const;
     std::string get_device_signature(SDL_JoystickID device) const;
+    SDL_JoystickID get_gamepad_device() const;
+
+    // Convert bindings created by the first matrix implementation into the
+    // new logical GAMEPAD/WHEEL groups when the editor is opened.
+    void normalize_device_bindings();
+
     void set_device_binding(
         int target,
         int type,
         int index,
         int value,
-        SDL_JoystickID device);
+        SDL_JoystickID device,
+        int group);
+
+    // Clear all assignments for one action in one logical group. WHEEL may
+    // contain several physical devices and several controls per action.
+    void clear_device_bindings(int target, int group);
+
+    // Retained for compatibility with older callers.
     void clear_device_binding(int target, SDL_JoystickID device);
 
     void scan_joysticks();
@@ -177,12 +198,22 @@ private:
     // Last axis used
     int axis_last , axis_counter, axis_config;
 
+    struct AxisCaptureBaseline
+    {
+        SDL_JoystickID device = -1;
+        int axis = -1;
+        int value = 0;
+    };
+
+    std::vector<AxisCaptureBaseline> axis_capture_baseline;
+
     void bind_axis(SDL_GameControllerAxis ax, int offset);
     void bind_button(SDL_GameControllerButton button, int offset);
     void handle_key(const int, const bool);
     void handle_joy(SDL_JoystickID device, const uint8_t button, const bool is_pressed);
     void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
+    void capture_raw_axis_motion(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     int scale_trigger(const int);
 
     void apply_device_button(SDL_JoystickID device, int button, bool is_pressed);
@@ -202,6 +233,7 @@ private:
     void handle_controller_axis_base(SDL_ControllerAxisEvent*);
     void handle_controller_down_base(SDL_ControllerButtonEvent*);
     void handle_controller_up_base(SDL_ControllerButtonEvent*);
+    void reset_axis_config_base();
 };
 
 extern Input input;
