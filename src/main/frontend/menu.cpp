@@ -3,7 +3,7 @@
 
     The existing menu implementation is retained in menu_base.cpp. Menu derives
     from MenuBase and replaces the sequential binding wizard with an editable
-    keyboard / physical-device binding matrix.
+    KEYBOARD / GAMEPAD / WHEEL binding matrix.
 ***************************************************************************/
 
 // Pre-include dependencies before the temporary class-name macro.
@@ -41,6 +41,11 @@ namespace
     const int BINDING_ROWS = 12;
     const int BACK_ROW = BINDING_ROWS;
     const int EDITOR_ROWS = BINDING_ROWS + 1;
+    const int EDITOR_COLUMNS = 3;
+
+    const int COL_KEYBOARD = 0;
+    const int COL_GAMEPAD = 1;
+    const int COL_WHEEL = 2;
 
     const char* ROW_LABELS[BINDING_ROWS] =
     {
@@ -146,56 +151,63 @@ namespace
         return "?";
     }
 
-    const device_binding_t* find_device_binding(
-        int target,
-        const std::string& signature)
+    bool binding_is_group(const device_binding_t& binding, int group)
     {
-        const device_binding_t* wildcard = nullptr;
+        if (binding.device.size() < 2 || binding.device[1] != ':')
+            return false;
 
-        for (const auto& binding : config.controls.device_bindings)
-        {
-            if (binding.target != target)
-                continue;
+        if (group == Input::BINDING_GAMEPAD)
+            return binding.device[0] == 'G';
 
-            if (binding.device == signature)
-                return &binding;
-
-            if (binding.device == "*")
-                wildcard = &binding;
-        }
-
-        return wildcard;
+        return binding.device[0] == 'W';
     }
 
-    std::string physical_binding_text(
-        int target,
-        const std::string& signature)
+    std::string format_physical_binding(const device_binding_t& binding)
     {
-        const device_binding_t* binding =
-            find_device_binding(target, signature);
+        std::string text;
 
-        if (!binding)
-            return "-";
-
-        std::string text = binding->device == "*" ? "*" : "";
-
-        switch (binding->type)
+        switch (binding.type)
         {
             case device_binding_t::TYPE_AXIS:
-                text += "AX" + std::to_string(binding->index);
+                text = "AX" + std::to_string(binding.index);
                 break;
 
             case device_binding_t::TYPE_HAT:
-                text += "H" + std::to_string(binding->index) +
-                    hat_direction(binding->value);
+                text = "H" + std::to_string(binding.index) +
+                    hat_direction(binding.value);
                 break;
 
             default:
-                text += "B" + std::to_string(binding->index);
+                text = "B" + std::to_string(binding.index);
                 break;
         }
 
-        return clip_text(text, 8);
+        return clip_text(text, 7);
+    }
+
+    std::string group_binding_text(int target, int group)
+    {
+        const device_binding_t* first = nullptr;
+        int count = 0;
+
+        for (const auto& binding : config.controls.device_bindings)
+        {
+            if (binding.target != target || !binding_is_group(binding, group))
+                continue;
+
+            if (!first)
+                first = &binding;
+
+            count++;
+        }
+
+        if (count == 0)
+            return "-";
+
+        if (count > 1)
+            return "MULTI";
+
+        return format_physical_binding(*first);
     }
 }
 
@@ -210,7 +222,7 @@ void Menu::redefine_joystick()
     };
 
     static int selected_row = 0;
-    static int selected_col = 0; // 0 = keyboard, 1..n = physical SDL device
+    static int selected_col = COL_KEYBOARD;
     static bool capturing = false;
     static int steering_key_step = 0;
 
@@ -222,8 +234,6 @@ void Menu::redefine_joystick()
     static int wait_button = -1;
     static int wait_hat = -1;
     static int wait_hat_value = SDL_HAT_CENTERED;
-
-    const auto& devices = input.get_devices();
 
     auto clear_latches = [&]()
     {
@@ -252,8 +262,12 @@ void Menu::redefine_joystick()
     // menu_base.cpp sets redef_state to zero every time this editor is opened.
     if (redef_state == 0)
     {
+        // The first implementation stored bindings against individual device
+        // columns. Convert those to the new logical GAMEPAD/WHEEL grouping.
+        input.normalize_device_bindings();
+
         selected_row = 0;
-        selected_col = 0;
+        selected_col = COL_KEYBOARD;
         capturing = false;
         steering_key_step = 0;
         waiting_release = false;
@@ -262,11 +276,6 @@ void Menu::redefine_joystick()
         clear_latches();
         redef_state = 1;
     }
-
-    const int total_columns = 1 + static_cast<int>(devices.size());
-
-    if (selected_col >= total_columns)
-        selected_col = std::max(0, total_columns - 1);
 
     auto draw_editor = [&]()
     {
@@ -277,77 +286,57 @@ void Menu::redefine_joystick()
             14,
             4,
             "KEYBOARD",
-            (selected_row != BACK_ROW && selected_col == 0) ? ohud.PINK : ohud.GREY);
-
-        int selected_device_index = selected_col - 1;
-        int first_device = 0;
-
-        if (selected_device_index >= 2)
-            first_device = selected_device_index - 1;
-
-        if (static_cast<int>(devices.size()) > 2)
-            first_device = std::min(first_device, static_cast<int>(devices.size()) - 2);
-
-        const int device_x[2] = {23, 32};
-
-        for (int visible = 0; visible < 2; visible++)
-        {
-            const int device_index = first_device + visible;
-            if (device_index >= static_cast<int>(devices.size()))
-                continue;
-
-            const bool selected =
-                selected_row != BACK_ROW && selected_col == device_index + 1;
-            const std::string name = clip_text(devices[device_index].name, 8);
-
-            ohud.blit_text_new(
-                device_x[visible],
-                4,
-                name.c_str(),
-                selected ? ohud.PINK : ohud.GREY);
-        }
+            (selected_row != BACK_ROW && selected_col == COL_KEYBOARD)
+                ? ohud.PINK : ohud.GREY);
+        ohud.blit_text_new(
+            24,
+            4,
+            "GAMEPAD",
+            (selected_row != BACK_ROW && selected_col == COL_GAMEPAD)
+                ? ohud.PINK : ohud.GREY);
+        ohud.blit_text_new(
+            33,
+            4,
+            "WHEEL",
+            (selected_row != BACK_ROW && selected_col == COL_WHEEL)
+                ? ohud.PINK : ohud.GREY);
 
         for (int row = 0; row < BINDING_ROWS; row++)
         {
             const int y = 6 + row;
-            const bool selected_label = row == selected_row;
 
             ohud.blit_text_new(
                 1,
                 y,
                 ROW_LABELS[row],
-                selected_label ? ohud.PINK : ohud.GREEN);
+                row == selected_row ? ohud.PINK : ohud.GREEN);
 
             const std::string key_text = keyboard_binding_text(row);
+            const std::string gamepad_text =
+                group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
+            const std::string wheel_text =
+                group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
+
             ohud.blit_text_new(
                 14,
                 y,
                 key_text.c_str(),
-                (row == selected_row && selected_col == 0) ? ohud.PINK : ohud.GREEN);
-
-            for (int visible = 0; visible < 2; visible++)
-            {
-                const int device_index = first_device + visible;
-                if (device_index >= static_cast<int>(devices.size()))
-                    continue;
-
-                const std::string signature =
-                    input.get_device_signature(devices[device_index].instance_id);
-
-                const std::string binding =
-                    physical_binding_text(ROW_TARGETS[row], signature);
-
-                ohud.blit_text_new(
-                    device_x[visible],
-                    y,
-                    binding.c_str(),
-                    (row == selected_row && selected_col == device_index + 1)
-                        ? ohud.PINK
-                        : ohud.GREEN);
-            }
+                (row == selected_row && selected_col == COL_KEYBOARD)
+                    ? ohud.PINK : ohud.GREEN);
+            ohud.blit_text_new(
+                24,
+                y,
+                gamepad_text.c_str(),
+                (row == selected_row && selected_col == COL_GAMEPAD)
+                    ? ohud.PINK : ohud.GREEN);
+            ohud.blit_text_new(
+                33,
+                y,
+                wheel_text.c_str(),
+                (row == selected_row && selected_col == COL_WHEEL)
+                    ? ohud.PINK : ohud.GREEN);
         }
 
-        // A real selectable BACK entry, matching the other CannonBall menus.
         ohud.blit_text_new(
             18,
             19,
@@ -360,15 +349,17 @@ void Menu::redefine_joystick()
         }
         else if (capturing)
         {
-            if (selected_col == 0 && selected_row == 0)
+            if (selected_col == COL_KEYBOARD && selected_row == 0)
             {
                 ohud.blit_text_new(
                     4,
                     21,
-                    steering_key_step == 0 ? "PRESS STEERING LEFT KEY" : "PRESS STEERING RIGHT KEY",
+                    steering_key_step == 0
+                        ? "PRESS STEERING LEFT KEY"
+                        : "PRESS STEERING RIGHT KEY",
                     ohud.PINK);
             }
-            else if (selected_col == 0)
+            else if (selected_col == COL_KEYBOARD)
             {
                 ohud.blit_text_new(8, 21, "PRESS A KEY", ohud.PINK);
             }
@@ -389,13 +380,12 @@ void Menu::redefine_joystick()
         {
             ohud.blit_text_new(1, 21, "ARROWS: SELECT   ENTER: CHANGE", ohud.GREY);
             ohud.blit_text_new(1, 22, "DEL/BSP: CLEAR", ohud.GREY);
-
-            if (devices.size() > 2)
-                ohud.blit_text_new(1, 23, "LEFT/RIGHT SCROLLS DEVICES", ohud.GREY);
+            ohud.blit_text_new(1, 23, "WHEEL: ALL RAW INPUT DEVICES", ohud.GREY);
         }
     };
 
-    // Wait only for the control that opened the cell or was just captured.
+    // Wait for the control that opened the cell or was just captured to be
+    // released before listening again. This is what makes Enter bindable.
     if (waiting_release)
     {
         bool released = false;
@@ -411,31 +401,16 @@ void Menu::redefine_joystick()
         }
         else if (wait_type == WAIT_BUTTON)
         {
-            const InputDevice* device = input.find_device(wait_device);
-
             released =
-                device == nullptr ||
-                device->joystick == nullptr ||
-                wait_button < 0 ||
-                wait_button >= device->buttons ||
-                SDL_JoystickGetButton(device->joystick, wait_button) == 0;
+                input.joy_button_device != wait_device ||
+                input.joy_button != wait_button;
         }
         else if (wait_type == WAIT_HAT)
         {
-            const InputDevice* device = input.find_device(wait_device);
-
-            if (device == nullptr ||
-                device->joystick == nullptr ||
-                wait_hat < 0 ||
-                wait_hat >= device->hats)
-            {
-                released = true;
-            }
-            else
-            {
-                const Uint8 value = SDL_JoystickGetHat(device->joystick, wait_hat);
-                released = (value & wait_hat_value) == 0;
-            }
+            released =
+                input.joy_hat_device != wait_device ||
+                input.joy_hat != wait_hat ||
+                (input.joy_hat_value & wait_hat_value) == 0;
         }
         else
         {
@@ -461,11 +436,9 @@ void Menu::redefine_joystick()
         return;
     }
 
-    // Capture the selected cell. The key/button used to enter this state was
-    // released first, so Enter itself is now a perfectly valid binding.
     if (capturing)
     {
-        if (selected_col == 0)
+        if (selected_col == COL_KEYBOARD)
         {
             if (input.key_press != -1)
             {
@@ -484,7 +457,8 @@ void Menu::redefine_joystick()
                 }
                 else
                 {
-                    config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] = captured_key;
+                    config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] =
+                        captured_key;
                     capture_after_release = false;
                 }
 
@@ -498,16 +472,22 @@ void Menu::redefine_joystick()
             return;
         }
 
-        const int device_index = selected_col - 1;
-        if (device_index < 0 || device_index >= static_cast<int>(devices.size()))
-        {
-            capturing = false;
-            draw_editor();
-            return;
-        }
+        const int group =
+            selected_col == COL_GAMEPAD
+                ? Input::BINDING_GAMEPAD
+                : Input::BINDING_WHEEL;
 
-        const SDL_JoystickID selected_device =
-            devices[device_index].instance_id;
+        const SDL_JoystickID gamepad_device = input.get_gamepad_device();
+
+        auto accepts_device = [&](SDL_JoystickID device)
+        {
+            if (device < 0)
+                return false;
+
+            // WHEEL intentionally accepts every raw SDL input device. GAMEPAD
+            // remains restricted to the primary SDL GameController.
+            return group == Input::BINDING_WHEEL || device == gamepad_device;
+        };
 
         const int target = ROW_TARGETS[selected_row];
 
@@ -520,14 +500,15 @@ void Menu::redefine_joystick()
 
             if (axis != -1)
             {
-                if (captured_device == selected_device)
+                if (accepts_device(captured_device))
                 {
                     input.set_device_binding(
                         target,
                         device_binding_t::TYPE_AXIS,
                         axis,
                         0,
-                        selected_device);
+                        captured_device,
+                        group);
 
                     capturing = false;
                     clear_latches();
@@ -541,8 +522,9 @@ void Menu::redefine_joystick()
         if (selected_row != 0 &&
             input.joy_hat != -1 &&
             input.joy_hat_value != SDL_HAT_CENTERED &&
-            input.joy_hat_device == selected_device)
+            accepts_device(input.joy_hat_device))
         {
+            const SDL_JoystickID captured_device = input.joy_hat_device;
             const int captured_hat = input.joy_hat;
             const int captured_value = input.joy_hat_value;
 
@@ -551,13 +533,14 @@ void Menu::redefine_joystick()
                 device_binding_t::TYPE_HAT,
                 captured_hat,
                 captured_value,
-                selected_device);
+                captured_device,
+                group);
 
             capturing = false;
             waiting_release = true;
             capture_after_release = false;
             wait_type = WAIT_HAT;
-            wait_device = selected_device;
+            wait_device = captured_device;
             wait_hat = captured_hat;
             wait_hat_value = captured_value;
 
@@ -571,8 +554,9 @@ void Menu::redefine_joystick()
 
         if (selected_row != 0 &&
             input.joy_button != -1 &&
-            input.joy_button_device == selected_device)
+            accepts_device(input.joy_button_device))
         {
+            const SDL_JoystickID captured_device = input.joy_button_device;
             const int captured_button = input.joy_button;
 
             input.set_device_binding(
@@ -580,13 +564,14 @@ void Menu::redefine_joystick()
                 device_binding_t::TYPE_BUTTON,
                 captured_button,
                 0,
-                selected_device);
+                captured_device,
+                group);
 
             capturing = false;
             waiting_release = true;
             capture_after_release = false;
             wait_type = WAIT_BUTTON;
-            wait_device = selected_device;
+            wait_device = captured_device;
             wait_button = captured_button;
 
             input.joy_button = -1;
@@ -600,7 +585,8 @@ void Menu::redefine_joystick()
         return;
     }
 
-    // Browse mode: move freely through the matrix and the final BACK entry.
+    // Browse mode: move through the fixed KEYBOARD / GAMEPAD / WHEEL matrix
+    // and the final BACK entry.
     if (input.has_pressed(Input::MENU))
     {
         leave_editor();
@@ -614,7 +600,7 @@ void Menu::redefine_joystick()
             selected_row = 0;
 
         if (selected_row == BACK_ROW)
-            selected_col = 0;
+            selected_col = COL_KEYBOARD;
 
         osoundint.queue_sound(sound::BEEP1);
     }
@@ -625,14 +611,14 @@ void Menu::redefine_joystick()
             selected_row = EDITOR_ROWS - 1;
 
         if (selected_row == BACK_ROW)
-            selected_col = 0;
+            selected_col = COL_KEYBOARD;
 
         osoundint.queue_sound(sound::BEEP1);
     }
     else if (selected_row != BACK_ROW && input.has_pressed(Input::RIGHT))
     {
         selected_col++;
-        if (selected_col >= total_columns)
+        if (selected_col >= EDITOR_COLUMNS)
             selected_col = 0;
 
         osoundint.queue_sound(sound::BEEP1);
@@ -641,7 +627,7 @@ void Menu::redefine_joystick()
     {
         selected_col--;
         if (selected_col < 0)
-            selected_col = total_columns - 1;
+            selected_col = EDITOR_COLUMNS - 1;
 
         osoundint.queue_sound(sound::BEEP1);
     }
@@ -652,7 +638,7 @@ void Menu::redefine_joystick()
 
     if (clear_pressed && selected_row != BACK_ROW)
     {
-        if (selected_col == 0)
+        if (selected_col == COL_KEYBOARD)
         {
             if (selected_row == 0)
             {
@@ -666,14 +652,12 @@ void Menu::redefine_joystick()
         }
         else
         {
-            const int device_index = selected_col - 1;
+            const int group =
+                selected_col == COL_GAMEPAD
+                    ? Input::BINDING_GAMEPAD
+                    : Input::BINDING_WHEEL;
 
-            if (device_index >= 0 && device_index < static_cast<int>(devices.size()))
-            {
-                input.clear_device_binding(
-                    ROW_TARGETS[selected_row],
-                    devices[device_index].instance_id);
-            }
+            input.clear_device_bindings(ROW_TARGETS[selected_row], group);
         }
 
         input.key_press = -1;
