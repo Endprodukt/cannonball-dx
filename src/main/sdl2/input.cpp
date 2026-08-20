@@ -571,16 +571,32 @@ void Input::apply_device_axis(
 
         if (binding.target == device_binding_t::TARGET_STEER)
         {
-            int adjusted = value;
+            int raw = value;
 
-            // wheel_zone is a saturation percentage. The old expression only
-            // divided by the remaining percentage and collapsed most of the
-            // analog range around centre. Scale by 100 first as intended.
-            if (wheel_zone > 0 && wheel_zone < 100)
-                adjusted = (adjusted * 100) / (100 - wheel_zone);
+            // wheel_zone is a WHEEL saturation setting, not a gamepad-stick
+            // setting. Applying the default 75% wheel zone to a GameController
+            // makes a thumbstick far too sensitive. Only raw wheel devices use
+            // the saturation boost.
+            if (group == BINDING_WHEEL &&
+                wheel_zone > 0 && wheel_zone < 100)
+            {
+                raw = (raw * 100) / (100 - wheel_zone);
+            }
 
-            adjusted = ((adjusted + 0x8000) / 0x200);
-            adjusted += 0x40;
+            if (raw < SDL_JOYSTICK_AXIS_MIN)
+                raw = SDL_JOYSTICK_AXIS_MIN;
+            else if (raw > SDL_JOYSTICK_AXIS_MAX)
+                raw = SDL_JOYSTICK_AXIS_MAX;
+
+            // Map the signed SDL range exactly to OutRun's 0x40..0xC0 range.
+            // This keeps 0 exactly centred and allows both endpoints to reach
+            // the game's full steering limits symmetrically.
+            int adjusted = CENTRE;
+
+            if (raw >= 0)
+                adjusted += (raw * 0x40) / SDL_JOYSTICK_AXIS_MAX;
+            else
+                adjusted += (raw * 0x40) / 0x8000;
 
             if (adjusted < 0x40)
                 adjusted = 0x40;
