@@ -3,7 +3,7 @@
 
     The existing configuration implementation is retained in config_base.cpp.
     This wrapper adds persistent bindings for the three optional direct-view
-    buttons while keeping all existing settings and SmartyPi behaviour intact.
+    buttons and the per-device control-binding editor.
 ***************************************************************************/
 
 // Pre-include the base file's dependencies before the temporary method-name
@@ -18,6 +18,7 @@
 #include <cctype>
 #include <string>
 #include <cstdio>
+#include <sstream>
 
 #include "main.hpp"
 #include "config.hpp"
@@ -34,6 +35,210 @@
 #undef load
 #undef save
 
+namespace
+{
+    void add_legacy_binding(
+        controls_settings_t& controls,
+        int target,
+        int type,
+        int index,
+        int value,
+        const std::string& device)
+    {
+        if (index < 0)
+            return;
+
+        device_binding_t binding;
+        binding.target = target;
+        binding.type = type;
+        binding.index = index;
+        binding.value = value;
+        binding.device = device.empty() ? "*" : device;
+        controls.device_bindings.push_back(binding);
+    }
+
+    void migrate_legacy_device_bindings(controls_settings_t& controls)
+    {
+        // Analog controls already persisted a device signature, so those can
+        // be migrated exactly. Old button bindings had no persisted device;
+        // "*" deliberately preserves their previous any-device behaviour.
+        add_legacy_binding(
+            controls,
+            device_binding_t::TARGET_STEER,
+            device_binding_t::TYPE_AXIS,
+            controls.axis[0],
+            0,
+            controls.axis_device[0]);
+
+        add_legacy_binding(
+            controls,
+            device_binding_t::TARGET_ACCEL,
+            device_binding_t::TYPE_AXIS,
+            controls.axis[1],
+            0,
+            controls.axis_device[1]);
+
+        add_legacy_binding(
+            controls,
+            device_binding_t::TARGET_BRAKE,
+            device_binding_t::TYPE_AXIS,
+            controls.axis[2],
+            0,
+            controls.axis_device[2]);
+
+        static const int PAD_SLOT[] =
+        {
+            0,  // accelerate
+            1,  // brake
+            2,  // gear low / toggle
+            3,  // gear high
+            4,  // start
+            5,  // coin
+            6,  // menu
+            7,  // view change
+            15, // direct view 1
+            16, // direct view 2
+            17, // direct view 3
+        };
+
+        static const int TARGET[] =
+        {
+            device_binding_t::TARGET_ACCEL,
+            device_binding_t::TARGET_BRAKE,
+            device_binding_t::TARGET_GEAR1,
+            device_binding_t::TARGET_GEAR2,
+            device_binding_t::TARGET_START,
+            device_binding_t::TARGET_COIN,
+            device_binding_t::TARGET_MENU,
+            device_binding_t::TARGET_VIEW,
+            device_binding_t::TARGET_VIEW1,
+            device_binding_t::TARGET_VIEW2,
+            device_binding_t::TARGET_VIEW3,
+        };
+
+        for (int i = 0; i < 11; i++)
+        {
+            add_legacy_binding(
+                controls,
+                TARGET[i],
+                device_binding_t::TYPE_BUTTON,
+                controls.padconfig[PAD_SLOT[i]],
+                0,
+                "*");
+        }
+    }
+
+    void disable_migrated_legacy_bindings(controls_settings_t& controls)
+    {
+        // Directional D-pad/HAT bindings (8-11) and cabinet motor limits
+        // (12-14) stay in the original system for now. Everything represented
+        // by the matrix is handled by device_bindings instead.
+        controls.axis[0] = -1;
+        controls.axis[1] = -1;
+        controls.axis[2] = -1;
+        controls.axis_device[0].clear();
+        controls.axis_device[1].clear();
+        controls.axis_device[2].clear();
+
+        static const int PAD_SLOT[] =
+        {
+            0, 1, 2, 3, 4, 5, 6, 7, 15, 16, 17
+        };
+
+        for (int slot : PAD_SLOT)
+            controls.padconfig[slot] = -1;
+    }
+
+    bool parse_device_bindings(
+        const std::string& encoded,
+        std::vector<device_binding_t>& bindings)
+    {
+        bindings.clear();
+
+        if (encoded.empty())
+            return false;
+
+        std::stringstream entries(encoded);
+        std::string entry;
+
+        while (std::getline(entries, entry, ';'))
+        {
+            if (entry.empty())
+                continue;
+
+            std::stringstream fields(entry);
+            std::string target;
+            std::string type;
+            std::string index;
+            std::string value;
+            std::string device;
+
+            if (!std::getline(fields, target, ',') ||
+                !std::getline(fields, type, ',') ||
+                !std::getline(fields, index, ',') ||
+                !std::getline(fields, value, ',') ||
+                !std::getline(fields, device))
+            {
+                continue;
+            }
+
+            try
+            {
+                device_binding_t binding;
+                binding.target = std::stoi(target);
+                binding.type = std::stoi(type);
+                binding.index = std::stoi(index);
+                binding.value = std::stoi(value);
+                binding.device = device;
+
+                if (binding.target < device_binding_t::TARGET_STEER ||
+                    binding.target > device_binding_t::TARGET_VIEW3 ||
+                    binding.type < device_binding_t::TYPE_BUTTON ||
+                    binding.type > device_binding_t::TYPE_HAT ||
+                    binding.index < 0 ||
+                    binding.device.empty())
+                {
+                    continue;
+                }
+
+                bindings.push_back(binding);
+            }
+            catch (...)
+            {
+                // Ignore malformed entries and keep loading the rest.
+            }
+        }
+
+        return true;
+    }
+
+    std::string encode_device_bindings(
+        const std::vector<device_binding_t>& bindings)
+    {
+        std::ostringstream encoded;
+        bool first = true;
+
+        for (const auto& binding : bindings)
+        {
+            if (binding.index < 0 || binding.device.empty())
+                continue;
+
+            if (!first)
+                encoded << ';';
+
+            first = false;
+            encoded
+                << binding.target << ','
+                << binding.type << ','
+                << binding.index << ','
+                << binding.value << ','
+                << binding.device;
+        }
+
+        return encoded.str();
+    }
+}
+
 void Config::load()
 {
     load_base();
@@ -48,19 +253,31 @@ void Config::load()
     controls.padconfig[15] = cfg.get_int("controls.padconfig.view1", -1);
     controls.padconfig[16] = cfg.get_int("controls.padconfig.view2", -1);
     controls.padconfig[17] = cfg.get_int("controls.padconfig.view3", -1);
+
+    const std::string encoded =
+        cfg.get_string("controls.device_bindings", "");
+
+    if (!parse_device_bindings(encoded, controls.device_bindings))
+    {
+        migrate_legacy_device_bindings(controls);
+    }
+
+    disable_migrated_legacy_bindings(controls);
 }
 
 bool Config::save()
 {
-    // Add the direct-view bindings to the same config tree before the existing
-    // save routine writes it. Unknown/existing settings remain untouched.
+    // Add the direct-view keyboard bindings to the same config tree before the
+    // existing save routine writes it.
     cfg.put_int("controls.keyconfig.view1", controls.keyconfig[12]);
     cfg.put_int("controls.keyconfig.view2", controls.keyconfig[13]);
     cfg.put_int("controls.keyconfig.view3", controls.keyconfig[14]);
 
-    cfg.put_int("controls.padconfig.view1", controls.padconfig[15]);
-    cfg.put_int("controls.padconfig.view2", controls.padconfig[16]);
-    cfg.put_int("controls.padconfig.view3", controls.padconfig[17]);
+    // Per-device bindings supersede the old single pad/axis assignment for all
+    // controls represented by the matrix.
+    cfg.put_string(
+        "controls.device_bindings",
+        encode_device_bindings(controls.device_bindings));
 
     return save_base();
 }

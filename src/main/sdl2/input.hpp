@@ -41,6 +41,20 @@ public:
     void set_axis_binding(int slot, int axis, SDL_JoystickID device);
     void set_button_binding(int slot, int button, SDL_JoystickID device);
     void set_hat_binding(int slot, int hat, int value, SDL_JoystickID device);
+
+    // New binding-matrix helpers. The editor addresses real SDL devices rather
+    // than one global "pad" slot, so wheel/gamepad/shifter assignments can
+    // coexist without replacing one another.
+    const std::vector<InputDevice>& get_devices() const;
+    std::string get_device_signature(SDL_JoystickID device) const;
+    void set_device_binding(
+        int target,
+        int type,
+        int index,
+        int value,
+        SDL_JoystickID device);
+    void clear_device_binding(int target, SDL_JoystickID device);
+
     void scan_joysticks();
     void add_joystick(int device_index);
     void remove_joystick(SDL_JoystickID instance_id);
@@ -171,13 +185,21 @@ private:
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     int scale_trigger(const int);
 
+    void apply_device_button(SDL_JoystickID device, int button, bool is_pressed);
+    void apply_device_axis(SDL_JoystickID device, int axis, int value);
+    void apply_device_hat(SDL_JoystickID device, int hat, int value);
+    void set_device_target(int target, bool is_pressed);
+
     // The current multi-device implementations are retained under these names
-    // and wrapped by input.cpp to add the optional direct-view bindings.
+    // and wrapped by input.cpp to add optional direct-view/per-device bindings.
     void set_button_binding_base(int, int, SDL_JoystickID);
     void handle_key_down_base(SDL_Keysym*);
     void handle_key_up_base(SDL_Keysym*);
+    void handle_joy_axis_base(SDL_JoyAxisEvent*);
     void handle_joy_down_base(SDL_JoyButtonEvent*);
     void handle_joy_up_base(SDL_JoyButtonEvent*);
+    void handle_joy_hat_base(SDL_JoyHatEvent*);
+    void handle_controller_axis_base(SDL_ControllerAxisEvent*);
     void handle_controller_down_base(SDL_ControllerButtonEvent*);
     void handle_controller_up_base(SDL_ControllerButtonEvent*);
 };

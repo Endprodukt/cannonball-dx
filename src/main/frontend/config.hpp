@@ -149,6 +149,41 @@ struct sound_settings_t
     int custom_tracks_loaded = 0; // used to mask help text at startup if tracks are loaded
 };
 
+// A physical-device binding used by the new control-binding editor. Keyboard
+// bindings continue to use keyconfig[]; these entries allow any number of SDL
+// devices (wheel, gamepad, shifter, etc.) to remain configured in parallel.
+struct device_binding_t
+{
+    enum Type
+    {
+        TYPE_BUTTON = 0,
+        TYPE_AXIS   = 1,
+        TYPE_HAT    = 2,
+    };
+
+    enum Target
+    {
+        TARGET_STEER = 0,
+        TARGET_ACCEL,
+        TARGET_BRAKE,
+        TARGET_GEAR1,
+        TARGET_GEAR2,
+        TARGET_START,
+        TARGET_COIN,
+        TARGET_MENU,
+        TARGET_VIEW,
+        TARGET_VIEW1,
+        TARGET_VIEW2,
+        TARGET_VIEW3,
+    };
+
+    int target = TARGET_STEER;
+    int type = TYPE_BUTTON;
+    int index = -1;
+    int value = 0;              // HAT direction; unused for buttons/axes
+    std::string device;         // persistent SDL device signature, or "*" for legacy any-device binding
+};
+
 struct controls_settings_t
 {
     const static int GEAR_BUTTON   = 0;
@@ -159,14 +194,18 @@ struct controls_settings_t
     int gear;
     int steer_speed;   // Steering Digital Speed
     int pedal_speed;   // Pedal Digital Speed
-    int padconfig[18]; // Joypad Button Config (15-17 = direct view buttons)
+    int padconfig[18]; // Legacy Joypad Button Config (15-17 = direct view buttons)
     int keyconfig[15]; // Keyboard Button Config (12-14 = direct view buttons)
     int pad_id;        // Use the N'th joystick on the system.
     int analog;        // Use analog controls
-    int axis[4];       // Analog Axis
-    std::string axis_device[4]; // Persistent device signature for each analog axis
+    int axis[4];       // Legacy Analog Axis
+    std::string axis_device[4]; // Persistent device signature for each legacy analog axis
     int asettings[2];  // Analog Settings
     bool invert[3];    // Invert Analog Axis
+
+    // Persistent per-device bindings used by the binding matrix. This is kept
+    // alongside the legacy arrays so old configuration files still load.
+    std::vector<device_binding_t> device_bindings;
 
     // Custom HAT bindings for UP, DOWN, LEFT, RIGHT
     int hat[4];

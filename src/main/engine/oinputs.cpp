@@ -50,28 +50,51 @@ void OInputs::init()
 
 void OInputs::tick()
 {
-    // Digital Controls: Simulate Analog
+    // Digital-only setup: simulate all analog values as before.
     if (!input.analog || !input.gamepad)
     {
         digital_steering();
         digital_pedals();
+        return;
     }
-    // Analog Controls
+
+    // Hybrid steering. An analog wheel/stick remains live, but a currently
+    // pressed digital left/right binding temporarily takes control. This keeps
+    // keyboard and physical controllers usable at the same time.
+    if (input.is_pressed(Input::LEFT) || input.is_pressed(Input::RIGHT))
+        digital_steering();
     else
-    {
         input_steering = input.a_wheel;
 
-        // Analog Pedals
-        if (input.analog == 1)
+    // Analog pedals with digital override. Keyboard or button bindings can be
+    // used without changing the global Analog Controls setting; releasing them
+    // immediately returns control to the configured pedal/trigger axis.
+    if (input.analog == 1)
+    {
+        if (input.is_pressed(Input::ACCEL))
         {
-            input_acc      = input.a_accel;
-            input_brake    = input.a_brake;
+            input_acc += acc_inc;
+            if (input_acc > 0xFF) input_acc = 0xFF;
         }
-        // Digital Pedals
         else
         {
-            digital_pedals();
+            input_acc = input.a_accel;
         }
+
+        if (input.is_pressed(Input::BRAKE))
+        {
+            input_brake += brake_inc;
+            if (input_brake > 0xFF) input_brake = 0xFF;
+        }
+        else
+        {
+            input_brake = input.a_brake;
+        }
+    }
+    // Analog steering + digital pedals mode remains supported.
+    else
+    {
+        digital_pedals();
     }
 }
 // DIGITAL CONTROLS: Digital Simulation of analog steering
