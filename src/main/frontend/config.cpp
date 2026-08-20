@@ -27,6 +27,7 @@
 #include "engine/ohiscore.hpp"
 #include "engine/outils.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "sdl2/gamepad_rumble_state.hpp"
 
 // Retain the existing Config::load/save implementation under private names.
 #define load load_base
@@ -243,6 +244,22 @@ void Config::load()
 {
     load_base();
 
+    // Rumble enable is deliberately independent from rumble strength. Legacy
+    // configs used strength 0 as OFF, so preserve that intent on first load.
+    const bool legacy_rumble_enabled = controls.rumble > 0.0f;
+    gamepad_rumble::enabled =
+        cfg.get_int(
+            "controls.rumble_enabled",
+            legacy_rumble_enabled ? 1 : 0) != 0;
+
+    // The old default could exceed the menu's 0..1 range. Keep a valid stored
+    // strength even while rumble is disabled; the separate enable flag decides
+    // whether the motors actually run.
+    if (controls.rumble <= 0.0f)
+        controls.rumble = 0.5f;
+    else if (controls.rumble > 1.0f)
+        controls.rumble = 1.0f;
+
     // Optional direct camera selection bindings. -1 means unassigned.
     controls.keyconfig[12] = cfg.get_int("controls.keyconfig.view1", -1);
     controls.keyconfig[13] = cfg.get_int("controls.keyconfig.view2", -1);
@@ -267,6 +284,12 @@ void Config::load()
 
 bool Config::save()
 {
+    // Keep the on/off state separate so switching rumble off never overwrites
+    // the user's preferred intensity.
+    cfg.put_int(
+        "controls.rumble_enabled",
+        gamepad_rumble::enabled ? 1 : 0);
+
     // Add the direct-view keyboard bindings to the same config tree before the
     // existing save routine writes it.
     cfg.put_int("controls.keyconfig.view1", controls.keyconfig[12]);
