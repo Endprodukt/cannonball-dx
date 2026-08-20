@@ -84,11 +84,34 @@ std::string Input::get_device_signature(SDL_JoystickID device) const
 
 SDL_JoystickID Input::get_gamepad_device() const
 {
-    if (!controller)
-        return -1;
+    // Do not depend on the one legacy controller pointer here. With several
+    // physical devices connected (wheel, pedals, shifter, gamepad), pad_id can
+    // refer to a raw joystick and controller may therefore be null even though
+    // SDL has a perfectly valid GameController connected.
+    const int count = SDL_NumJoysticks();
 
-    SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
-    return joystick ? SDL_JoystickInstanceID(joystick) : -1;
+    for (int i = 0; i < count; i++)
+    {
+        if (!SDL_IsGameController(i))
+            continue;
+
+        const SDL_JoystickID instance_id =
+            SDL_JoystickGetDeviceInstanceID(i);
+
+        if (instance_id >= 0)
+            return instance_id;
+    }
+
+    // Fallback for unusual backends where the controller is open but no longer
+    // appears in the current device-index scan.
+    if (controller)
+    {
+        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
+        if (joystick)
+            return SDL_JoystickInstanceID(joystick);
+    }
+
+    return -1;
 }
 
 void Input::normalize_device_bindings()
