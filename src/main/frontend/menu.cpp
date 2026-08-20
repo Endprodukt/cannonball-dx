@@ -22,6 +22,7 @@
 
 #include "frontend/cabdiag.hpp"
 #include "frontend/ttrial.hpp"
+#include "sdl2/gamepad_rumble_state.hpp"
 
 #include <iostream>
 #include "directx/ffeedback.hpp"
@@ -46,6 +47,19 @@ namespace
     const int COL_KEYBOARD = 0;
     const int COL_GAMEPAD = 1;
     const int COL_WHEEL = 2;
+
+    const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
+
+    bool starts_with_label(const std::string& value, const char* label)
+    {
+        return value.rfind(label, 0) == 0;
+    }
+
+    std::string gamepad_rumble_menu_text()
+    {
+        return std::string(GAMEPAD_RUMBLE_LABEL) +
+            (gamepad_rumble::enabled ? "ON" : "OFF");
+    }
 
     const char* ROW_LABELS[BINDING_ROWS] =
     {
@@ -228,10 +242,27 @@ void Menu::tick()
 
 void Menu::populate_controls()
 {
+    // Probe the GameController path before the base menu decides whether the
+    // rumble options should be visible. enable=false guarantees no vibration.
+    input.set_rumble(false, config.controls.rumble, 0);
+
     // Use the short label requested by the new unified binding editor and put
     // it first whenever the Controls menu is rebuilt.
     ENTRY_REDEFJOY = "CONFIG INPUTS";
     MenuBase::populate_controls();
+
+    // Rumble now has a real enable switch. Strength remains a separate setting
+    // and no longer doubles as an OFF state, so disabling it preserves level.
+    const auto rumble_strength = std::find_if(
+        menu_controls.begin(),
+        menu_controls.end(),
+        [](const std::string& entry)
+        {
+            return starts_with_label(entry, ENTRY_RUMBLE);
+        });
+
+    if (rumble_strength != menu_controls.end())
+        menu_controls.insert(rumble_strength, gamepad_rumble_menu_text());
 
     const auto it = std::find(
         menu_controls.begin(),
@@ -259,7 +290,41 @@ bool Menu::select_pressed()
 
     return_was_down = return_down;
 
-    return return_pressed || MenuBase::select_pressed();
+    const bool pressed = return_pressed || MenuBase::select_pressed();
+    if (!pressed)
+        return false;
+
+    if (menu_selected == &menu_controls &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_controls.size()))
+    {
+        const std::string& option = menu_controls[cursor];
+
+        if (starts_with_label(option, GAMEPAD_RUMBLE_LABEL))
+        {
+            gamepad_rumble::enabled = !gamepad_rumble::enabled;
+
+            // Stop immediately when switching off. When switching on this also
+            // refreshes/probes the controller without producing a vibration.
+            input.set_rumble(false, config.controls.rumble, 0);
+            menu_controls[cursor] = gamepad_rumble_menu_text();
+            return false;
+        }
+
+        if (starts_with_label(option, ENTRY_RUMBLE))
+        {
+            // With a separate ON/OFF switch, strength only cycles through real
+            // levels instead of wrapping through the old OFF/zero state.
+            config.controls.rumble += 0.25f;
+            if (config.controls.rumble > 1.0f || config.controls.rumble <= 0.0f)
+                config.controls.rumble = 0.25f;
+
+            refresh_menu();
+            return false;
+        }
+    }
+
+    return true;
 }
 
 void Menu::redefine_joystick()
