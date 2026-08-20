@@ -39,6 +39,8 @@
 namespace
 {
     const int BINDING_ROWS = 12;
+    const int BACK_ROW = BINDING_ROWS;
+    const int EDITOR_ROWS = BINDING_ROWS + 1;
 
     const char* ROW_LABELS[BINDING_ROWS] =
     {
@@ -234,6 +236,19 @@ void Menu::redefine_joystick()
         input.reset_axis_config();
     };
 
+    auto leave_editor = [&]()
+    {
+        clear_latches();
+        capturing = false;
+        waiting_release = false;
+        capture_after_release = false;
+        steering_key_step = 0;
+        wait_type = WAIT_NONE;
+        redef_state = 0;
+        state = STATE_MENU;
+        refresh_menu();
+    };
+
     // menu_base.cpp sets redef_state to zero every time this editor is opened.
     if (redef_state == 0)
     {
@@ -262,7 +277,7 @@ void Menu::redefine_joystick()
             14,
             4,
             "KEYBOARD",
-            selected_col == 0 ? ohud.PINK : ohud.GREY);
+            (selected_row != BACK_ROW && selected_col == 0) ? ohud.PINK : ohud.GREY);
 
         int selected_device_index = selected_col - 1;
         int first_device = 0;
@@ -281,7 +296,8 @@ void Menu::redefine_joystick()
             if (device_index >= static_cast<int>(devices.size()))
                 continue;
 
-            const bool selected = selected_col == device_index + 1;
+            const bool selected =
+                selected_row != BACK_ROW && selected_col == device_index + 1;
             const std::string name = clip_text(devices[device_index].name, 8);
 
             ohud.blit_text_new(
@@ -331,9 +347,16 @@ void Menu::redefine_joystick()
             }
         }
 
+        // A real selectable BACK entry, matching the other CannonBall menus.
+        ohud.blit_text_new(
+            18,
+            19,
+            "BACK",
+            selected_row == BACK_ROW ? ohud.PINK : ohud.GREEN);
+
         if (waiting_release)
         {
-            ohud.blit_text_new(11, 20, "RELEASE CONTROL", ohud.PINK);
+            ohud.blit_text_new(11, 21, "RELEASE CONTROL", ohud.PINK);
         }
         else if (capturing)
         {
@@ -341,34 +364,34 @@ void Menu::redefine_joystick()
             {
                 ohud.blit_text_new(
                     4,
-                    20,
+                    21,
                     steering_key_step == 0 ? "PRESS STEERING LEFT KEY" : "PRESS STEERING RIGHT KEY",
                     ohud.PINK);
             }
             else if (selected_col == 0)
             {
-                ohud.blit_text_new(8, 20, "PRESS A KEY", ohud.PINK);
+                ohud.blit_text_new(8, 21, "PRESS A KEY", ohud.PINK);
             }
             else if (selected_row == 0)
             {
-                ohud.blit_text_new(5, 20, "MOVE STEERING AXIS", ohud.PINK);
+                ohud.blit_text_new(5, 21, "MOVE STEERING AXIS", ohud.PINK);
             }
             else if (selected_row == 1 || selected_row == 2)
             {
-                ohud.blit_text_new(2, 20, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
+                ohud.blit_text_new(2, 21, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
             }
             else
             {
-                ohud.blit_text_new(5, 20, "PRESS BUTTON OR HAT", ohud.PINK);
+                ohud.blit_text_new(5, 21, "PRESS BUTTON OR HAT", ohud.PINK);
             }
         }
         else
         {
-            ohud.blit_text_new(1, 20, "ARROWS: SELECT   ENTER: CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, 21, "DEL/BSP: CLEAR   MENU: BACK", ohud.GREY);
+            ohud.blit_text_new(1, 21, "ARROWS: SELECT   ENTER: CHANGE", ohud.GREY);
+            ohud.blit_text_new(1, 22, "DEL/BSP: CLEAR", ohud.GREY);
 
             if (devices.size() > 2)
-                ohud.blit_text_new(1, 22, "LEFT/RIGHT SCROLLS DEVICES", ohud.GREY);
+                ohud.blit_text_new(1, 23, "LEFT/RIGHT SCROLLS DEVICES", ohud.GREY);
         }
     };
 
@@ -577,21 +600,21 @@ void Menu::redefine_joystick()
         return;
     }
 
-    // Browse mode: move freely through the matrix and edit just one cell.
+    // Browse mode: move freely through the matrix and the final BACK entry.
     if (input.has_pressed(Input::MENU))
     {
-        clear_latches();
-        redef_state = 0;
-        state = STATE_MENU;
-        refresh_menu();
+        leave_editor();
         return;
     }
 
     if (input.has_pressed(Input::DOWN))
     {
         selected_row++;
-        if (selected_row >= BINDING_ROWS)
+        if (selected_row >= EDITOR_ROWS)
             selected_row = 0;
+
+        if (selected_row == BACK_ROW)
+            selected_col = 0;
 
         osoundint.queue_sound(sound::BEEP1);
     }
@@ -599,11 +622,14 @@ void Menu::redefine_joystick()
     {
         selected_row--;
         if (selected_row < 0)
-            selected_row = BINDING_ROWS - 1;
+            selected_row = EDITOR_ROWS - 1;
+
+        if (selected_row == BACK_ROW)
+            selected_col = 0;
 
         osoundint.queue_sound(sound::BEEP1);
     }
-    else if (input.has_pressed(Input::RIGHT))
+    else if (selected_row != BACK_ROW && input.has_pressed(Input::RIGHT))
     {
         selected_col++;
         if (selected_col >= total_columns)
@@ -611,7 +637,7 @@ void Menu::redefine_joystick()
 
         osoundint.queue_sound(sound::BEEP1);
     }
-    else if (input.has_pressed(Input::LEFT))
+    else if (selected_row != BACK_ROW && input.has_pressed(Input::LEFT))
     {
         selected_col--;
         if (selected_col < 0)
@@ -624,7 +650,7 @@ void Menu::redefine_joystick()
         input.key_press == SDLK_DELETE ||
         input.key_press == SDLK_BACKSPACE;
 
-    if (clear_pressed)
+    if (clear_pressed && selected_row != BACK_ROW)
     {
         if (selected_col == 0)
         {
@@ -660,6 +686,13 @@ void Menu::redefine_joystick()
 
     if (activate)
     {
+        if (selected_row == BACK_ROW)
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            leave_editor();
+            return;
+        }
+
         capturing = false;
         steering_key_step = 0;
         capture_after_release = true;
