@@ -166,4 +166,9 @@ private:
 
     void do_vibrate_upright();
     void do_vibrate_mini();
+
+    // Original SmartyPi console-output implementation. The public method
+    // wraps this so SmartyPi remains unchanged while external outputs are
+    // emitted in parallel.
+    void writeDigitalToConsole_base();
 };

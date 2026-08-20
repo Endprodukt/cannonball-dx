@@ -11,23 +11,27 @@
 #pragma once
 
 #include <vector>
+#include <string>
 #include "stdint.hpp"
 
 class CabDiag;
 class TTrial;
 
-class Menu
+// Base menu implementation retained from the current CannonBall-SE code.
+// Menu derives from this only so the external-output feature can extend the
+// unified control-binding wizard without rewriting the rest of the menu.
+class MenuBase
 {
 public:
-    Menu();
-    ~Menu(void);
+    MenuBase();
+    virtual ~MenuBase(void);
 
     void populate();
     void init(bool init_main_menu = true);
     void tick();
     void restart_video();
 
-private:
+protected:
     CabDiag* cabdiag;
 
     // Menu state
@@ -106,7 +110,7 @@ private:
     std::vector<std::string> menu_s_enhance;        // smartypi specific
 
     std::vector<std::string> text_redefine;
-    
+
     void populate_for_pc();
     void populate_controls();
     void populate_for_cabinet();
@@ -120,8 +124,18 @@ private:
     void refresh_menu();
     void set_menu_text(std::string s1, std::string s2);
     void redefine_keyboard();
-    void redefine_joystick();
+    virtual void redefine_joystick();
     void display_message(std::string);
     bool check_jap_roms();
     void start_game(int mode, int settings = 0);
+};
+
+class Menu : public MenuBase
+{
+public:
+    Menu() = default;
+    ~Menu() override = default;
+
+protected:
+    void redefine_joystick() override;
 };

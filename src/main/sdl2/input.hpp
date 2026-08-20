@@ -64,21 +64,27 @@ public:
         START = 8,
         COIN  = 9,
         VIEWPOINT = 10,
-        
+
         PAUSE = 11,
         STEP  = 12,
         TIMER = 13,
-        MENU = 14,     
+        MENU = 14,
+
+        // Optional direct camera selection. VIEWPOINT remains the existing
+        // cycle-through-views control for single-button cabinets/controllers.
+        VIEW1 = 15,
+        VIEW2 = 16,
+        VIEW3 = 17,
     };
 
-    bool keys[15];
-    bool keys_old[15];
+    bool keys[18];
+    bool keys_old[18];
 
     enum limits
     {
         SW_LEFT   = 0,
-        SW_CENTRE = 1,   
-        SW_RIGHT  = 2,   
+        SW_CENTRE = 1,
+        SW_RIGHT  = 2,
     };
     bool motor_limits[3];
 
@@ -129,7 +135,7 @@ public:
 
 private:
     SDL_JoystickID axis_device[4];
-    SDL_JoystickID button_device[15];
+    SDL_JoystickID button_device[18];
 
     SDL_JoystickID axis_last_device;
     SDL_JoystickID axis_config_device;
@@ -164,6 +170,16 @@ private:
     void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     int scale_trigger(const int);
+
+    // The current multi-device implementations are retained under these names
+    // and wrapped by input.cpp to add the optional direct-view bindings.
+    void set_button_binding_base(int, int, SDL_JoystickID);
+    void handle_key_down_base(SDL_Keysym*);
+    void handle_key_up_base(SDL_Keysym*);
+    void handle_joy_down_base(SDL_JoyButtonEvent*);
+    void handle_joy_up_base(SDL_JoyButtonEvent*);
+    void handle_controller_down_base(SDL_ControllerButtonEvent*);
+    void handle_controller_up_base(SDL_ControllerButtonEvent*);
 };
 
 extern Input input;

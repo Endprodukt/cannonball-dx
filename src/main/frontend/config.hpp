@@ -159,8 +159,8 @@ struct controls_settings_t
     int gear;
     int steer_speed;   // Steering Digital Speed
     int pedal_speed;   // Pedal Digital Speed
-    int padconfig[15]; // Joypad Button Config
-    int keyconfig[12]; // Keyboard Button Config
+    int padconfig[18]; // Joypad Button Config (15-17 = direct view buttons)
+    int keyconfig[15]; // Keyboard Button Config (12-14 = direct view buttons)
     int pad_id;        // Use the N'th joystick on the system.
     int analog;        // Use analog controls
     int axis[4];       // Analog Axis
@@ -270,7 +270,12 @@ public:
 
     // To support multi-threaded SDL module:
     bool videoRestartRequired = false;
+
 private:
+    // Original config implementation retained by config.cpp wrapper.
+    void load_base();
+    bool save_base();
+
     xml_parser::ptree cfg;
 };
 
