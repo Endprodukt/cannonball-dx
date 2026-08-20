@@ -112,7 +112,7 @@ protected:
     std::vector<std::string> text_redefine;
 
     void populate_for_pc();
-    void populate_controls();
+    virtual void populate_controls();
     void populate_for_cabinet();
     void tick_ui();
     void draw_menu_options();
@@ -136,13 +136,12 @@ public:
     Menu() = default;
     ~Menu() override = default;
 
-    // Small wrapper hooks used by the SE binding editor: adjust the menu layout
-    // after the legacy population code runs and prevent analog steering from
-    // moving normal menu cursors.
-    void populate();
+    // Wrapper hook used to keep analog steering from moving normal menu
+    // cursors while leaving in-game steering untouched.
     void tick();
 
 protected:
+    void populate_controls() override;
     bool select_pressed() override;
     void redefine_joystick() override;
 };
