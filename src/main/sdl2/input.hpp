@@ -44,9 +44,8 @@ public:
 
     // The editor has three logical input groups. KEYBOARD is handled by the
     // existing keyconfig array. GAMEPAD uses the primary SDL GameController.
-    // WHEEL is deliberately an aggregate bucket: any raw SDL joystick device
-    // can contribute bindings (wheel, pedals, shifter, button box, joystick,
-    // or even the raw side of a gamepad).
+    // WHEEL is an aggregate bucket for raw non-gamepad SDL joystick devices
+    // such as wheels, pedals, shifters, button boxes and joysticks.
     enum binding_groups
     {
         BINDING_GAMEPAD = 0,
@@ -216,13 +215,17 @@ private:
     void capture_raw_axis_motion(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     int scale_trigger(const int);
 
-    void apply_device_button(SDL_JoystickID device, int button, bool is_pressed);
-    void apply_device_axis(SDL_JoystickID device, int axis, int value);
-    void apply_device_hat(SDL_JoystickID device, int hat, int value);
+    void apply_device_button(SDL_JoystickID device, int button, bool is_pressed, int group);
+    void apply_device_axis(SDL_JoystickID device, int axis, int value, int group);
+    void apply_device_hat(SDL_JoystickID device, int hat, int value, int group);
     void set_device_target(int target, bool is_pressed);
+    void ensure_gamecontroller_open();
 
     // The current multi-device implementations are retained under these names
     // and wrapped by input.cpp to add optional direct-view/per-device bindings.
+    void scan_joysticks_base();
+    void add_joystick_base(int);
+    void remove_joystick_base(SDL_JoystickID);
     void set_button_binding_base(int, int, SDL_JoystickID);
     void handle_key_down_base(SDL_Keysym*);
     void handle_key_up_base(SDL_Keysym*);
