@@ -144,12 +144,14 @@ void Input::scan_joysticks()
 {
     scan_joysticks_base();
     ensure_gamecontroller_open();
+    normalize_device_bindings();
 }
 
 void Input::add_joystick(int device_index)
 {
     add_joystick_base(device_index);
     ensure_gamecontroller_open();
+    normalize_device_bindings();
 }
 
 void Input::remove_joystick(SDL_JoystickID instance_id)
@@ -169,6 +171,7 @@ void Input::remove_joystick(SDL_JoystickID instance_id)
 
     remove_joystick_base(instance_id);
     ensure_gamecontroller_open();
+    normalize_device_bindings();
 }
 
 const std::vector<InputDevice>& Input::get_devices() const
@@ -261,6 +264,44 @@ void Input::normalize_device_bindings()
             binding.device = std::string(WHEEL_PREFIX) + binding.device;
         }
     }
+
+    // A GAMEPAD cell represents one logical control. Older versions of the
+    // matrix appended every rebind and therefore displayed MULTI and executed
+    // all old buttons. Keep only the most recently stored binding per target.
+    std::vector<int> last_gamepad_binding(
+        device_binding_t::TARGET_VIEW3 + 1,
+        -1);
+
+    for (int i = 0; i < static_cast<int>(bindings.size()); i++)
+    {
+        const auto& binding = bindings[i];
+        if (binding_is_group(binding.device, BINDING_GAMEPAD) &&
+            binding.target >= device_binding_t::TARGET_STEER &&
+            binding.target <= device_binding_t::TARGET_VIEW3)
+        {
+            last_gamepad_binding[binding.target] = i;
+        }
+    }
+
+    std::vector<device_binding_t> normalized;
+    normalized.reserve(bindings.size());
+
+    for (int i = 0; i < static_cast<int>(bindings.size()); i++)
+    {
+        const auto& binding = bindings[i];
+
+        if (binding_is_group(binding.device, BINDING_GAMEPAD) &&
+            binding.target >= device_binding_t::TARGET_STEER &&
+            binding.target <= device_binding_t::TARGET_VIEW3 &&
+            last_gamepad_binding[binding.target] != i)
+        {
+            continue;
+        }
+
+        normalized.push_back(binding);
+    }
+
+    bindings.swap(normalized);
 }
 
 void Input::set_device_binding(
@@ -302,17 +343,35 @@ void Input::set_device_binding(
 
     auto& bindings = config.controls.device_bindings;
 
-    // Logical cells are additive. This allows, for example, one function to be
-    // triggered by a paddle on the wheel and a separate USB shifter button.
-    for (const auto& existing : bindings)
+    if (group == BINDING_GAMEPAD)
     {
-        if (existing.target == target &&
-            existing.type == type &&
-            existing.index == index &&
-            existing.value == value &&
-            existing.device == stored_device)
+        // GAMEPAD cells are single assignments. Rebinding must replace the
+        // previous button/axis instead of silently appending another one.
+        bindings.erase(
+            std::remove_if(
+                bindings.begin(),
+                bindings.end(),
+                [&](const device_binding_t& binding)
+                {
+                    return binding.target == target &&
+                        binding_is_group(binding.device, BINDING_GAMEPAD);
+                }),
+            bindings.end());
+    }
+    else
+    {
+        // WHEEL remains additive so a function can deliberately be triggered
+        // by controls on several raw devices such as a wheel and USB shifter.
+        for (const auto& existing : bindings)
         {
-            return;
+            if (existing.target == target &&
+                existing.type == type &&
+                existing.index == index &&
+                existing.value == value &&
+                existing.device == stored_device)
+            {
+                return;
+            }
         }
     }
 
@@ -719,6 +778,27 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 {
     handle_controller_down_base(evt);
+
+    // The D-pad is a permanent menu/navigation fallback, just like the arrow
+    // keys. This must not depend on old padconfig values being present.
+    switch (evt->button)
+    {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:
+            keys[UP] = true;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+            keys[DOWN] = true;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+            keys[LEFT] = true;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+            keys[RIGHT] = true;
+            break;
+        default:
+            break;
+    }
+
     apply_device_button(
         evt->which,
         evt->button,
@@ -739,6 +819,25 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
 {
     handle_controller_up_base(evt);
+
+    switch (evt->button)
+    {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:
+            keys[UP] = false;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+            keys[DOWN] = false;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+            keys[LEFT] = false;
+            break;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+            keys[RIGHT] = false;
+            break;
+        default:
+            break;
+    }
+
     apply_device_button(
         evt->which,
         evt->button,
