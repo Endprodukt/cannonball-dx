@@ -715,9 +715,12 @@ void Menu::redefine_joystick()
         osoundint.queue_sound(sound::BEEP1);
     }
 
+    // Call select_pressed first so its RETURN edge state is updated even when
+    // input.key_press also contains RETURN. Otherwise BACK can immediately
+    // re-open CONFIG INPUTS on the following menu frame while Return is held.
     const bool activate =
-        input.key_press == SDLK_RETURN ||
-        select_pressed();
+        select_pressed() ||
+        input.key_press == SDLK_RETURN;
 
     if (activate)
     {
