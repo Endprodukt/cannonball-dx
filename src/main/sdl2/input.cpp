@@ -3,7 +3,7 @@
 
     The existing multi-device implementation is retained in input_base.cpp.
     This wrapper adds optional direct buttons for the three enhanced views and
-    persistent per-device bindings used by the control-binding matrix.
+    persistent logical GAMEPAD/WHEEL binding groups used by the binding matrix.
 ***************************************************************************/
 
 #include "sdl2/input.hpp"
@@ -18,6 +18,7 @@
 #define handle_controller_axis handle_controller_axis_base
 #define handle_controller_down handle_controller_down_base
 #define handle_controller_up   handle_controller_up_base
+#define reset_axis_config      reset_axis_config_base
 #include "sdl2/input_base.cpp"
 #undef set_button_binding
 #undef handle_key_down
@@ -29,6 +30,46 @@
 #undef handle_controller_axis
 #undef handle_controller_down
 #undef handle_controller_up
+#undef reset_axis_config
+
+namespace
+{
+    const char* GAMEPAD_PREFIX = "G:";
+    const char* WHEEL_PREFIX = "W:";
+
+    bool has_group_prefix(const std::string& device)
+    {
+        return device.size() >= 2 &&
+            (device.compare(0, 2, GAMEPAD_PREFIX) == 0 ||
+             device.compare(0, 2, WHEEL_PREFIX) == 0);
+    }
+
+    std::string raw_binding_signature(const std::string& device)
+    {
+        if (has_group_prefix(device))
+            return device.substr(2);
+
+        return device;
+    }
+
+    bool binding_matches_signature(
+        const std::string& stored_device,
+        const std::string& signature)
+    {
+        const std::string stored_signature =
+            raw_binding_signature(stored_device);
+
+        return stored_signature == "*" || stored_signature == signature;
+    }
+
+    bool binding_is_group(const std::string& device, int group)
+    {
+        if (group == Input::BINDING_GAMEPAD)
+            return device.compare(0, 2, GAMEPAD_PREFIX) == 0;
+
+        return device.compare(0, 2, WHEEL_PREFIX) == 0;
+    }
+}
 
 const std::vector<InputDevice>& Input::get_devices() const
 {
@@ -41,18 +82,58 @@ std::string Input::get_device_signature(SDL_JoystickID device) const
     return input_device ? make_device_signature(*input_device) : std::string();
 }
 
+SDL_JoystickID Input::get_gamepad_device() const
+{
+    if (!controller)
+        return -1;
+
+    SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
+    return joystick ? SDL_JoystickInstanceID(joystick) : -1;
+}
+
+void Input::normalize_device_bindings()
+{
+    const SDL_JoystickID gamepad_device = get_gamepad_device();
+    const std::string gamepad_signature =
+        get_device_signature(gamepad_device);
+
+    for (auto& binding : config.controls.device_bindings)
+    {
+        if (has_group_prefix(binding.device))
+            continue;
+
+        if (binding.device == "*")
+        {
+            // Old wildcard pad mappings are safest in the aggregate WHEEL
+            // bucket. They remain usable until the user replaces/clears them.
+            binding.device = std::string(WHEEL_PREFIX) + "*";
+        }
+        else if (!gamepad_signature.empty() &&
+                 binding.device == gamepad_signature)
+        {
+            binding.device = std::string(GAMEPAD_PREFIX) + binding.device;
+        }
+        else
+        {
+            binding.device = std::string(WHEEL_PREFIX) + binding.device;
+        }
+    }
+}
+
 void Input::set_device_binding(
     int target,
     int type,
     int index,
     int value,
-    SDL_JoystickID device)
+    SDL_JoystickID device,
+    int group)
 {
     if (target < device_binding_t::TARGET_STEER ||
         target > device_binding_t::TARGET_VIEW3 ||
         type < device_binding_t::TYPE_BUTTON ||
         type > device_binding_t::TYPE_HAT ||
-        index < 0)
+        index < 0 ||
+        (group != BINDING_GAMEPAD && group != BINDING_WHEEL))
     {
         return;
     }
@@ -61,10 +142,39 @@ void Input::set_device_binding(
     if (signature.empty())
         return;
 
+    const std::string stored_device =
+        std::string(group == BINDING_GAMEPAD ? GAMEPAD_PREFIX : WHEEL_PREFIX) +
+        signature;
+
     auto& bindings = config.controls.device_bindings;
 
-    // A concrete device assignment supersedes an old wildcard assignment for
-    // this action, and replaces the previous assignment in this exact cell.
+    // Logical cells are additive. This allows, for example, one function to be
+    // triggered by a paddle on the wheel and a separate USB shifter button.
+    for (const auto& existing : bindings)
+    {
+        if (existing.target == target &&
+            existing.type == type &&
+            existing.index == index &&
+            existing.value == value &&
+            existing.device == stored_device)
+        {
+            return;
+        }
+    }
+
+    device_binding_t binding;
+    binding.target = target;
+    binding.type = type;
+    binding.index = index;
+    binding.value = value;
+    binding.device = stored_device;
+    bindings.push_back(binding);
+}
+
+void Input::clear_device_bindings(int target, int group)
+{
+    auto& bindings = config.controls.device_bindings;
+
     bindings.erase(
         std::remove_if(
             bindings.begin(),
@@ -72,17 +182,9 @@ void Input::set_device_binding(
             [&](const device_binding_t& binding)
             {
                 return binding.target == target &&
-                    (binding.device == "*" || binding.device == signature);
+                    binding_is_group(binding.device, group);
             }),
         bindings.end());
-
-    device_binding_t binding;
-    binding.target = target;
-    binding.type = type;
-    binding.index = index;
-    binding.value = value;
-    binding.device = signature;
-    bindings.push_back(binding);
 }
 
 void Input::clear_device_binding(int target, SDL_JoystickID device)
@@ -100,7 +202,7 @@ void Input::clear_device_binding(int target, SDL_JoystickID device)
             [&](const device_binding_t& binding)
             {
                 return binding.target == target &&
-                    (binding.device == signature || binding.device == "*");
+                    binding_matches_signature(binding.device, signature);
             }),
         bindings.end());
 }
@@ -180,7 +282,7 @@ void Input::apply_device_button(
     {
         if (binding.type != device_binding_t::TYPE_BUTTON ||
             binding.index != button ||
-            (binding.device != "*" && binding.device != signature))
+            !binding_matches_signature(binding.device, signature))
         {
             continue;
         }
@@ -202,7 +304,7 @@ void Input::apply_device_hat(
     {
         if (binding.type != device_binding_t::TYPE_HAT ||
             binding.index != hat ||
-            (binding.device != "*" && binding.device != signature))
+            !binding_matches_signature(binding.device, signature))
         {
             continue;
         }
@@ -231,7 +333,7 @@ void Input::apply_device_axis(
     {
         if (binding.type != device_binding_t::TYPE_AXIS ||
             binding.index != ax ||
-            (binding.device != "*" && binding.device != signature))
+            !binding_matches_signature(binding.device, signature))
         {
             continue;
         }
@@ -268,10 +370,14 @@ void Input::apply_device_axis(
             int working = invert[invert_slot] ? -value : value;
             int scaled = 0;
 
-            // Scale per originating device rather than relying on the one
-            // global SDL_GameController pointer. This matters when a wheel and
-            // a gamepad are connected at the same time.
-            if (SDL_GameControllerFromInstanceID(device) != nullptr)
+            // GAMEPAD bindings use SDL's controller trigger range. WHEEL
+            // bindings always use the raw joystick range, even if SDL also
+            // happens to recognise that physical device as a GameController.
+            if (binding.device.compare(0, 2, GAMEPAD_PREFIX) == 0)
+                scaled = working / 0x80;
+            else if (binding.device.compare(0, 2, WHEEL_PREFIX) == 0)
+                scaled = (working + 0x8000) / 0x100;
+            else if (SDL_GameControllerFromInstanceID(device) != nullptr)
                 scaled = working / 0x80;
             else
                 scaled = (working + 0x8000) / 0x100;
@@ -287,6 +393,62 @@ void Input::apply_device_axis(
                 a_brake = scaled;
         }
     }
+}
+
+void Input::reset_axis_config()
+{
+    reset_axis_config_base();
+
+    // Snapshot every raw axis at the moment a new cell starts listening. Axis
+    // detection is then based on movement away from that position instead of
+    // assuming a particular centre/rest value. This is important for pedals.
+    axis_capture_baseline.clear();
+    SDL_JoystickUpdate();
+
+    for (const auto& device : devices)
+    {
+        if (!device.joystick)
+            continue;
+
+        for (int ax = 0; ax < device.axes; ax++)
+        {
+            AxisCaptureBaseline baseline;
+            baseline.device = device.instance_id;
+            baseline.axis = ax;
+            baseline.value = SDL_JoystickGetAxis(device.joystick, ax);
+            axis_capture_baseline.push_back(baseline);
+        }
+    }
+}
+
+void Input::capture_raw_axis_motion(
+    SDL_JoystickID device,
+    const uint8_t ax,
+    const int16_t value)
+{
+    const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
+
+    for (const auto& baseline : axis_capture_baseline)
+    {
+        if (baseline.device != device || baseline.axis != ax)
+            continue;
+
+        if (std::abs(static_cast<int>(value) - baseline.value) >= threshold)
+        {
+            axis_config = ax;
+            axis_config_device = device;
+            axis_counter = 2;
+        }
+        return;
+    }
+
+    // A device/axis may have appeared after the snapshot. Remember its current
+    // value; the next real movement can then be detected normally.
+    AxisCaptureBaseline baseline;
+    baseline.device = device;
+    baseline.axis = ax;
+    baseline.value = value;
+    axis_capture_baseline.push_back(baseline);
 }
 
 void Input::handle_key_down(SDL_Keysym* keysym)
@@ -309,69 +471,54 @@ void Input::handle_key_up(SDL_Keysym* keysym)
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
-    // SDL can emit both JOY and CONTROLLER events for the same device when it
-    // has been opened as an SDL_GameController. Ignore only that device's raw
-    // duplicate event. Other raw devices (wheels, shifters, joysticks, button
-    // boxes, etc.) must remain fully active even while a gamepad is connected.
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
-
-    // Do not use handle_joy_axis_base() here: the legacy implementation checks
-    // the one global controller pointer and would reject every raw joystick as
-    // soon as any GameController is open.
+    // Raw joystick input is deliberately never discarded here. The WHEEL
+    // column is an aggregate raw-input bucket and must see wheels, pedals,
+    // shifters, joysticks and button boxes regardless of any GameController.
     handle_axis(evt->which, evt->axis, evt->value);
-
-    // handle_axis only runs capture logic while analog mode is enabled. The
-    // binding editor must be able to discover axes regardless of that setting.
-    if (!analog)
-        store_last_axis(evt->which, evt->axis, evt->value);
-
+    capture_raw_axis_motion(evt->which, evt->axis, evt->value);
     apply_device_axis(evt->which, evt->axis, evt->value);
 }
 
 void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 {
+    // Preserve the working SDL GameController path for the GAMEPAD column.
     handle_controller_axis_base(evt);
-
-    if (!analog)
-        store_last_axis(evt->which, evt->axis, evt->value);
-
     apply_device_axis(evt->which, evt->axis, evt->value);
 }
 
 void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
-    // See handle_joy_axis(): suppress only the raw duplicate belonging to an
-    // actually opened SDL_GameController, never every joystick globally.
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
-
+    // Always expose raw button events to the binding editor, even when the same
+    // physical device also has an SDL GameController representation.
     joy_button = evt->button;
     joy_button_device = evt->which;
 
-    // Preserve legacy button behaviour for raw devices and also feed the new
-    // per-device binding layer.
-    handle_joy(evt->which, evt->button, true);
+    // Avoid feeding a duplicate raw event into legacy GameController mappings,
+    // but always feed the new per-device binding layer.
+    const bool controller_duplicate =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+
+    if (!controller_duplicate)
+        handle_joy(evt->which, evt->button, true);
+
     apply_device_button(evt->which, evt->button, true);
 
-    // Legacy direct-view fallback. New configs normally migrate these slots to
-    // device_bindings, but keeping this makes older in-memory setups harmless.
-    auto matches = [&](int slot)
+    if (!controller_duplicate)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = true;
-    if (matches(16)) keys[VIEW2] = true;
-    if (matches(17)) keys[VIEW3] = true;
+        if (matches(15)) keys[VIEW1] = true;
+        if (matches(16)) keys[VIEW2] = true;
+        if (matches(17)) keys[VIEW3] = true;
+    }
 }
 
 void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
-
     if (joy_button == evt->button &&
         joy_button_device == evt->which)
     {
@@ -379,28 +526,31 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
         joy_button_device = -1;
     }
 
-    handle_joy(evt->which, evt->button, false);
+    const bool controller_duplicate =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+
+    if (!controller_duplicate)
+        handle_joy(evt->which, evt->button, false);
+
     apply_device_button(evt->which, evt->button, false);
 
-    auto matches = [&](int slot)
+    if (!controller_duplicate)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = false;
-    if (matches(16)) keys[VIEW2] = false;
-    if (matches(17)) keys[VIEW3] = false;
+        if (matches(15)) keys[VIEW1] = false;
+        if (matches(16)) keys[VIEW2] = false;
+        if (matches(17)) keys[VIEW3] = false;
+    }
 }
 
 void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 {
-    // D-pads from opened GameControllers arrive through controller button
-    // events. Ignore only their duplicate raw HAT event; HATs on wheels and
-    // generic joysticks remain available for binding.
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
-
+    // Raw HATs are part of the aggregate WHEEL input pool as well.
     handle_joy_hat_base(evt);
     apply_device_hat(evt->which, evt->hat, evt->value);
 }
