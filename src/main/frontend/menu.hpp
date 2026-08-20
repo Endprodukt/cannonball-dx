@@ -118,7 +118,7 @@ protected:
     void draw_menu_options();
     void draw_text(std::string);
     void tick_menu();
-    bool select_pressed();
+    virtual bool select_pressed();
     void set_menu(std::vector<std::string>*);
     void menu_back();
     void refresh_menu();
@@ -136,6 +136,13 @@ public:
     Menu() = default;
     ~Menu() override = default;
 
+    // Small wrapper hooks used by the SE binding editor: adjust the menu layout
+    // after the legacy population code runs and prevent analog steering from
+    // moving normal menu cursors.
+    void populate();
+    void tick();
+
 protected:
+    bool select_pressed() override;
     void redefine_joystick() override;
 };
