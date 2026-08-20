@@ -99,12 +99,12 @@ namespace gamepad_rumble
         const Uint16 master = master_intensity();
 
         // ------------------------------------------------------------
-        // Music selection. Track the actual selected song position, exactly
-        // like the wheel detent does, but use a short tactile pad pulse.
+        // Music selection. Read the real selector position rather than the
+        // compatibility getter used to silence the old timed wheel detent.
         // ------------------------------------------------------------
         if (outrun.game_state == GS_MUSIC)
         {
-            const int selection = omusic.get_music_selected();
+            const int selection = omusic.get_music_position();
 
             if (last_music_selection < 0)
             {
@@ -248,12 +248,11 @@ namespace gamepad_rumble
         }
         else if (master > 0 &&
                  music_pulse_started &&
-                 now - music_pulse_started < 110)
+                 now - music_pulse_started < 130)
         {
-            // Still a light effect, but strong enough to be clearly felt even
-            // when the user's global rumble strength is around 50%.
-            out_low = scaled(master, 15);
-            out_high = scaled(master, 45);
+            // A tactile but still light selector bump.
+            out_low = scaled(master, 20);
+            out_high = scaled(master, 55);
         }
         else if (master > 0 && waiting_for_start && start_level > 0)
         {
