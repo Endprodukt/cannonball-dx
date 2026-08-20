@@ -9,6 +9,7 @@
 #include "engine/omusic.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"
+#include "engine/oinitengine.hpp"
 
 // Gamepad rumble is intentionally independent from wheel force feedback.
 // Keep the enable state separate from the configured rumble strength so users
@@ -72,10 +73,9 @@ namespace gamepad_rumble
         }
     }
 
-    // Central output wrapper for SDL GameController rumble. The normal
-    // CannonBall rumble request is used as the baseline, then short contextual
-    // effects may override it. This keeps the user's RUMBLE STRENGTH setting as
-    // the master level for every effect.
+    // Central SDL GameController rumble mixer. During gameplay the incoming
+    // legacy cabinet-motor request is deliberately ignored: rumble is derived
+    // directly from game state so wheel FFB can never suppress pad effects.
     inline int dispatch(
         SDL_GameController* controller,
         Uint16 low_frequency,
@@ -84,8 +84,7 @@ namespace gamepad_rumble
     {
         using namespace detail;
 
-        // Calls in menus are also used for capability probing and explicit
-        // stop requests. Never turn those into gameplay effects.
+        // Outside gameplay retain normal stop/probe behaviour.
         if (!enabled || cannonball::state != cannonball::STATE_GAME)
         {
             reset_tracking();
@@ -100,8 +99,8 @@ namespace gamepad_rumble
         const Uint16 master = master_intensity();
 
         // ------------------------------------------------------------
-        // Music selection: a light high-frequency click when moving to
-        // another song position.
+        // Music selection. Track the actual selected song position, exactly
+        // like the wheel detent does, but use a short tactile pad pulse.
         // ------------------------------------------------------------
         if (outrun.game_state == GS_MUSIC)
         {
@@ -124,9 +123,7 @@ namespace gamepad_rumble
         }
 
         // ------------------------------------------------------------
-        // Gear change: one short mechanical bump. GAMEPAD has no notion
-        // of left/right force, so use the low motor for the hit and the
-        // high motor for a brief rebound.
+        // Gear change: one short mechanical bump.
         // ------------------------------------------------------------
         if (outrun.game_state == GS_INGAME)
         {
@@ -148,8 +145,8 @@ namespace gamepad_rumble
         }
 
         // ------------------------------------------------------------
-        // Start-line rev effect: while the Ferrari is parked and waiting
-        // for the start, throttle progressively builds a light engine buzz.
+        // Start-line rev effect. Full throttle reaches 90% of the configured
+        // master and ramps up over roughly 0.3 seconds at 30 logic ticks/sec.
         // ------------------------------------------------------------
         const bool waiting_for_start =
             outrun.game_state == GS_START2 ||
@@ -161,23 +158,18 @@ namespace gamepad_rumble
 
         if (waiting_for_start && master > 0)
         {
-            int pedal = oinputs.acc_adjust;
-            pedal = std::clamp(pedal, 0, 0xFF);
+            int pedal = std::clamp(static_cast<int>(oinputs.acc_adjust), 0, 0xFF);
 
-            // Ignore tiny pedal noise. Full throttle reaches 55% of the
-            // configured rumble master, leaving crashes clearly stronger.
-            if (pedal >= 12)
+            if (pedal >= 8)
             {
                 start_target =
-                    (static_cast<int>(master) * pedal * 55) /
+                    (static_cast<int>(master) * pedal * 90) /
                     (0xFF * 100);
             }
         }
 
-        // Smooth build-up, quicker release. At 30 game ticks per second a
-        // stomp to full throttle takes roughly a third of a second to peak.
-        const int ramp_up = std::max(1, static_cast<int>(master) / 16);
-        const int ramp_down = std::max(1, static_cast<int>(master) / 10);
+        const int ramp_up = std::max(1, static_cast<int>(master) / 10);
+        const int ramp_down = std::max(1, static_cast<int>(master) / 6);
 
         if (start_level < start_target)
             start_level = std::min(start_target, start_level + ramp_up);
@@ -185,9 +177,7 @@ namespace gamepad_rumble
             start_level = std::max(start_target, start_level - ramp_down);
 
         // ------------------------------------------------------------
-        // Crash detection. Scenery crashes use crash_counter/state. Traffic
-        // contacts use skid_counter, which is specifically set by vehicle
-        // collisions. Give the initial impact and flip landing full master.
+        // Crash / traffic collision tracking.
         // ------------------------------------------------------------
         if (ocrash.crash_counter > 0 && last_crash_counter <= 0)
             crash_started = now;
@@ -202,98 +192,120 @@ namespace gamepad_rumble
         last_crash_state = ocrash.crash_state;
         last_collision_skid = ocrash.skid_counter;
 
-        // Start with the normal CannonBall request. Context effects below are
-        // ordered by priority: crash > traffic hit > shift > music > start rev.
-        Uint16 out_low = low_frequency;
-        Uint16 out_high = high_frequency;
-        Uint32 out_duration = duration_ms;
-        bool custom_effect = false;
+        // No dependency on D_MOTOR or the current FFB output mode from here on.
+        Uint16 out_low = 0;
+        Uint16 out_high = 0;
+        Uint32 out_duration = 45;
 
+        // Priority: crash > traffic > shift > music > start > offroad > skid.
         if (master > 0 && ocrash.crash_counter > 0)
         {
             const Uint32 crash_age = now - crash_started;
 
-            if (crash_age < 150)
+            if (crash_age < 160)
             {
-                // Initial collision: hard, unmistakable impact.
                 out_low = master;
                 out_high = master;
             }
             else if (ocrash.crash_state >= 1 && ocrash.crash_state <= 4)
             {
-                // Spin / flip / slide: chunky alternating vibration rather
-                // than one flat continuous buzz.
                 const bool heavy_phase = ((now / 90U) & 1U) == 0;
-                out_low = scaled(master, heavy_phase ? 85 : 55);
-                out_high = scaled(master, heavy_phase ? 70 : 35);
+                out_low = scaled(master, heavy_phase ? 90 : 60);
+                out_high = scaled(master, heavy_phase ? 75 : 40);
             }
-            else if (landing_started && now - landing_started < 140)
+            else if (landing_started && now - landing_started < 150)
             {
-                // Flip landing gets another full hit.
                 out_low = master;
                 out_high = master;
             }
-            else
+            else if (crash_age < 300)
             {
                 out_low = scaled(master, 55);
-                out_high = scaled(master, 35);
+                out_high = scaled(master, 30);
             }
-
-            custom_effect = true;
         }
         else if (master > 0 &&
                  traffic_hit_started &&
-                 now - traffic_hit_started < 130)
+                 now - traffic_hit_started < 150)
         {
-            out_low = scaled(master, 85);
+            out_low = scaled(master, 90);
             out_high = scaled(master, 65);
-            custom_effect = true;
         }
-        else if (master > 0 && shift_started && now - shift_started < 85)
+        else if (master > 0 && shift_started && now - shift_started < 95)
         {
             const Uint32 age = now - shift_started;
 
-            if (age < 45)
+            if (age < 50)
             {
-                out_low = scaled(master, 50);
-                out_high = scaled(master, 20);
+                out_low = scaled(master, 60);
+                out_high = scaled(master, 25);
             }
             else
             {
                 out_low = scaled(master, 20);
-                out_high = scaled(master, 35);
+                out_high = scaled(master, 40);
             }
-
-            custom_effect = true;
         }
         else if (master > 0 &&
                  music_pulse_started &&
-                 now - music_pulse_started < 75)
+                 now - music_pulse_started < 110)
         {
-            out_low = 0;
-            out_high = scaled(master, 28);
-            custom_effect = true;
+            // Still a light effect, but strong enough to be clearly felt even
+            // when the user's global rumble strength is around 50%.
+            out_low = scaled(master, 15);
+            out_high = scaled(master, 45);
         }
         else if (master > 0 && waiting_for_start && start_level > 0)
         {
-            out_low = static_cast<Uint16>(start_level / 4);
+            out_low = static_cast<Uint16>(start_level / 2);
             out_high = static_cast<Uint16>(start_level);
-            custom_effect = true;
         }
+        else if (master > 0 &&
+                 outrun.game_state == GS_INGAME &&
+                 oferrari.wheel_state != OFerrari::WHEELS_ON)
+        {
+            // Direct off-road texture. This intentionally does not use the
+            // cabinet D_MOTOR bit, which changes behaviour when wheel FFB is on.
+            const int speed = std::clamp(
+                static_cast<int>(oinitengine.car_increment >> 16),
+                0,
+                0x126);
 
-        if (custom_effect)
-            out_duration = 45;
+            if (speed > 8)
+            {
+                int strength_percent = 45 + (speed * 35) / 0x126;
+
+                if (oferrari.wheel_state != OFerrari::WHEELS_OFF)
+                    strength_percent -= 12;
+
+                // Uneven pulse gives grass/dirt a rough texture rather than a
+                // featureless continuous vibration.
+                if (((now / 55U) & 1U) != 0)
+                    strength_percent = (strength_percent * 72) / 100;
+
+                out_low = scaled(master, (strength_percent * 65) / 100);
+                out_high = scaled(master, strength_percent);
+            }
+        }
+        else if (master > 0 &&
+                 outrun.game_state == GS_INGAME &&
+                 outrun.SkiddingOnRoad())
+        {
+            // Preserve the existing tyre-smoke/skid feel independently of FFB.
+            out_low = 0;
+            out_high = master;
+        }
 
         return SDL_GameControllerRumble(
             controller,
             out_low,
             out_high,
-            out_duration);
+            (out_low || out_high) ? out_duration : 0);
     }
 }
 
-// input.cpp includes this header before issuing the SDL rumble calls. Route
-// those calls through the dispatcher above so gameplay effects can be layered
-// over the original CannonBall rumble without touching wheel force feedback.
+// Route SDL GameController rumble calls from input.cpp through the independent
+// gameplay mixer above. The real SDL function inside dispatch() was parsed
+// before this macro is defined, so it remains the final hardware call.
 #define SDL_GameControllerRumble(controller, low, high, duration) \
     gamepad_rumble::dispatch((controller), (low), (high), (duration))
