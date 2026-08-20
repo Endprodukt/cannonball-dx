@@ -234,6 +234,7 @@ private:
     void handle_controller_down_base(SDL_ControllerButtonEvent*);
     void handle_controller_up_base(SDL_ControllerButtonEvent*);
     void reset_axis_config_base();
+    void set_rumble_base(bool, float, int);
 };
 
 extern Input input;
