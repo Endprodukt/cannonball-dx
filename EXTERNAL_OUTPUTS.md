@@ -13,7 +13,7 @@ The existing SmartyPi output path is independent and remains unchanged.
 
 | Output | Meaning |
 | --- | --- |
-| `Start_lamp` | START-button lamp; blinks with PRESS START in attract mode and stays on while the game is active |
+| `Start_lamp` | START-button lamp; blinks in attract/music selection and stays on while the game is active |
 | `Brake_lamp` | Original OutRun brake lamp |
 | `View_lamp` | Single VIEW-button lamp; steadily on while the driving sequence/game is active |
 | `View1_lamp` | On while the original camera view is selected |
@@ -23,8 +23,8 @@ The existing SmartyPi output path is independent and remains unchanged.
 ### START lamp behaviour
 
 - Attract screens showing **PRESS START**: blinks in the same phase as the on-screen text
-- Music selection: off
-- Car driving in, countdown, race and bonus sequence: steadily on
+- Music selection: blinks
+- Loading into the game, car driving in, countdown, race and bonus sequence: steadily on
 - Game over / course map: off
 - When attract mode resumes and **PRESS START** is shown again: blinks again
 
@@ -56,7 +56,9 @@ The normal **Configure Controls** wizard now continues after `PRESS VIEW CHANGE`
 - `PRESS VIEW 2` - directly selects the elevated camera
 - `PRESS VIEW 3` - directly selects the in-car/bumper camera
 
-Each can be assigned to a keyboard key or joystick/wheel/gamepad button. Press **Enter** to skip an optional direct-view binding. The cyclic VIEW button and the three direct buttons can coexist.
+Every step in the unified control-binding wizard can be skipped with **Enter** without changing its existing assignment. This includes steering, directions, pedals, gears, START, COIN, MENU, VIEW CHANGE and the three direct-view controls.
+
+Each direct-view control can be assigned to a keyboard key or joystick/wheel/gamepad button. The cyclic VIEW button and the three direct buttons can coexist.
 
 The bindings are stored in `config.xml` as:
 

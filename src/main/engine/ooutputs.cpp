@@ -82,17 +82,21 @@ void OOutputs::writeDigitalToConsole()
     const bool press_start_available =
         config.engine.freeplay || ostats.credits > 0;
 
-    // Use the same BIT_4 phase as OHud::draw_insert_coin(), so the physical
-    // lamp blinks in step with the on-screen PRESS START prompt.
-    const bool start_lamp_attract =
-        press_start_screen &&
-        press_start_available &&
+    const bool music_selection =
+        outrun.game_state == GS_INIT_MUSIC ||
+        outrun.game_state == GS_MUSIC;
+
+    // Blink during attract PRESS START and throughout music selection. The
+    // attract phase uses the same BIT_4 timing as OHud::draw_insert_coin().
+    const bool start_lamp_blink =
+        ((press_start_screen && press_start_available) ||
+         music_selection) &&
         (outrun.tick_counter & BIT_4);
 
-    // Once the driving sequence begins, keep START steadily illuminated until
-    // the game transitions to game-over. Music selection itself stays off.
+    // As soon as music selection hands off to the game, keep START steadily
+    // illuminated through the driving sequence, race and bonus sequence.
     const bool start_lamp_ingame =
-        outrun.game_state >= GS_START1 &&
+        outrun.game_state >= GS_INIT_GAME &&
         outrun.game_state <= GS_BONUS;
 
     const auto& settings = external_output_settings();
@@ -102,7 +106,7 @@ void OOutputs::writeDigitalToConsole()
         settings.windows,
         settings.port,
         cannonball::state != cannonball::STATE_QUIT,
-        (start_lamp_attract || start_lamp_ingame) ? 1 : 0,
+        (start_lamp_blink || start_lamp_ingame) ? 1 : 0,
         is_set(D_BRAKE_LAMP),
         view_lamp_active ? 1 : 0,
         (view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0,

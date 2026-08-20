@@ -38,6 +38,75 @@
 
 void Menu::redefine_joystick()
 {
+    // Make it obvious in the unified wizard that every normal binding can be
+    // skipped without changing its existing assignment.
+    static bool prompts_extended = false;
+    if (!prompts_extended)
+    {
+        for (auto& prompt : text_redefine)
+            prompt += " - ENTER TO SKIP";
+
+        prompts_extended = true;
+    }
+
+    // Enter now skips every normal binding step, not just steering/direct
+    // views. Wait for release so one held Enter press cannot skip several
+    // bindings in succession.
+    static bool skip_wait = false;
+    static int skip_next_state = 1;
+
+    if (skip_wait)
+    {
+        draw_text("RELEASE CONTROL");
+
+        const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
+        const SDL_Scancode scancode = SDL_GetScancodeFromKey(SDLK_RETURN);
+
+        if (scancode == SDL_SCANCODE_UNKNOWN ||
+            keyboard_state[scancode] == 0)
+        {
+            skip_wait = false;
+
+            input.key_press = -1;
+            input.joy_button = -1;
+            input.joy_button_device = -1;
+            input.joy_hat = -1;
+            input.joy_hat_value = SDL_HAT_CENTERED;
+            input.joy_hat_device = -1;
+            input.reset_axis_config();
+
+            redef_state = skip_next_state;
+        }
+
+        return;
+    }
+
+    if (redef_state >= 1 &&
+        redef_state <= 12 &&
+        input.key_press == SDLK_RETURN)
+    {
+        skip_next_state = redef_state + 1;
+
+        // Keep the existing Gear High auto-skip behaviour.
+        if (skip_next_state == 8 &&
+            config.controls.gear != config.controls.GEAR_SEPARATE)
+        {
+            skip_next_state = 9;
+        }
+
+        skip_wait = true;
+
+        input.key_press = -1;
+        input.joy_button = -1;
+        input.joy_button_device = -1;
+        input.joy_hat = -1;
+        input.joy_hat_value = SDL_HAT_CENTERED;
+        input.joy_hat_device = -1;
+        input.reset_axis_config();
+
+        return;
+    }
+
     // Run the existing unified configuration wizard unchanged through VIEW.
     // It leaves redef_state at 13 after the VIEW control has been released.
     if (redef_state < 13)
