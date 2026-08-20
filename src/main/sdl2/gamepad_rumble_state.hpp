@@ -176,8 +176,8 @@ namespace gamepad_rumble
 
         // Smooth build-up, quicker release. At 30 game ticks per second a
         // stomp to full throttle takes roughly a third of a second to peak.
-        const int ramp_up = std::max(1, static_cast<int>(master) / 180);
-        const int ramp_down = std::max(1, static_cast<int>(master) / 110);
+        const int ramp_up = std::max(1, static_cast<int>(master) / 16);
+        const int ramp_down = std::max(1, static_cast<int>(master) / 10);
 
         if (start_level < start_target)
             start_level = std::min(start_target, start_level + ramp_up);
