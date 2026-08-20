@@ -309,12 +309,21 @@ void Input::handle_key_up(SDL_Keysym* keysym)
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
-    handle_joy_axis_base(evt);
+    // SDL can emit both JOY and CONTROLLER events for the same device when it
+    // has been opened as an SDL_GameController. Ignore only that device's raw
+    // duplicate event. Other raw devices (wheels, shifters, joysticks, button
+    // boxes, etc.) must remain fully active even while a gamepad is connected.
+    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
+        return;
 
-    // Keep axis capture available even when analog controls are currently off
-    // or when another SDL GameController caused the legacy joystick path to
-    // return early.
-    if (axis_config == -1)
+    // Do not use handle_joy_axis_base() here: the legacy implementation checks
+    // the one global controller pointer and would reject every raw joystick as
+    // soon as any GameController is open.
+    handle_axis(evt->which, evt->axis, evt->value);
+
+    // handle_axis only runs capture logic while analog mode is enabled. The
+    // binding editor must be able to discover axes regardless of that setting.
+    if (!analog)
         store_last_axis(evt->which, evt->axis, evt->value);
 
     apply_device_axis(evt->which, evt->axis, evt->value);
@@ -324,7 +333,7 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 {
     handle_controller_axis_base(evt);
 
-    if (axis_config == -1)
+    if (!analog)
         store_last_axis(evt->which, evt->axis, evt->value);
 
     apply_device_axis(evt->which, evt->axis, evt->value);
@@ -332,7 +341,17 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 
 void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
-    handle_joy_down_base(evt);
+    // See handle_joy_axis(): suppress only the raw duplicate belonging to an
+    // actually opened SDL_GameController, never every joystick globally.
+    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
+        return;
+
+    joy_button = evt->button;
+    joy_button_device = evt->which;
+
+    // Preserve legacy button behaviour for raw devices and also feed the new
+    // per-device binding layer.
+    handle_joy(evt->which, evt->button, true);
     apply_device_button(evt->which, evt->button, true);
 
     // Legacy direct-view fallback. New configs normally migrate these slots to
@@ -350,7 +369,17 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 
 void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
-    handle_joy_up_base(evt);
+    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
+        return;
+
+    if (joy_button == evt->button &&
+        joy_button_device == evt->which)
+    {
+        joy_button = -1;
+        joy_button_device = -1;
+    }
+
+    handle_joy(evt->which, evt->button, false);
     apply_device_button(evt->which, evt->button, false);
 
     auto matches = [&](int slot)
@@ -366,6 +395,12 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 
 void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 {
+    // D-pads from opened GameControllers arrive through controller button
+    // events. Ignore only their duplicate raw HAT event; HATs on wheels and
+    // generic joysticks remain available for binding.
+    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
+        return;
+
     handle_joy_hat_base(evt);
     apply_device_hat(evt->which, evt->hat, evt->value);
 }
