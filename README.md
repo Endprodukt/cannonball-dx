@@ -59,7 +59,7 @@ CannonBall-SE by **James Pearce (J1mbo)** adds and improves, among other things:
 
 ### Additional features in this fork
 
-The `multi-device-input` work adds:
+This fork adds:
 
 #### Display
 
@@ -113,7 +113,7 @@ The `multi-device-input` work adds:
 
 CannonBall already included force-feedback / haptic support for steering wheels. The Windows work in this fork does **not** replace a rumble-only system; it reworks and expands CannonBall's existing wheel FFB using DirectInput 8.
 
-The current `multi-device-input` branch combines the original OutRun motor logic with additional effects that use game state, vehicle speed, road curvature, wheel state and presentation events.
+The current `master` branch combines the original OutRun motor logic with additional effects that use game state, vehicle speed, road curvature, wheel state and presentation events.
 
 ### Normal cornering
 
@@ -262,9 +262,6 @@ Getting going on Raspberry Pi systems or Ubuntu is straightforward - run the inc
 git clone https://github.com/Endprodukt/cannonball-se.git
 cd cannonball-se
 
-# To use the multi-device / new FFB work before it is merged to master:
-git checkout multi-device-input
-
 # 2) Build & set up
 chmod +x install.sh
 ./install.sh
@@ -290,7 +287,7 @@ CannonBall-SE can be compiled with Visual Studio. See:
 
 `docs/Compiling-On-Windows.txt`
 
-For the changes documented here, build the **`multi-device-input`** branch.
+The features documented here are included in the **`master`** branch.
 
 ---
 
@@ -402,7 +399,7 @@ Quit can be remapped to `F10` instead of `Esc` in **Menu -> Settings -> Master B
 
 USB steering wheels, joysticks and gamepads are supported.
 
-The multi-device branch is specifically designed to avoid the old assumption that every analog control has to live on one joystick. Separate wheel and pedal USB devices can therefore be configured independently.
+The current input system is designed to avoid the old assumption that every analog control has to live on one joystick. Separate wheel and pedal USB devices can therefore be configured independently.
 
 CannonBall already supported wheel force feedback. On Windows, this fork extends that support through the reworked DirectInput path, including dynamic steering weight, transient effects, tyre-slip vibration, music-selector detents, adjustable overall strength and an independent centering spring. Basic SDL/controller rumble remains available for suitable gamepads.
 
@@ -419,7 +416,7 @@ Place audio files in `./res/` using the scheme:
 
 Indexes **01-03** replace the built-in tracks (`01` = *Magical Sound Shower*); **04+** add entries to the radio list. For WAV files, use **44.1 kHz, 16-bit stereo** where possible.
 
-On the `multi-device-input` branch, analog steering divides the wheel range into one selector zone per available track. The FFB music-selector detent follows those positions, including additional custom tracks.
+On the current `master` branch, analog steering divides the wheel range into one selector zone per available track. The FFB music-selector detent follows those positions, including additional custom tracks.
 
 ---
 
