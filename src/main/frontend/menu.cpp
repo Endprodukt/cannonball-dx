@@ -30,8 +30,8 @@
 #include <cctype>
 #include <algorithm>
 
-// Compile the existing Menu implementation as MenuBase. Calls to the virtual
-// redefine_joystick() from MenuBase::tick_ui() dispatch to Menu below.
+// Compile the existing Menu implementation as MenuBase. Calls to virtual
+// hooks from MenuBase dispatch to Menu below.
 #define Menu MenuBase
 #include "menu_base.cpp"
 #undef Menu
@@ -211,6 +211,57 @@ namespace
     }
 }
 
+void Menu::tick()
+{
+    // The original frontend uses analog steering as a menu up/down control.
+    // That is convenient on a cabinet but extremely annoying with a PC wheel.
+    // Neutralise steering only while browsing normal menus. In-game steering
+    // and the binding editor itself continue to receive the real wheel value.
+    const int16_t steering_before = oinputs.input_steering;
+
+    if (state == STATE_MENU)
+        oinputs.input_steering = 0x80;
+
+    MenuBase::tick();
+    oinputs.input_steering = steering_before;
+}
+
+void Menu::populate_controls()
+{
+    // Use the short label requested by the new unified binding editor and put
+    // it first whenever the Controls menu is rebuilt.
+    ENTRY_REDEFJOY = "CONFIG INPUTS";
+    MenuBase::populate_controls();
+
+    const auto it = std::find(
+        menu_controls.begin(),
+        menu_controls.end(),
+        std::string(ENTRY_REDEFJOY));
+
+    if (it != menu_controls.end() && it != menu_controls.begin())
+    {
+        const std::string entry = *it;
+        menu_controls.erase(it);
+        menu_controls.insert(menu_controls.begin(), entry);
+    }
+}
+
+bool Menu::select_pressed()
+{
+    // RETURN is a permanent frontend confirm key. Use an edge rather than
+    // key_press so holding the key cannot confirm several nested menus at once.
+    static bool return_was_down = false;
+
+    const Uint8* keyboard_state = SDL_GetKeyboardState(nullptr);
+    const bool return_down =
+        keyboard_state && keyboard_state[SDL_SCANCODE_RETURN] != 0;
+    const bool return_pressed = return_down && !return_was_down;
+
+    return_was_down = return_down;
+
+    return return_pressed || MenuBase::select_pressed();
+}
+
 void Menu::redefine_joystick()
 {
     enum WaitType
@@ -378,9 +429,9 @@ void Menu::redefine_joystick()
         }
         else
         {
-            ohud.blit_text_new(1, 21, "ARROWS: SELECT   ENTER: CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, 22, "DEL/BSP: CLEAR", ohud.GREY);
-            ohud.blit_text_new(1, 23, "WHEEL: ALL RAW INPUT DEVICES", ohud.GREY);
+            ohud.blit_text_new(1, 21, "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
+            ohud.blit_text_new(1, 22, "DEL/BSP - CLEAR", ohud.GREY);
+            ohud.blit_text_new(1, 23, "WHEEL - ALL RAW INPUT DEVICES", ohud.GREY);
         }
     };
 
@@ -485,7 +536,7 @@ void Menu::redefine_joystick()
                 return false;
 
             // WHEEL intentionally accepts every raw SDL input device. GAMEPAD
-            // remains restricted to the primary SDL GameController.
+            // remains restricted to the SDL GameController device.
             return group == Input::BINDING_WHEEL || device == gamepad_device;
         };
 
