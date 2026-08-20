@@ -7,6 +7,7 @@
 ***************************************************************************/
 
 #include "sdl2/input.hpp"
+#include "sdl2/gamepad_rumble_state.hpp"
 
 #define set_button_binding     set_button_binding_base
 #define handle_key_down        handle_key_down_base
@@ -19,6 +20,7 @@
 #define handle_controller_down handle_controller_down_base
 #define handle_controller_up   handle_controller_up_base
 #define reset_axis_config      reset_axis_config_base
+#define set_rumble             set_rumble_base
 #include "sdl2/input_base.cpp"
 #undef set_button_binding
 #undef handle_key_down
@@ -31,6 +33,7 @@
 #undef handle_controller_down
 #undef handle_controller_up
 #undef reset_axis_config
+#undef set_rumble
 
 namespace
 {
@@ -608,4 +611,97 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
     if (matches(15)) keys[VIEW1] = false;
     if (matches(16)) keys[VIEW2] = false;
     if (matches(17)) keys[VIEW3] = false;
+}
+
+void Input::set_rumble(bool enable, float strength, int mode)
+{
+    // Gamepad rumble is a completely separate output path from steering-wheel
+    // force feedback. Never route this through forcefeedback::set(), because
+    // that backend belongs to the wheel and previously swallowed pad rumble.
+
+    // Drop a stale controller handle after hot-unplug.
+    if (controller && !SDL_GameControllerGetAttached(controller))
+    {
+        SDL_GameControllerClose(controller);
+        controller = nullptr;
+        rumble_supported = false;
+    }
+
+    // Lazily open the first SDL GameController with working rumble support.
+    // populate_controls() calls this with enable=false, so capability is known
+    // before the Controls menu is drawn without producing any vibration.
+    if (!controller)
+    {
+        const int count = SDL_NumJoysticks();
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!SDL_IsGameController(i))
+                continue;
+
+            SDL_GameController* candidate = SDL_GameControllerOpen(i);
+            if (!candidate)
+                continue;
+
+            // A zero-duration/zero-strength request is a harmless capability
+            // probe and is more reliable across SDL backends than assuming
+            // haptic support from the raw joystick interface.
+            if (SDL_GameControllerRumble(candidate, 0, 0, 0) == 0)
+            {
+                controller = candidate;
+                rumble_supported = true;
+                gamepad = true;
+
+                const char* name = SDL_GameControllerName(controller);
+                std::cout
+                    << "Gamepad rumble enabled via SDL: "
+                    << (name ? name : "Unknown GameController")
+                    << std::endl;
+                break;
+            }
+
+            SDL_GameControllerClose(candidate);
+        }
+    }
+
+    if (!controller || !rumble_supported)
+    {
+#ifndef WIN32
+        // Preserve the legacy Linux-specific hidraw/evdev fallback. Windows is
+        // intentionally excluded: its DirectInput backend is wheel FFB, not
+        // gamepad rumble.
+        set_rumble_base(enable, strength, mode);
+#endif
+        return;
+    }
+
+    if (!gamepad_rumble::enabled || !enable || strength <= 0.0f)
+    {
+        SDL_GameControllerRumble(controller, 0, 0, 0);
+        return;
+    }
+
+    if (strength > 1.0f)
+        strength = 1.0f;
+
+    const Uint16 intensity =
+        static_cast<Uint16>(strength * 65535.0f);
+
+    // Normal cabinet motor output uses both motors. The skid texture uses the
+    // high-frequency motor only for a finer road-surface sensation.
+    const Uint16 low_frequency = mode == 1 ? 0 : intensity;
+    const Uint16 high_frequency = intensity;
+
+    if (SDL_GameControllerRumble(
+            controller,
+            low_frequency,
+            high_frequency,
+            40) != 0)
+    {
+        // Treat a failed request as a stale/unusable handle. A later call can
+        // probe again, which also makes reconnects recover automatically.
+        SDL_GameControllerClose(controller);
+        controller = nullptr;
+        rumble_supported = false;
+    }
 }
