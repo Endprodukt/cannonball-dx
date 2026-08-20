@@ -99,6 +99,21 @@ namespace
 
         return stored_signature == signature;
     }
+
+    bool group_has_axis_target(int target, int group)
+    {
+        for (const auto& binding : config.controls.device_bindings)
+        {
+            if (binding.target == target &&
+                binding.type == device_binding_t::TYPE_AXIS &&
+                binding_is_group(binding.device, group))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 void Input::ensure_gamecontroller_open()
@@ -558,8 +573,11 @@ void Input::apply_device_axis(
         {
             int adjusted = value;
 
-            if (wheel_zone && wheel_zone < 100)
-                adjusted = adjusted / (100 - wheel_zone);
+            // wheel_zone is a saturation percentage. The old expression only
+            // divided by the remaining percentage and collapsed most of the
+            // analog range around centre. Scale by 100 first as intended.
+            if (wheel_zone > 0 && wheel_zone < 100)
+                adjusted = (adjusted * 100) / (100 - wheel_zone);
 
             adjusted = ((adjusted + 0x8000) / 0x200);
             adjusted += 0x40;
@@ -684,7 +702,26 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
     if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
         return;
 
+    // Matrix axis bindings take ownership target-by-target. Temporarily hide
+    // the corresponding legacy slots so an old axis cannot overwrite the new
+    // steering/pedal value on the next SDL event.
+    const int saved_steer = axis[0];
+    const int saved_accel = axis[1];
+    const int saved_brake = axis[2];
+
+    if (group_has_axis_target(device_binding_t::TARGET_STEER, BINDING_WHEEL))
+        axis[0] = -1;
+    if (group_has_axis_target(device_binding_t::TARGET_ACCEL, BINDING_WHEEL))
+        axis[1] = -1;
+    if (group_has_axis_target(device_binding_t::TARGET_BRAKE, BINDING_WHEEL))
+        axis[2] = -1;
+
     handle_axis(evt->which, evt->axis, evt->value);
+
+    axis[0] = saved_steer;
+    axis[1] = saved_accel;
+    axis[2] = saved_brake;
+
     capture_raw_axis_motion(evt->which, evt->axis, evt->value);
     apply_device_axis(
         evt->which,
@@ -695,7 +732,28 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 
 void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 {
-    handle_controller_axis_base(evt);
+    // Same ownership rule as raw WHEEL axes: once a GAMEPAD target has a
+    // matrix binding, stale legacy axis slots must no longer write that target.
+    const int saved_steer = axis[0];
+    const int saved_accel = axis[1];
+    const int saved_brake = axis[2];
+
+    if (group_has_axis_target(device_binding_t::TARGET_STEER, BINDING_GAMEPAD))
+        axis[0] = -1;
+    if (group_has_axis_target(device_binding_t::TARGET_ACCEL, BINDING_GAMEPAD))
+        axis[1] = -1;
+    if (group_has_axis_target(device_binding_t::TARGET_BRAKE, BINDING_GAMEPAD))
+        axis[2] = -1;
+
+    // handle_axis() also retains the existing axis-capture behaviour used by
+    // the binding editor, so no functionality is lost by bypassing the tiny
+    // base wrapper here.
+    handle_axis(evt->which, evt->axis, evt->value);
+
+    axis[0] = saved_steer;
+    axis[1] = saved_accel;
+    axis[2] = saved_brake;
+
     apply_device_axis(
         evt->which,
         evt->axis,
@@ -911,7 +969,28 @@ void Input::set_rumble(bool enable, float strength, int mode)
         return;
     }
 
-    if (!gamepad_rumble::enabled || !enable || strength <= 0.0f)
+    if (!gamepad_rumble::enabled || strength <= 0.0f)
+    {
+        SDL_GameControllerRumble(controller, 0, 0, 0);
+        return;
+    }
+
+    // During the game the contextual mixer is authoritative. In particular,
+    // do not let the old D_MOTOR-derived 'enable' argument gate pad effects:
+    // D_MOTOR changes with the wheel/cabinet FFB mode and caused off-road
+    // rumble to disappear whenever FFB was enabled.
+    if (cannonball::state == cannonball::STATE_GAME)
+    {
+        if (gamepad_rumble::dispatch(controller, 0, 0, 45) != 0)
+        {
+            SDL_GameControllerClose(controller);
+            controller = nullptr;
+            rumble_supported = false;
+        }
+        return;
+    }
+
+    if (!enable)
     {
         SDL_GameControllerRumble(controller, 0, 0, 0);
         return;
@@ -923,8 +1002,7 @@ void Input::set_rumble(bool enable, float strength, int mode)
     const Uint16 intensity =
         static_cast<Uint16>(strength * 65535.0f);
 
-    // Normal cabinet motor output uses both motors. The skid texture uses the
-    // high-frequency motor only for a finer road-surface sensation.
+    // Retain the legacy non-game behaviour for compatibility/probing.
     const Uint16 low_frequency = mode == 1 ? 0 : intensity;
     const Uint16 high_frequency = intensity;
 
