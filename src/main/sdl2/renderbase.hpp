@@ -16,6 +16,7 @@ class RenderBase
 {
 public:
     RenderBase();
+    virtual ~RenderBase() = default;
 
     virtual bool init(int src_width, int src_height,
                       int scale,
