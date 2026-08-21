@@ -550,7 +550,12 @@ void OMusic::check_start()
     // than writing config.xml on every shifter movement.
     config.save();
 
-    if (game_mode_selected == Outrun::MODE_TTRIAL)
+    // If cannonball_mode is already TIME TRIAL, the legacy frontend has just
+    // performed its course selection and this is its normal music screen. Do
+    // not send that path back to the course map. Only a Time Trial newly chosen
+    // here needs to enter the selector.
+    if (game_mode_selected == Outrun::MODE_TTRIAL &&
+        outrun.cannonball_mode != Outrun::MODE_TTRIAL)
     {
         pending_music_selected = music_selected;
         return_from_time_trial = true;
@@ -581,7 +586,9 @@ void OMusic::check_start()
 
     // Music-select mode switching happens after boot(), so refresh the correct
     // high-score table now rather than leaving the table from the launch mode.
-    config.load_scores(game_mode_selected == Outrun::MODE_ORIGINAL);
+    // Time Trial owns a separate score table that was already loaded by TTrial.
+    if (game_mode_selected != Outrun::MODE_TTRIAL)
+        config.load_scores(game_mode_selected == Outrun::MODE_ORIGINAL);
 
     outrun.game_state = GS_INIT_GAME;
     ologo.disable();
