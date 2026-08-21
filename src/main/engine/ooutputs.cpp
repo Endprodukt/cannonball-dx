@@ -325,8 +325,8 @@ void OOutputs::writeDigitalToConsole()
 
     // During the race the single VIEW lamp remains the normal availability
     // lamp. During music selection it becomes a mode-selection lamp. During
-    // enhanced attract driving it blinks together with the currently selected
-    // direct-view lamp instead of remaining steadily lit.
+    // enhanced attract driving the dedicated VIEW1/2/3 lamps provide the show,
+    // so the legacy single VIEW lamp stays off there.
     const bool view_lamp_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state < GS_INIT_GAMEOVER;
@@ -365,12 +365,31 @@ void OOutputs::writeDigitalToConsole()
         music_selection &&
         (outrun.tick_counter & BIT_4);
 
-    // Enhanced attract mode uses the same cabinet-friendly blink cadence. This
-    // is intentionally GS_ATTRACT-only, so Best OutRunners and the logo screen
-    // leave all view lamps off while the START lamp keeps its existing logic.
-    const bool attract_view_lamp_blink =
+    // Custom attract views use the same blink cadence as START. The original
+    // view gets a faster four-step ping-pong chase across VIEW1/2/3 instead:
+    // 1 -> 2 -> 3 -> 2 -> ... . Each step lasts 8 ticks, exactly half the
+    // 16-tick START lamp phase, so the movement is twice as fast.
+    const bool attract_custom_view_blink =
         enhanced_attract_driving &&
         (outrun.tick_counter & BIT_4);
+
+    const uint8_t attract_chase_phase =
+        static_cast<uint8_t>((outrun.tick_counter >> 3) & 3);
+
+    const bool attract_chase_view1 =
+        enhanced_attract_driving &&
+        view == ORoad::VIEW_ORIGINAL &&
+        attract_chase_phase == 0;
+
+    const bool attract_chase_view2 =
+        enhanced_attract_driving &&
+        view == ORoad::VIEW_ORIGINAL &&
+        (attract_chase_phase == 1 || attract_chase_phase == 3);
+
+    const bool attract_chase_view3 =
+        enhanced_attract_driving &&
+        view == ORoad::VIEW_ORIGINAL &&
+        attract_chase_phase == 2;
 
     const int selected_game_mode = omusic.get_game_mode();
 
@@ -386,21 +405,25 @@ void OOutputs::writeDigitalToConsole()
         music_selection
             ? (mode_lamp_blink ? 1 : 0)
             : (enhanced_attract_driving
-                ? (attract_view_lamp_blink ? 1 : 0)
+                ? 0
                 : (view_lamp_active ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_ORIGINAL) ? 1 : 0)
             : (enhanced_attract_driving
-                ? ((attract_view_lamp_blink && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)
+                ? (attract_chase_view1 ? 1 : 0)
                 : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_CONT) ? 1 : 0)
             : (enhanced_attract_driving
-                ? ((attract_view_lamp_blink && view == ORoad::VIEW_ELEVATED) ? 1 : 0)
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? (attract_chase_view2 ? 1 : 0)
+                    : ((view == ORoad::VIEW_ELEVATED && attract_custom_view_blink) ? 1 : 0))
                 : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_TTRIAL) ? 1 : 0)
             : (enhanced_attract_driving
-                ? ((attract_view_lamp_blink && view == ORoad::VIEW_INCAR) ? 1 : 0)
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? (attract_chase_view3 ? 1 : 0)
+                    : ((view == ORoad::VIEW_INCAR && attract_custom_view_blink) ? 1 : 0))
                 : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0)));
 }
