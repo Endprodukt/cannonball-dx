@@ -205,14 +205,6 @@ public:
         {
             switch (factor)
             {
-                case 2:
-                    hq2x_32(
-                        source_pixels.data(),
-                        scaled_pixels.data(),
-                        scaler_input_width,
-                        scaler_input_height);
-                    break;
-
                 case 3:
                     hq3x_32(
                         source_pixels.data(),
@@ -690,14 +682,11 @@ private:
 
     void apply_low_factor_detail_preserve()
     {
-        // At 2x/3x, edge-aware scalers devote a comparatively large share of
-        // each source-pixel block to blended edge colours. High-frequency
-        // content such as OutRun's road can therefore look softer than the
-        // higher factors. Blend a small amount of the exact nearest-neighbour
-        // source colour back in. 4x and above remain untouched.
-        const int nearest_weight =
-            (factor == 2) ? 30 :
-            (factor == 3) ? 15 : 0;
+        // 3x still devotes a comparatively large share of each source-pixel
+        // block to blended edge colours. High-frequency content such as
+        // OutRun's road can therefore look softer than 4x+. Blend 25% of the
+        // exact nearest-neighbour source colour back in. 4x+ remains untouched.
+        const int nearest_weight = (factor == 3) ? 25 : 0;
 
         if (nearest_weight == 0 || source_pixels.empty() || scaled_pixels.empty())
             return;
