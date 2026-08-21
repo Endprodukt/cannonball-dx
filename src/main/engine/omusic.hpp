@@ -39,6 +39,10 @@ public:
     // has no side effects on the wheel detent implementation.
     int get_music_position() const { return cursor_pos; }
 
+    // Selected game mode while the music screen is active. External cabinet
+    // outputs use this to blink only the matching VIEW 1/2/3 lamp.
+    int get_game_mode() const { return game_mode_selected; }
+
 private:
     // Modified Widescreen version of the Music Select Tilemap
     RomLoader* tilemap;
@@ -63,6 +67,22 @@ private:
     int16_t last_music_selected;
     int8_t preview_counter;
 
+    // Game mode chosen on the music-selection screen. VIEW cycles this value;
+    // VIEW1/2/3 select Original/Continuous/Time Trial directly.
+    int game_mode_selected;
+
+    // Gear/shifter state used to turn LOW/HIGH movement into previous/next
+    // Ferrari colour selection without affecting the in-race gear logic.
+    bool menu_gear_initialized;
+    bool menu_gear_state;
+
+    // Time Trial normally flows Track Select -> Music Select -> Race. When it
+    // was entered from this music screen we remember the chosen song and skip
+    // that second music screen after the course has been selected.
+    bool return_from_time_trial;
+    bool skip_music_tick;
+    int pending_music_selected;
+
     // Music-selector FFB tracking. The spring is made progressively stronger
     // when many tracks are present so closely spaced virtual detents remain
     // distinguishable.
@@ -85,6 +105,13 @@ private:
     int steering_for_track(int track) const;
     void apply_music_detent_ffb();
     void reset_music_detent_ffb();
+
+    void set_game_mode(int mode);
+    void cycle_game_mode();
+    void cycle_car_color(int direction);
+    void set_continuous_traffic_from_difficulty();
+    void draw_game_options();
+    void draw_color_swatch(uint16_t x, uint16_t y);
 };
 
 extern OMusic omusic;
