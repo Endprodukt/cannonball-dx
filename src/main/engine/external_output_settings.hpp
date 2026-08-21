@@ -95,19 +95,10 @@ public:
 
             if (view == ORoad::VIEW_ORIGINAL)
             {
-                if (manual_override)
-                {
-                    view1_lamp = fast_blink ? 1 : 0;
-                }
-                else
-                {
-                    // Automatic ORIGINAL uses the existing ping-pong lamp chase.
-                    const uint8_t chase =
-                        static_cast<uint8_t>(((cannonball::frame - phase_start_frame) >> 3) & 3);
-                    view1_lamp = chase == 0 ? 1 : 0;
-                    view2_lamp = (chase == 1 || chase == 3) ? 1 : 0;
-                    view3_lamp = chase == 2 ? 1 : 0;
-                }
+                // During the showcase View 1 is represented only by its own
+                // lamp. The normal ping-pong chase remains an attract-mode
+                // effect outside this presentation.
+                view1_lamp = fast_blink ? 1 : 0;
             }
             else if (view == ORoad::VIEW_ELEVATED)
             {
@@ -219,7 +210,7 @@ private:
         if (phase_view == ORoad::VIEW_ELEVATED)
             return "ELEVATED VIEW";
         if (phase_view == ORoad::VIEW_INCAR)
-            return "IN CAR VIEW";
+            return "BUMPER VIEW";
         return "ORIGINAL VIEW";
     }
 
