@@ -17,6 +17,7 @@
 #undef writeDigitalToConsole
 
 #include "main.hpp"
+#include "engine/omusic.hpp"
 #include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
 #include "sdl2/input.hpp"
@@ -60,8 +61,9 @@ void OOutputs::writeDigitalToConsole()
         outrun.game_state >= GS_START1 &&
         outrun.game_state <= GS_INGAME;
 
-    // The single VIEW lamp is an availability lamp: steady on from the moment
-    // the car drives in until game-over begins. No blinking.
+    // During the race the single VIEW lamp remains the normal availability
+    // lamp. During music selection it becomes a mode-selection lamp and blinks
+    // in sync with the one matching VIEW1/2/3 lamp below.
     const bool view_lamp_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state < GS_INIT_GAMEOVER;
@@ -99,6 +101,15 @@ void OOutputs::writeDigitalToConsole()
         outrun.game_state >= GS_INIT_GAME &&
         outrun.game_state <= GS_BONUS;
 
+    // Music-select game mode indication. The traditional single VIEW lamp
+    // always blinks here, while only the lamp for the selected direct-view
+    // button blinks with it. The other two remain off.
+    const bool mode_lamp_blink =
+        music_selection &&
+        (outrun.tick_counter & BIT_4);
+
+    const int selected_game_mode = omusic.get_game_mode();
+
     const auto& settings = external_output_settings();
 
     external_outputs.update(
@@ -108,8 +119,16 @@ void OOutputs::writeDigitalToConsole()
         cannonball::state != cannonball::STATE_QUIT,
         (start_lamp_blink || start_lamp_ingame) ? 1 : 0,
         is_set(D_BRAKE_LAMP),
-        view_lamp_active ? 1 : 0,
-        (view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0,
-        (view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0,
-        (view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0);
+        music_selection
+            ? (mode_lamp_blink ? 1 : 0)
+            : (view_lamp_active ? 1 : 0),
+        music_selection
+            ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_ORIGINAL) ? 1 : 0)
+            : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0),
+        music_selection
+            ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_CONT) ? 1 : 0)
+            : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0),
+        music_selection
+            ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_TTRIAL) ? 1 : 0)
+            : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0));
 }
