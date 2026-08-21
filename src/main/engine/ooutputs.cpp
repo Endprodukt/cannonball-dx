@@ -180,9 +180,10 @@ namespace
             video.write_text16(ohud.translate(x, 15), 0);
         }
 
-        // Put the instruction on exactly the same row and in exactly the same
-        // single-row font/palette as the original FREE PLAY text. Right-align
-        // it so FREE PLAY remains untouched on the left side of the screen.
+        // Reuse the exact single-row font and palette of FREE PLAY. The lower
+        // line shares the FREE PLAY row, while the short HI - LOW hint sits one
+        // row above it. Keeping both right-aligned makes the control hint read
+        // as one compact arcade-style block instead of a long sentence.
         uint32_t freeplay_record = TEXT1_FREEPLAY;
         const uint32_t freeplay_dst = roms.rom0.read32(&freeplay_record);
         roms.rom0.read16(&freeplay_record); // tile count
@@ -194,19 +195,32 @@ namespace
         const uint16_t freeplay_y =
             static_cast<uint16_t>(freeplay_relative / 0x80);
 
-        const char* text = "CHANGE CAR COLOR WITH GEAR";
-        const int length = 26;
-        const int x_start = 40 - length;
+        const char* line1 = "HI - LOW";
+        const char* line2 = "CHANGE COLOR";
+        const int line1_length = 8;
+        const int line2_length = 12;
+        const int line1_x = 40 - line1_length;
+        const int line2_x = 40 - line2_length;
+        const uint16_t line1_y = freeplay_y > 0 ? freeplay_y - 1 : freeplay_y;
 
-        // Only clear the right-hand portion. The original FREE PLAY text is
-        // redrawn by OHud on the left each frame and must remain untouched.
-        for (int x = x_start; x < 40; x++)
+        // Clear only the compact right-hand block. FREE PLAY on the left remains
+        // untouched and is still drawn by the original HUD code.
+        for (int x = line2_x; x < 40; x++)
+        {
+            video.write_text16(ohud.translate(x, line1_y), 0);
             video.write_text16(ohud.translate(x, freeplay_y), 0);
+        }
 
         ohud.blit_text_new(
-            static_cast<uint16_t>(x_start),
+            static_cast<uint16_t>(line1_x),
+            line1_y,
+            line1,
+            freeplay_pal);
+
+        ohud.blit_text_new(
+            static_cast<uint16_t>(line2_x),
             freeplay_y,
-            text,
+            line2,
             freeplay_pal);
 
         // Reuse the small Ferrari that normally drives across the course map.
@@ -224,10 +238,10 @@ namespace
         preview->shadow = roms.rom0p->read8(map_ferrari_entry + 2);
         preview->zoom = roms.rom0p->read8(map_ferrari_entry + 3);
 
-        // Mirror the FREE PLAY placement: preview the selected car just above
-        // the new right-hand instruction rather than in the middle of screen.
-        preview->x = 112;
-        preview->y = static_cast<int16_t>((freeplay_y * 8) - 12);
+        // Pull the preview in beside the compact two-line hint so the car and
+        // its control instruction form one visual group in the lower-right.
+        preview->x = 48;
+        preview->y = static_cast<int16_t>((freeplay_y * 8) - 4);
         preview->priority = 0x1FF;
         preview->road_priority = 0x1FF;
         preview->addr = outrun.adr.sprite_minicar_right;
