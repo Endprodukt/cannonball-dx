@@ -118,6 +118,9 @@ namespace pixel_scaler
             last_mode.store(value, std::memory_order_relaxed);
     }
 
+    // Full menu cycle. 3x stays available for users who prefer the lower-cost
+    // mode or its look, even though the quick F6 cycle focuses on the stronger
+    // 4x+ modes.
     inline int cycle()
     {
         int next = OFF;
@@ -132,6 +135,29 @@ namespace pixel_scaler
             case HQX_3X:  next = HQX_4X;  break;
             case HQX_4X:  next = OFF;     break;
             default:      next = OFF;     break;
+        }
+
+        set(next);
+        renderer_restart_requested.store(true, std::memory_order_release);
+        return next;
+    }
+
+    // Quick-cycle used by F6. Skip the more compromise-heavy 3x modes while
+    // leaving them accessible from Enhancements.
+    inline int cycle_hotkey()
+    {
+        int next = OFF;
+
+        switch (normalize(mode.load(std::memory_order_relaxed)))
+        {
+            case OFF:      next = XBRZ_4X; break;
+            case XBRZ_3X:  next = XBRZ_4X; break;
+            case XBRZ_4X:  next = XBRZ_5X; break;
+            case XBRZ_5X:  next = XBRZ_6X; break;
+            case XBRZ_6X:  next = HQX_4X;  break;
+            case HQX_3X:   next = HQX_4X;  break;
+            case HQX_4X:   next = OFF;     break;
+            default:       next = OFF;     break;
         }
 
         set(next);
