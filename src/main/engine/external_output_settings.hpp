@@ -160,7 +160,6 @@ private:
     int showcase_phase = -1;
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
     uint8_t announcement_hold_view = ORoad::VIEW_ORIGINAL;
-    uint32_t phase_start_frame = 0;
     uint32_t phase_due_tick = 0;
     Outrun::AttractRuntimeState attract_cycle_state{};
     bool attract_cycle_saved = false;
@@ -292,7 +291,6 @@ private:
         phase_view = VIEWS[phase];
         announcement_hold_view = oroad.get_view_mode();
         showcase_announcing = true;
-        phase_start_frame = cannonball::frame;
         phase_due_tick = outrun.tick_counter + ANNOUNCE_TIME_TICKS;
     }
 
@@ -303,7 +301,6 @@ private:
         // Camera change only. Vehicle speed, AI, traffic, road position and all
         // other Enhanced Attract logic continue exactly as they normally would.
         oroad.set_view_mode(phase_view, true);
-        phase_start_frame = cannonball::frame;
         phase_due_tick = outrun.tick_counter + VIEW_TIME_TICKS;
     }
 
