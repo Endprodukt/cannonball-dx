@@ -1,6 +1,9 @@
 #pragma once
 
 #include <atomic>
+#include <iostream>
+
+#include "frontend/config.hpp"
 
 namespace pixel_scaler
 {
@@ -162,6 +165,13 @@ namespace pixel_scaler
 
         set(next);
         renderer_restart_requested.store(true, std::memory_order_release);
+
+        // F6 changes the scaler outside the frontend's normal save flow.
+        // Persist it immediately because CannonBall-SE exits via _Exit() and
+        // therefore has no guaranteed final config save on shutdown.
+        if (!config.save())
+            std::cerr << "Unable to save pixel scaler setting." << std::endl;
+
         return next;
     }
 
