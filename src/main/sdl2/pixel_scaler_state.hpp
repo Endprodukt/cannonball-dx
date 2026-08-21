@@ -4,18 +4,21 @@
 
 namespace pixel_scaler
 {
+    // Keep the original numeric values so existing config.xml files remain
+    // compatible. The two former 2x slots are legacy-only and are normalized
+    // to their corresponding 3x modes; they are never exposed or cycled to.
     enum Mode
     {
         OFF = 0,
-        XBRZ_2X,
-        XBRZ_3X,
-        XBRZ_4X,
-        XBRZ_5X,
-        XBRZ_6X,
-        HQX_2X,
-        HQX_3X,
-        HQX_4X,
-        MODE_COUNT,
+        LEGACY_XBRZ_2X = 1,
+        XBRZ_3X = 2,
+        XBRZ_4X = 3,
+        XBRZ_5X = 4,
+        XBRZ_6X = 5,
+        LEGACY_HQX_2X = 6,
+        HQX_3X = 7,
+        HQX_4X = 8,
+        MODE_COUNT = 9,
     };
 
     inline std::atomic<int> mode{OFF};
@@ -24,43 +27,74 @@ namespace pixel_scaler
 
     inline bool valid(int value)
     {
+        // Legacy 2x values are still considered readable config values. They
+        // are normalized immediately by set()/normalize().
         return value >= OFF && value < MODE_COUNT;
+    }
+
+    inline int normalize(int value)
+    {
+        switch (value)
+        {
+            case LEGACY_XBRZ_2X: return XBRZ_3X;
+            case LEGACY_HQX_2X:  return HQX_3X;
+            case OFF:
+            case XBRZ_3X:
+            case XBRZ_4X:
+            case XBRZ_5X:
+            case XBRZ_6X:
+            case HQX_3X:
+            case HQX_4X:
+                return value;
+            default:
+                return OFF;
+        }
     }
 
     inline bool active(int value)
     {
-        return value > OFF && value < MODE_COUNT;
+        return normalize(value) != OFF;
     }
 
     inline bool is_xbrz(int value)
     {
-        return value >= XBRZ_2X && value <= XBRZ_6X;
+        value = normalize(value);
+        return value >= XBRZ_3X && value <= XBRZ_6X;
     }
 
     inline bool is_hqx(int value)
     {
-        return value >= HQX_2X && value <= HQX_4X;
+        value = normalize(value);
+        return value >= HQX_3X && value <= HQX_4X;
     }
 
     inline int factor(int value)
     {
-        if (is_xbrz(value))
-            return value - XBRZ_2X + 2;
-        if (is_hqx(value))
-            return value - HQX_2X + 2;
-        return 1;
+        switch (normalize(value))
+        {
+            case XBRZ_3X:
+            case HQX_3X:
+                return 3;
+            case XBRZ_4X:
+            case HQX_4X:
+                return 4;
+            case XBRZ_5X:
+                return 5;
+            case XBRZ_6X:
+                return 6;
+            default:
+                return 1;
+        }
     }
 
     inline const char* name(int value)
     {
-        switch (value)
+        switch (normalize(value))
         {
-            case XBRZ_2X: return "XBRZ 2X";
             case XBRZ_3X: return "XBRZ 3X";
             case XBRZ_4X: return "XBRZ 4X";
             case XBRZ_5X: return "XBRZ 5X";
             case XBRZ_6X: return "XBRZ 6X";
-            case HQX_2X:  return "HQX 2X";
             case HQX_3X:  return "HQX 3X";
             case HQX_4X:  return "HQX 4X";
             default:      return "OFF";
@@ -69,8 +103,15 @@ namespace pixel_scaler
 
     inline void set(int value)
     {
-        if (!valid(value))
-            value = OFF;
+        value = normalize(value);
+
+        // Also migrate a legacy persisted "last scaler" even when the current
+        // mode is OFF, so the next save no longer writes a removed 2x mode.
+        int normalized_last = normalize(
+            last_mode.load(std::memory_order_relaxed));
+        if (!active(normalized_last))
+            normalized_last = XBRZ_4X;
+        last_mode.store(normalized_last, std::memory_order_relaxed);
 
         mode.store(value, std::memory_order_relaxed);
         if (active(value))
@@ -79,9 +120,19 @@ namespace pixel_scaler
 
     inline int cycle()
     {
-        int next = mode.load(std::memory_order_relaxed) + 1;
-        if (next >= MODE_COUNT)
-            next = OFF;
+        int next = OFF;
+
+        switch (normalize(mode.load(std::memory_order_relaxed)))
+        {
+            case OFF:      next = XBRZ_3X; break;
+            case XBRZ_3X: next = XBRZ_4X; break;
+            case XBRZ_4X: next = XBRZ_5X; break;
+            case XBRZ_5X: next = XBRZ_6X; break;
+            case XBRZ_6X: next = HQX_3X;  break;
+            case HQX_3X:  next = HQX_4X;  break;
+            case HQX_4X:  next = OFF;     break;
+            default:      next = OFF;     break;
+        }
 
         set(next);
         renderer_restart_requested.store(true, std::memory_order_release);
