@@ -355,7 +355,8 @@ void OOutputs::writeDigitalToConsole()
     static uint8_t attract_sequence_view = 0;
     static bool attract_current_view_automatic = true;
     static bool attract_original_intro = false;
-    static uint32_t attract_original_effect_start = 0;
+    static uint32_t attract_original_intro_start = 0;
+    static uint32_t attract_original_chase_start = 0;
 
     if (enhanced_attract_driving)
     {
@@ -368,7 +369,8 @@ void OOutputs::writeDigitalToConsole()
             attract_sequence_view = 0;
             attract_current_view_automatic = true;
             attract_original_intro = false;
-            attract_original_effect_start = outrun.tick_counter;
+            attract_original_intro_start = 0;
+            attract_original_chase_start = outrun.tick_counter;
         }
         else if (outrun.tick_frame && ++attract_sequence_counter > 240)
         {
@@ -387,12 +389,14 @@ void OOutputs::writeDigitalToConsole()
                 // Only an automatic return to ORIGINAL gets the three-flash
                 // intro and subsequent ping-pong chase.
                 attract_original_intro = true;
-                attract_original_effect_start = outrun.tick_counter;
+                attract_original_intro_start = outrun.tick_counter;
+                attract_original_chase_start = outrun.tick_counter + 48;
             }
             else
             {
                 attract_original_intro = false;
-                attract_original_effect_start = 0;
+                attract_original_intro_start = 0;
+                attract_original_chase_start = 0;
             }
         }
 
@@ -402,7 +406,8 @@ void OOutputs::writeDigitalToConsole()
         {
             attract_current_view_automatic = false;
             attract_original_intro = false;
-            attract_original_effect_start = 0;
+            attract_original_intro_start = 0;
+            attract_original_chase_start = 0;
         }
     }
     else
@@ -412,14 +417,15 @@ void OOutputs::writeDigitalToConsole()
         attract_sequence_view = 0;
         attract_current_view_automatic = true;
         attract_original_intro = false;
-        attract_original_effect_start = 0;
+        attract_original_intro_start = 0;
+        attract_original_chase_start = 0;
     }
 
     uint32_t attract_original_intro_elapsed = 0;
     if (attract_original_intro)
     {
         attract_original_intro_elapsed =
-            outrun.tick_counter - attract_original_effect_start;
+            outrun.tick_counter - attract_original_intro_start;
 
         // All view-lamp effects run twice as fast as START: 8 ticks on,
         // 8 ticks off. Three complete flashes therefore take 48 ticks.
@@ -473,20 +479,8 @@ void OOutputs::writeDigitalToConsole()
         view == ORoad::VIEW_ORIGINAL &&
         !attract_original_intro)
     {
-        uint32_t chase_elapsed = 0;
-        if (attract_original_effect_start != 0)
-        {
-            chase_elapsed = outrun.tick_counter - attract_original_effect_start;
-            if (chase_elapsed >= 48)
-                chase_elapsed -= 48;
-            else if (attract_original_effect_start != outrun.tick_counter)
-                chase_elapsed = 0;
-        }
-        else
-        {
-            chase_elapsed = outrun.tick_counter;
-        }
-
+        const uint32_t chase_elapsed =
+            outrun.tick_counter - attract_original_chase_start;
         attract_chase_phase =
             static_cast<uint8_t>((chase_elapsed >> 3) & 3);
     }
