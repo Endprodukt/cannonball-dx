@@ -50,10 +50,47 @@ namespace
         direct_view2_old = view2;
         direct_view3_old = view3;
     }
+
+    void sync_continuous_traffic_to_difficulty()
+    {
+        if (outrun.cannonball_mode != Outrun::MODE_CONT)
+            return;
+
+        // Use the exact same stage/difficulty table as original OutRun. The
+        // Continuous route visits all 15 stages, but stage_lookup_off / 8 still
+        // identifies the original stage group (1..5) for traffic purposes.
+        static const uint8_t ORIGINAL_TRAFFIC[] =
+        {
+            2, 2, 3, 4, 5, // Easy
+            3, 4, 5, 6, 7, // Normal
+            4, 5, 6, 7, 8, // Hard
+            5, 6, 7, 8, 8, // Hardest
+        };
+
+        int difficulty = config.engine.dip_traffic;
+        if (difficulty < 0)
+            difficulty = 0;
+        else if (difficulty > 3)
+            difficulty = 3;
+
+        int stage_group = oroad.stage_lookup_off / 8;
+        if (stage_group < 0)
+            stage_group = 0;
+        else if (stage_group > 4)
+            stage_group = 4;
+
+        outrun.custom_traffic =
+            ORIGINAL_TRAFFIC[(difficulty * 5) + stage_group];
+    }
 }
 
 void OOutputs::writeDigitalToConsole()
 {
+    // Keep Continuous traffic tied to the normal OutRun difficulty setting.
+    // This is intentionally independent of whether external outputs are enabled;
+    // this method is already called every engine tick by main.cpp.
+    sync_continuous_traffic_to_difficulty();
+
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
 
