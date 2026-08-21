@@ -80,6 +80,7 @@ public:
                 int view3_lamp)
     {
         update_showcase();
+        reset_view_on_start();
 
         if (showcase_active)
         {
@@ -141,6 +142,7 @@ private:
 
     bool showcase_active = false;
     bool showcase_announcing = false;
+    bool start_old = false;
 
     // Every real GS_ATTRACT driving section gets one midpoint showcase. After a
     // Logo -> Attract transition it additionally gets one early showcase after
@@ -250,6 +252,26 @@ private:
         view3_old = view3;
         viewpoint_old = viewpoint;
         return pressed;
+    }
+
+    void reset_view_on_start()
+    {
+        const bool start_now = input.is_pressed(Input::START);
+
+        // START always wins over attract/showcase camera state. Limit the reset
+        // to pre-race states so START cannot unexpectedly change the camera
+        // during an active run.
+        if (start_now && !start_old &&
+            cannonball::state == cannonball::STATE_GAME &&
+            (outrun.game_state < GS_START1 || outrun.game_state == GS_BEST2))
+        {
+            if (showcase_active)
+                abort_showcase();
+
+            oroad.set_view_mode(ORoad::VIEW_ORIGINAL, true);
+        }
+
+        start_old = start_now;
     }
 
     bool tick_due(uint32_t due) const
