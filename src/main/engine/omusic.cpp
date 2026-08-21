@@ -130,21 +130,70 @@ void OMusic::draw_game_options()
     else if (game_mode_selected == Outrun::MODE_TTRIAL)
         mode_name = "TIME TRIAL";
 
-    const std::string mode_line = std::string("MODE: ") + mode_name;
-    const int mode_x = 20 - (static_cast<int>(mode_line.length()) / 2);
+    // Draw arbitrary text with the same two-row System 16 font used by the
+    // original SELECT MUSIC prompt. Supplying the palette base separately lets
+    // the instruction use the exact ROM style while the selected mode uses the
+    // same yellow/black style as the song title.
+    auto draw_double_row_centered = [](uint8_t y, const char* text, uint16_t pal)
+    {
+        int length = static_cast<int>(strlen(text));
+        if (length > 40)
+            length = 40;
 
-    // These rows sit around the existing PRESS START prompt without replacing
-    // the original ROM text. Clear them first because mode names have different
-    // lengths when the player cycles between them.
-    ohud.blit_text_new(0, 18, "                                        ", OHud::GREY);
-    ohud.blit_text_new(mode_x, 18, mode_line.c_str(), OHud::GREEN);
+        const int x_start = 20 - (length / 2);
 
-    ohud.blit_text_new(0, 19, "                                        ", OHud::GREY);
-    ohud.blit_text_new(16, 19, "COLOR", OHud::GREY);
-    draw_color_swatch(22, 19);
+        // Clear both rows first, since the three mode names have different
+        // lengths and otherwise leave characters behind when cycling.
+        for (int x = 0; x < 40; x++)
+        {
+            video.write_text16(ohud.translate(x, y), 0);
+            video.write_text16(ohud.translate(x, y) + 0x80, 0);
+        }
 
-    ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
-    ohud.blit_text_new(11, 23, "VIEW - CHANGE MODE", OHud::GREY);
+        uint32_t dst_addr = ohud.translate(x_start, y);
+
+        for (int i = 0; i < length; i++)
+        {
+            uint16_t c = static_cast<uint8_t>(text[i]);
+
+            if (c >= 'a' && c <= 'z')
+                c -= 0x20;
+
+            if (c == ' ')
+            {
+                video.write_text16(&dst_addr, 0);
+                video.write_text16(0x7E + dst_addr, 0);
+            }
+            else if (c >= 'A' && c <= 'Z')
+            {
+                c = ((c - 'A') * 2) + pal;
+                video.write_text16(&dst_addr, c);
+                video.write_text16(0x7E + dst_addr, c + 1);
+            }
+        }
+    };
+
+    // Extract the palette directly from the original SELECT MUSIC BY STEERING
+    // ROM text record, so the new instruction has exactly the same colours.
+    uint32_t select_music_style = TEXT2_SELECT_MUSIC + 2;
+    uint16_t prompt_pal = roms.rom0.read8(&select_music_style);
+    prompt_pal = 0x80A0 | ((prompt_pal << 9) | ((prompt_pal >> 7) & 1));
+
+    draw_double_row_centered(
+        3,
+        "SELECT GAME MODE WITH VIEW BUTTONS",
+        prompt_pal);
+
+    // 0x8AA0 is the palette used by the enhanced song title when music notes
+    // are enabled. Use the same font/palette here, but deliberately omit notes.
+    draw_double_row_centered(5, mode_name, 0x8AA0);
+
+    // Keep the car-colour control visible but unobtrusive below the song title.
+    // This replaces the large block of helper text that previously covered the
+    // radio artwork.
+    ohud.blit_text_new(0, 14, "                                        ", OHud::GREY);
+    ohud.blit_text_new(16, 14, "COLOR", OHud::GREY);
+    draw_color_swatch(22, 14);
 }
 
 int OMusic::get_music_selected()
@@ -398,7 +447,14 @@ void OMusic::enable()
     else
         set_game_mode(Outrun::MODE_ORIGINAL);
 
-    menu_gear_state = oinputs.gear;
+    // For a physical LOW/HIGH cabinet shifter, track the raw LOW contact. This
+    // gives the music screen both edges of the lever movement reliably. Other
+    // gear modes continue to use the logical gear state or button edges below.
+    if (config.controls.gear == config.controls.GEAR_PRESS)
+        menu_gear_state = input.is_pressed(Input::GEAR1);
+    else
+        menu_gear_state = oinputs.gear;
+
     menu_gear_initialized = true;
     draw_game_options();
 }
@@ -516,31 +572,48 @@ void OMusic::check_start()
     else if (input.has_pressed(Input::VIEWPOINT))
         cycle_game_mode();
 
-    // Use the shifter as a colour selector only on this screen. A real arcade
-    // LOW/HIGH shifter naturally moves backwards/forwards through the palette;
-    // separate gear buttons and automatic setups get explicit previous/next.
-    if (config.controls.gear == config.controls.GEAR_SEPARATE ||
-        config.controls.gear == config.controls.GEAR_AUTO)
+    // Use the shifter as a colour selector only on this screen. Read the real
+    // cabinet LOW/HIGH contact directly so both lever directions are detected;
+    // the ordinary driving gear state is deliberately not used for that mode.
+    if (config.controls.gear == config.controls.GEAR_PRESS)
+    {
+        const bool low_now = input.is_pressed(Input::GEAR1);
+
+        if (!menu_gear_initialized)
+        {
+            menu_gear_state = low_now;
+            menu_gear_initialized = true;
+        }
+        else if (low_now != menu_gear_state)
+        {
+            // Moving into LOW steps backwards; moving into HIGH steps forwards.
+            cycle_car_color(low_now ? -1 : 1);
+            menu_gear_state = low_now;
+        }
+    }
+    else if (config.controls.gear == config.controls.GEAR_SEPARATE)
     {
         if (input.has_pressed(Input::GEAR1))
             cycle_car_color(-1);
         else if (input.has_pressed(Input::GEAR2))
             cycle_car_color(1);
     }
-    else
+    else if (config.controls.gear == config.controls.GEAR_BUTTON)
     {
-        const bool gear_now = oinputs.gear;
-
-        if (!menu_gear_initialized)
-        {
-            menu_gear_state = gear_now;
-            menu_gear_initialized = true;
-        }
-        else if (gear_now != menu_gear_state)
-        {
-            cycle_car_color(gear_now ? 1 : -1);
-            menu_gear_state = gear_now;
-        }
+        // A one-button shifter has no physical direction. The normal gear logic
+        // has already toggled oinputs.gear this frame, so alternate the colour
+        // direction in the same LOW/HIGH sense.
+        if (input.has_pressed(Input::GEAR1))
+            cycle_car_color(oinputs.gear ? 1 : -1);
+    }
+    else // GEAR_AUTO
+    {
+        // Automatic transmission normally has no shifter, but honour explicit
+        // gear bindings if the player configured them for menu use.
+        if (input.has_pressed(Input::GEAR1))
+            cycle_car_color(-1);
+        else if (input.has_pressed(Input::GEAR2))
+            cycle_car_color(1);
     }
 
     if (!ostats.credits || !input.has_pressed(Input::START))
