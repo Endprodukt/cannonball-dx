@@ -333,6 +333,63 @@ void OOutputs::writeDigitalToConsole()
 
     const uint8_t view = oroad.get_view_mode();
 
+    // Mirror only the existing enhanced-attract automatic timer. This lets the
+    // lamp intro distinguish a genuine automatic return to ORIGINAL from any
+    // manual VIEW/VIEW1/VIEW2/VIEW3 change without modifying the view sequence.
+    static bool attract_sequence_tracking = false;
+    static int attract_sequence_counter = 0;
+    static uint8_t attract_sequence_view = 0;
+    static bool attract_original_intro = false;
+    static uint32_t attract_original_intro_start = 0;
+
+    if (enhanced_attract_driving)
+    {
+        if (!attract_sequence_tracking)
+        {
+            attract_sequence_tracking = true;
+            attract_sequence_counter = outrun.tick_frame ? 1 : 0;
+            attract_sequence_view = 0;
+            attract_original_intro = false;
+        }
+        else if (outrun.tick_frame && ++attract_sequence_counter > 240)
+        {
+            attract_sequence_counter = 0;
+            if (++attract_sequence_view > 2)
+                attract_sequence_view = 0;
+
+            // Only the automatic sequence can arm this intro. Manual changes
+            // never alter attract_sequence_view and therefore never trigger it.
+            if (attract_sequence_view == 0)
+            {
+                attract_original_intro = true;
+                attract_original_intro_start = outrun.tick_counter;
+            }
+        }
+    }
+    else
+    {
+        attract_sequence_tracking = false;
+        attract_sequence_counter = 0;
+        attract_sequence_view = 0;
+        attract_original_intro = false;
+    }
+
+    // If the player manually leaves ORIGINAL while the automatic return intro
+    // is running, cancel it immediately rather than flashing the wrong view.
+    if (attract_original_intro && view != ORoad::VIEW_ORIGINAL)
+        attract_original_intro = false;
+
+    uint32_t attract_original_intro_elapsed = 0;
+    if (attract_original_intro)
+    {
+        attract_original_intro_elapsed =
+            outrun.tick_counter - attract_original_intro_start;
+
+        // Three complete blinks: 16 ticks on + 16 ticks off, repeated 3 times.
+        if (attract_original_intro_elapsed >= 96)
+            attract_original_intro = false;
+    }
+
     // MAMEHooker START lamp behaviour is deliberately cabinet-oriented rather
     // than tied to the original D_START_LAMP bit. In particular, CannonBall's
     // freeplay PRESS START text does not set the original hardware bit.
@@ -365,30 +422,45 @@ void OOutputs::writeDigitalToConsole()
         music_selection &&
         (outrun.tick_counter & BIT_4);
 
-    // Custom attract views use the same blink cadence as START. The original
-    // view gets a faster four-step ping-pong chase across VIEW1/2/3 instead:
-    // 1 -> 2 -> 3 -> 2 -> ... . Each step lasts 8 ticks, exactly half the
-    // 16-tick START lamp phase, so the movement is twice as fast.
+    // Custom attract views blink their matching button at the START-lamp rate.
     const bool attract_custom_view_blink =
         enhanced_attract_driving &&
         (outrun.tick_counter & BIT_4);
 
-    const uint8_t attract_chase_phase =
+    // An automatic return to ORIGINAL first flashes all three buttons three
+    // times. Afterwards the faster ping-pong chase restarts from VIEW1.
+    const bool attract_original_intro_lit =
+        attract_original_intro &&
+        (((attract_original_intro_elapsed >> 4) & 1) == 0);
+
+    uint8_t attract_chase_phase =
         static_cast<uint8_t>((outrun.tick_counter >> 3) & 3);
 
-    const bool attract_chase_view1 =
+    if (view == ORoad::VIEW_ORIGINAL &&
+        !attract_original_intro &&
+        attract_original_intro_start != 0)
+    {
+        const uint32_t chase_elapsed =
+            outrun.tick_counter - attract_original_intro_start - 96;
+        attract_chase_phase =
+            static_cast<uint8_t>((chase_elapsed >> 3) & 3);
+    }
+
+    const bool attract_chase_active =
         enhanced_attract_driving &&
         view == ORoad::VIEW_ORIGINAL &&
+        !attract_original_intro;
+
+    const bool attract_chase_view1 =
+        attract_chase_active &&
         attract_chase_phase == 0;
 
     const bool attract_chase_view2 =
-        enhanced_attract_driving &&
-        view == ORoad::VIEW_ORIGINAL &&
+        attract_chase_active &&
         (attract_chase_phase == 1 || attract_chase_phase == 3);
 
     const bool attract_chase_view3 =
-        enhanced_attract_driving &&
-        view == ORoad::VIEW_ORIGINAL &&
+        attract_chase_active &&
         attract_chase_phase == 2;
 
     const int selected_game_mode = omusic.get_game_mode();
@@ -410,20 +482,22 @@ void OOutputs::writeDigitalToConsole()
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_ORIGINAL) ? 1 : 0)
             : (enhanced_attract_driving
-                ? (attract_chase_view1 ? 1 : 0)
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? ((attract_original_intro_lit || attract_chase_view1) ? 1 : 0)
+                    : 0)
                 : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_CONT) ? 1 : 0)
             : (enhanced_attract_driving
                 ? ((view == ORoad::VIEW_ORIGINAL)
-                    ? (attract_chase_view2 ? 1 : 0)
+                    ? ((attract_original_intro_lit || attract_chase_view2) ? 1 : 0)
                     : ((view == ORoad::VIEW_ELEVATED && attract_custom_view_blink) ? 1 : 0))
                 : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_TTRIAL) ? 1 : 0)
             : (enhanced_attract_driving
                 ? ((view == ORoad::VIEW_ORIGINAL)
-                    ? (attract_chase_view3 ? 1 : 0)
+                    ? ((attract_original_intro_lit || attract_chase_view3) ? 1 : 0)
                     : ((view == ORoad::VIEW_INCAR && attract_custom_view_blink) ? 1 : 0))
                 : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0)));
 }
