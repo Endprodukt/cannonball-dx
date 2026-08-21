@@ -12,6 +12,7 @@
 
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/omusic.hpp"
 #include "engine/outils.hpp"
 #include "engine/omap.hpp"
 #include "engine/ostats.hpp"
@@ -75,6 +76,7 @@ int TTrial::tick()
             {
                 if (input.has_pressed(Input::MENU))
                 {
+                    omusic.cancel_time_trial_from_music();
                     return BACK_TO_MENU;
                 }
                 else if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
