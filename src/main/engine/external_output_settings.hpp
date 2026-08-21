@@ -1,46 +1,22 @@
 #pragma once
 
-#include <array>
+#include <chrono>
 #include <cstring>
-#include <memory>
 #include <string>
 
 #include "main.hpp"
 #include "roms.hpp"
 #include "video.hpp"
-#include "engine/oanimseq.hpp"
-#include "engine/oattractai.hpp"
-#include "engine/obonus.hpp"
-#include "engine/ocrash.hpp"
-#include "engine/oferrari.hpp"
 #include "engine/ohud.hpp"
-#include "engine/oinitengine.hpp"
-#include "engine/oinputs.hpp"
-#include "engine/olevelobjs.hpp"
-#include "engine/opalette.hpp"
 #include "engine/oroad.hpp"
-#include "engine/osmoke.hpp"
-#include "engine/osprites.hpp"
-#include "engine/ostats.hpp"
-#include "engine/otiles.hpp"
-#include "engine/otraffic.hpp"
+#include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 #include "frontend/xml_parser.h"
 #include "sdl2/input.hpp"
 
-// windows.h defines PATH in some SDK configurations. TrackLoader also has the
-// legitimate LayOut::PATH constant, so hide only the Windows macro while this
-// header is parsed and restore it immediately afterwards.
-#ifdef PATH
-#pragma push_macro("PATH")
-#undef PATH
-#define CANNONBALL_RESTORE_PATH_MACRO
-#endif
-#include "trackloader.hpp"
-#ifdef CANNONBALL_RESTORE_PATH_MACRO
-#pragma pop_macro("PATH")
-#undef CANNONBALL_RESTORE_PATH_MACRO
-#endif
+// Main engine pause flag. The showcase owns this only for its short camera
+// presentation freezes; audio and rendering continue normally.
+extern bool pause_engine;
 
 // Optional external-output transport settings. SmartyPi remains independent.
 struct ExternalOutputSettings
@@ -83,9 +59,9 @@ inline ExternalOutputSettings& external_output_settings()
     return settings;
 }
 
-// Enhanced-attract showcase wrapper. external_outputs.hpp is included before
-// this header, so deriving here lets the existing OOutputs call site remain
-// untouched while the showcase can override the final lamp values.
+// Enhanced-attract showcase wrapper. The normal Enhanced Attract drive is
+// reused directly: after High Scores / Logo the car continues from the same
+// road position and the three camera views are presented on that live scene.
 class ExternalOutputsWithAttractShowcase : public ExternalOutputs
 {
 public:
@@ -115,7 +91,7 @@ public:
             view2_lamp = 0;
             view3_lamp = 0;
 
-            const bool fast_blink = (outrun.tick_counter & BIT_3) != 0;
+            const bool fast_blink = (cannonball::frame & 0x08) != 0;
             const uint8_t view = oroad.get_view_mode();
 
             if (view == ORoad::VIEW_ORIGINAL)
@@ -126,10 +102,9 @@ public:
                 }
                 else
                 {
-                    // Automatic ORIGINAL uses the same fast ping-pong chase as
-                    // the enhanced attract mode: 1 -> 2 -> 3 -> 2 -> ...
+                    // Automatic ORIGINAL uses the existing ping-pong lamp chase.
                     const uint8_t chase =
-                        static_cast<uint8_t>(((outrun.tick_counter - phase_start_tick) >> 3) & 3);
+                        static_cast<uint8_t>(((cannonball::frame - phase_start_frame) >> 3) & 3);
                     view1_lamp = chase == 0 ? 1 : 0;
                     view2_lamp = (chase == 1 || chase == 3) ? 1 : 0;
                     view3_lamp = chase == 2 ? 1 : 0;
@@ -159,41 +134,14 @@ public:
     }
 
 private:
-    static constexpr uint32_t VIEW_TIME = 210; // 7 seconds at the 30 Hz game tick.
-    static constexpr uint32_t TOTAL_TIME = VIEW_TIME * 3;
+    using Clock = std::chrono::steady_clock;
 
-    struct AttractResumeSnapshot
-    {
-        ORoad road;
-        OInitEngine initengine;
-        OFerrari ferrari;
-        OSprites sprites;
-        OTraffic traffic;
-        OLevelObjs levelobjs;
-        OAttractAI attractai;
-        OCrash crash;
-        OAnimSeq animseq;
-        OSmoke smoke;
-        OBonus bonus;
-        OStats stats;
-        OPalette palette;
-        OTiles tiles;
-
-        hwtiles hw_tiles;
-        hwsprites hw_sprites;
-        HWRoad hw_road;
-
-        TrackLoader::RuntimeState track;
-        Outrun::AttractRuntimeState attract;
-        std::array<uint16_t, S16_PALETTE_ENTRIES> palette_ram;
-
-        int16_t steering_adjust;
-        uint8_t acc_adjust;
-        uint8_t brake_adjust;
-    };
+    static constexpr std::chrono::milliseconds FREEZE_TIME{900};
+    static constexpr std::chrono::seconds DRIVE_TIME{7};
 
     bool showcase_pending = false;
     bool showcase_active = false;
+    bool showcase_freezing = false;
     bool manual_override = false;
     bool view1_old = false;
     bool view2_old = false;
@@ -202,88 +150,10 @@ private:
     int previous_game_state = -1;
     int showcase_phase = -1;
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
-    uint32_t showcase_start_tick = 0;
-    uint32_t phase_start_tick = 0;
-    std::unique_ptr<AttractResumeSnapshot> resume_state;
-
-    void capture_attract_state()
-    {
-        resume_state.reset(new AttractResumeSnapshot());
-
-        resume_state->road = oroad;
-        resume_state->initengine = oinitengine;
-        resume_state->ferrari = oferrari;
-        resume_state->sprites = osprites;
-        resume_state->traffic = otraffic;
-        resume_state->levelobjs = olevelobjs;
-        resume_state->attractai = oattractai;
-        resume_state->crash = ocrash;
-        resume_state->animseq = oanimseq;
-        resume_state->smoke = osmoke;
-        resume_state->bonus = obonus;
-        resume_state->stats = ostats;
-        resume_state->palette = opalette;
-        resume_state->tiles = otiles;
-
-        resume_state->hw_tiles = *video.tile_layer;
-        resume_state->hw_sprites = *video.sprite_layer;
-        resume_state->hw_road = hwroad;
-
-        resume_state->track = trackloader.capture_runtime_state();
-        resume_state->attract = outrun.capture_attract_runtime_state();
-
-        for (uint32_t i = 0; i < S16_PALETTE_ENTRIES; i++)
-            resume_state->palette_ram[i] =
-                video.read_pal16(S16_PALETTE_BASE + (i << 1));
-
-        resume_state->steering_adjust = oinputs.steering_adjust;
-        resume_state->acc_adjust = oinputs.acc_adjust;
-        resume_state->brake_adjust = oinputs.brake_adjust;
-    }
-
-    void restore_attract_state()
-    {
-        if (!resume_state)
-            return;
-
-        // Restore the software-side engine first. Ferrari/traffic/crash objects
-        // contain pointers into the global OSprites table, whose address never
-        // changes; restoring OSprites puts the pointed-to entries back in place.
-        osprites = resume_state->sprites;
-        oroad = resume_state->road;
-        oinitengine = resume_state->initengine;
-        oferrari = resume_state->ferrari;
-        otraffic = resume_state->traffic;
-        olevelobjs = resume_state->levelobjs;
-        oattractai = resume_state->attractai;
-        ocrash = resume_state->crash;
-        oanimseq = resume_state->animseq;
-        osmoke = resume_state->smoke;
-        obonus = resume_state->bonus;
-        ostats = resume_state->stats;
-        opalette = resume_state->palette;
-        otiles = resume_state->tiles;
-
-        trackloader.restore_runtime_state(resume_state->track);
-        outrun.restore_attract_runtime_state(resume_state->attract);
-
-        // Restore the emulated video hardware too. This is what makes resuming
-        // work even if the normal attract had already reached a later stage,
-        // palette transition or road split before High Scores / Logo appeared.
-        *video.tile_layer = resume_state->hw_tiles;
-        *video.sprite_layer = resume_state->hw_sprites;
-        hwroad = resume_state->hw_road;
-
-        uint32_t pal_addr = S16_PALETTE_BASE;
-        for (uint32_t i = 0; i < S16_PALETTE_ENTRIES; i++)
-            video.write_pal16(&pal_addr, resume_state->palette_ram[i]);
-
-        oinputs.steering_adjust = resume_state->steering_adjust;
-        oinputs.acc_adjust = resume_state->acc_adjust;
-        oinputs.brake_adjust = resume_state->brake_adjust;
-
-        resume_state.reset();
-    }
+    uint32_t phase_start_frame = 0;
+    Clock::time_point phase_time{};
+    Outrun::AttractRuntimeState attract_cycle_state{};
+    bool attract_cycle_saved = false;
 
     void clear_double_row(uint8_t y)
     {
@@ -343,9 +213,9 @@ private:
         else if (view == ORoad::VIEW_INCAR)
             view_name = "IN CAR VIEW";
 
-        // Same yellow/black double-row style as the enhanced Music Select song
-        // title. The selected view deliberately blinks like an arcade prompt.
-        if (outrun.tick_counter & BIT_4)
+        // Keep the name solid during the short freeze so the changed camera is
+        // clearly explained. Once driving resumes it returns to the arcade blink.
+        if (showcase_freezing || (cannonball::frame & 0x10))
             draw_double_row_centered(7, view_name, 0x8AA0);
         else
             clear_double_row(7);
@@ -371,101 +241,71 @@ private:
         return pressed;
     }
 
-    void hide_non_palm_opening_scenery()
+    void begin_view_phase(int phase)
     {
-        // Stage 1's palm trees use the normal level-object routine. Hide the
-        // special start-line/water/grass/cloud routines so the short showcase
-        // reads as road + palms rather than a normal attract-stage scene.
-        // Limit this to the stage-1 level-object slots; Ferrari/passenger/smoke
-        // slots live outside this range and remain untouched.
-        for (int i = 0; i <= 0x44; i++)
+        static const uint8_t VIEWS[] =
         {
-            oentry* sprite = &osprites.jump_table[i];
-            if ((sprite->control & OSprites::ENABLE) && sprite->function_holder != 0)
-                sprite->control &= ~OSprites::ENABLE;
-        }
-    }
+            ORoad::VIEW_ORIGINAL,
+            ORoad::VIEW_ELEVATED,
+            ORoad::VIEW_INCAR,
+        };
 
-    void reset_showcase_segment(uint8_t view)
-    {
-        // Reuse the opening Coconut Beach straight for every camera. Each
-        // seven-second section starts from the same point, so all views get a
-        // directly comparable road scene without reaching the first bend.
-        oroad.init();
-        oinitengine.init(0);
-
-        oferrari.car_ctrl_active = true;
-        oinitengine.car_x_pos = 0;
-        oinitengine.car_x_old = 0;
-        oroad.car_x_bak = 0;
-
-        // Start at full normal OutRun speed instead of accelerating from rest.
-        oinitengine.car_increment = 0xFA << 16;
-        oferrari.car_inc_old = 0xFA;
-        oinputs.acc_adjust = 0xFF;
-        oinputs.brake_adjust = 0;
-        oinputs.steering_adjust = 0;
-
-        // Present a normal single road immediately, without the wide start-grid
-        // road geometry, and suppress every traffic slot/spawn during the demo.
-        oroad.road_width = 0xD4 << 16;
-        oroad.road_width_bak = 0xD4;
-        otraffic.disable_traffic();
-        otraffic.set_custom_max_traffic(0);
-        otraffic.ai_traffic = 0;
-
-        // Remove any hard-coded start-line objects left in the reusable slots.
-        for (int i = 0; i <= 0x44; i++)
-            osprites.jump_table[i].control &= ~OSprites::ENABLE;
-
-        oroad.set_view_mode(view, true);
-        phase_view = view;
+        showcase_phase = phase;
+        phase_view = VIEWS[phase];
         manual_override = false;
-        phase_start_tick = outrun.tick_counter;
+        showcase_freezing = true;
+        phase_time = Clock::now();
+        phase_start_frame = cannonball::frame;
+
+        // Switch the camera while the live road is still at the exact frame we
+        // just displayed. One road pass applies the new horizon immediately;
+        // the following short engine pause then holds that transformed scene.
+        oroad.set_view_mode(phase_view, true);
+        oroad.tick();
+        pause_engine = true;
     }
 
     void start_showcase()
     {
         showcase_pending = false;
         showcase_active = true;
-        showcase_phase = 0;
-        showcase_start_tick = outrun.tick_counter;
-
-        // GS_INIT has just restored the normal Enhanced Attract to the point at
-        // which it stopped before High Scores / Logo. Freeze that exact runtime
-        // state here, use the live engine for the disposable showcase, then put
-        // this snapshot back afterwards.
-        capture_attract_state();
-
+        attract_cycle_state = outrun.capture_attract_runtime_state();
+        attract_cycle_saved = true;
         video.clear_text_ram();
-        reset_showcase_segment(ORoad::VIEW_ORIGINAL);
+        begin_view_phase(0);
     }
 
-    void end_showcase()
+    void finish_showcase()
     {
-        restore_attract_state();
+        pause_engine = false;
+        showcase_freezing = false;
 
+        // The normal Enhanced Attract view timer has continued in the background
+        // during the moving sections. Re-sync it to the camera we actually end
+        // on, so its next automatic change starts a fresh, predictable cycle.
+        if (attract_cycle_saved)
+        {
+            attract_cycle_state.view = oroad.get_view_mode();
+            attract_cycle_state.counter = 0;
+            outrun.restore_attract_runtime_state(attract_cycle_state);
+        }
+
+        attract_cycle_saved = false;
         showcase_active = false;
         showcase_phase = -1;
         manual_override = false;
-
-        // Continue the already-resumed Enhanced Attract directly. Do not enter
-        // GS_INIT again: doing so would reset its timer/view sequence instead of
-        // carrying on from the state captured immediately after the logo.
-        outrun.game_state = GS_ATTRACT;
+        video.clear_text_ram();
     }
 
-    void abort_showcase(bool restore_attract)
+    void abort_showcase()
     {
-        if (restore_attract)
-            restore_attract_state();
-        else
-            resume_state.reset();
-
+        pause_engine = false;
         showcase_active = false;
         showcase_pending = false;
+        showcase_freezing = false;
         showcase_phase = -1;
         manual_override = false;
+        attract_cycle_saved = false;
     }
 
     void update_showcase()
@@ -475,7 +315,7 @@ private:
             config.engine.new_attract;
 
         // Logo timeout changes GS_LOGO -> GS_INIT for one frame. Remember that
-        // edge, then start only when GS_INIT has entered GS_ATTRACT next tick.
+        // edge, then start only once GS_INIT has resumed the real attract drive.
         if (enhanced_game &&
             previous_game_state == GS_LOGO &&
             outrun.game_state == GS_INIT)
@@ -494,71 +334,59 @@ private:
         {
             if (!enhanced_game || outrun.game_state != GS_ATTRACT)
             {
-                // If the player inserted a credit, the game has legitimately
-                // left Attract for Music Select; do not overwrite that state.
-                // If Enhanced Attract itself was merely disabled while we are
-                // still in GS_ATTRACT, put the pre-showcase scene back first.
-                const bool can_restore = outrun.game_state == GS_ATTRACT;
-                abort_showcase(can_restore);
+                abort_showcase();
             }
             else
             {
-                const uint32_t elapsed = outrun.tick_counter - showcase_start_tick;
+                const Clock::time_point now = Clock::now();
 
-                if (elapsed >= TOTAL_TIME)
+                if (showcase_freezing)
                 {
-                    end_showcase();
+                    // Ignore manual VR changes during the explanatory freeze;
+                    // the announced view owns this short presentation moment.
+                    manual_view_pressed();
+                    if (oroad.get_view_mode() != phase_view)
+                    {
+                        oroad.set_view_mode(phase_view, true);
+                        oroad.tick();
+                    }
+
+                    draw_showcase_text();
+
+                    if (now - phase_time >= FREEZE_TIME)
+                    {
+                        showcase_freezing = false;
+                        pause_engine = false;
+                        phase_time = now;
+                    }
                 }
                 else
                 {
-                    const int phase = static_cast<int>(elapsed / VIEW_TIME);
-                    static const uint8_t VIEWS[] =
-                    {
-                        ORoad::VIEW_ORIGINAL,
-                        ORoad::VIEW_ELEVATED,
-                        ORoad::VIEW_INCAR,
-                    };
+                    if (manual_view_pressed())
+                        manual_override = true;
 
-                    if (phase != showcase_phase)
-                    {
-                        showcase_phase = phase;
-                        reset_showcase_segment(VIEWS[phase]);
-                    }
-                    else
-                    {
-                        if (manual_view_pressed())
-                            manual_override = true;
+                    // The existing Enhanced Attract timer may try to change the
+                    // view underneath the presentation. Hold the announced view
+                    // unless the player deliberately used a VR button.
+                    if (!manual_override && oroad.get_view_mode() != phase_view)
+                        oroad.set_view_mode(phase_view, true);
 
-                        // The existing Enhanced Attract view timer still ticks
-                        // underneath us. Hold the showcase's intended automatic
-                        // view against that timer, but never fight a real player
-                        // VR-button override inside the current seven-second phase.
-                        if (!manual_override && oroad.get_view_mode() != phase_view)
-                            oroad.set_view_mode(phase_view, true);
-                    }
-
-                    // Keep the demonstration pinned to full speed, normal road
-                    // width and centreline regardless of AI/collision decisions.
-                    oinitengine.car_increment = 0xFA << 16;
-                    oferrari.car_inc_old = 0xFA;
-                    oinitengine.car_x_pos = 0;
-                    oinputs.acc_adjust = 0xFF;
-                    oinputs.brake_adjust = 0;
-                    oinputs.steering_adjust = 0;
-                    oroad.road_width = 0xD4 << 16;
-                    oroad.road_width_bak = 0xD4;
-                    otraffic.disable_traffic();
-                    otraffic.set_custom_max_traffic(0);
-                    otraffic.ai_traffic = 0;
-                    hide_non_palm_opening_scenery();
                     draw_showcase_text();
+
+                    if (now - phase_time >= DRIVE_TIME)
+                    {
+                        if (showcase_phase < 2)
+                            begin_view_phase(showcase_phase + 1);
+                        else
+                            finish_showcase();
+                    }
                 }
             }
         }
         else
         {
-            // Keep edge trackers current outside the showcase so holding a VR
-            // button across the transition cannot look like a fresh press.
+            // Keep edge trackers current outside the showcase so a held VR
+            // button cannot become a false new press at the next presentation.
             manual_view_pressed();
         }
 
