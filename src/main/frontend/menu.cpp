@@ -49,6 +49,7 @@ namespace
     const int COL_WHEEL = 2;
 
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
+    const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
 
     bool starts_with_label(const std::string& value, const char* label)
     {
@@ -59,6 +60,13 @@ namespace
     {
         return std::string(GAMEPAD_RUMBLE_LABEL) +
             (gamepad_rumble::enabled ? "ON" : "OFF");
+    }
+
+    std::string pixel_scaler_menu_text()
+    {
+        return std::string(PIXEL_SCALER_LABEL) +
+            pixel_scaler::name(
+                pixel_scaler::mode.load(std::memory_order_relaxed));
     }
 
     const char* ROW_LABELS[BINDING_ROWS] =
@@ -293,6 +301,26 @@ bool Menu::select_pressed()
     const bool pressed = return_pressed || MenuBase::select_pressed();
     if (!pressed)
         return false;
+
+    if (menu_selected == &menu_enhancements &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_enhancements.size()))
+    {
+        const std::string& option = menu_enhancements[cursor];
+
+        if (starts_with_label(option, PIXEL_SCALER_LABEL))
+        {
+            int next =
+                pixel_scaler::mode.load(std::memory_order_relaxed) + 1;
+            if (next >= pixel_scaler::MODE_COUNT)
+                next = pixel_scaler::OFF;
+
+            pixel_scaler::set(next);
+            menu_enhancements[cursor] = pixel_scaler_menu_text();
+            config.videoRestartRequired = true;
+            return false;
+        }
+    }
 
     if (menu_selected == &menu_controls &&
         cursor >= 0 &&
