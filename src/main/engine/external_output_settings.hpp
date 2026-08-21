@@ -341,6 +341,7 @@ private:
         showcase_announcing = false;
         showcase_phase = -1;
         attract_cycle_saved = false;
+        video.clear_text_ram();
     }
 
     bool post_logo_delay_elapsed() const
