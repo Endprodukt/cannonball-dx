@@ -12,6 +12,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(cannonball-se)
 include(GNUInstallDirs)
+include(FetchContent)
 
 # --- Compiler version checks ------------------------------------------------------
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
@@ -78,6 +79,55 @@ set(main_base cannonball-se)
 set(main_cpp_base src/main)
 
 # -----------------------------------------------------------------------------
+# Optional pixel scaler source used by the Enhancements menu.
+# Pull the HqMAME-derived implementations from a pinned Mesen2 snapshot and
+# strip Mesen's project-specific precompiled-header include before compiling.
+# -----------------------------------------------------------------------------
+FetchContent_Declare(
+    cannonball_scalers
+    GIT_REPOSITORY https://github.com/SourMesen/Mesen2.git
+    GIT_TAG b9fa69ddc6d0a331fb103fdb5eef6904305703c2
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(cannonball_scalers)
+if(NOT cannonball_scalers_POPULATED)
+    FetchContent_Populate(cannonball_scalers)
+endif()
+
+set(CB_SCALER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_scalers")
+file(MAKE_DIRECTORY "${CB_SCALER_GEN_DIR}/xbrz")
+file(MAKE_DIRECTORY "${CB_SCALER_GEN_DIR}/hqx")
+
+function(cb_prepare_scaler_file source_subdir filename output_subdir)
+    file(READ
+        "${cannonball_scalers_SOURCE_DIR}/${source_subdir}/${filename}"
+        _cb_scaler_content)
+    string(REPLACE "#include \"../pch.h\"\r\n" "" _cb_scaler_content "${_cb_scaler_content}")
+    string(REPLACE "#include \"../pch.h\"\n" "" _cb_scaler_content "${_cb_scaler_content}")
+    file(WRITE
+        "${CB_SCALER_GEN_DIR}/${output_subdir}/${filename}"
+        "${_cb_scaler_content}")
+endfunction()
+
+cb_prepare_scaler_file("Utilities/xBRZ" "config.h" "xbrz")
+cb_prepare_scaler_file("Utilities/xBRZ" "xbrz.h" "xbrz")
+cb_prepare_scaler_file("Utilities/xBRZ" "xbrz.cpp" "xbrz")
+cb_prepare_scaler_file("Utilities/HQX" "common.h" "hqx")
+cb_prepare_scaler_file("Utilities/HQX" "hqx.h" "hqx")
+cb_prepare_scaler_file("Utilities/HQX" "init.cpp" "hqx")
+cb_prepare_scaler_file("Utilities/HQX" "hq2x.cpp" "hqx")
+cb_prepare_scaler_file("Utilities/HQX" "hq3x.cpp" "hqx")
+cb_prepare_scaler_file("Utilities/HQX" "hq4x.cpp" "hqx")
+
+set(src_scalers
+    "${CB_SCALER_GEN_DIR}/xbrz/xbrz.cpp"
+    "${CB_SCALER_GEN_DIR}/hqx/init.cpp"
+    "${CB_SCALER_GEN_DIR}/hqx/hq2x.cpp"
+    "${CB_SCALER_GEN_DIR}/hqx/hq3x.cpp"
+    "${CB_SCALER_GEN_DIR}/hqx/hq4x.cpp"
+)
+
+# -----------------------------------------------------------------------------
 # Project Source Files
 # -----------------------------------------------------------------------------
 
@@ -140,6 +190,7 @@ set(src_sdl
     "${main_cpp_base}/sdl2/input.hpp"
     "${main_cpp_base}/sdl2/renderbase.hpp"
     "${main_cpp_base}/sdl2/snes_ntsc.h"
+    "${main_cpp_base}/sdl2/pixel_scaler_state.hpp"
 
     "${main_cpp_base}/sdl2/audio.cpp"
     "${main_cpp_base}/sdl2/wav123.cpp"
@@ -241,6 +292,7 @@ set(SRCS
     ${src_hwaudio}
     ${src_sdl}
     ${src_render}
+    ${src_scalers}
     ${src_directx}
     ${src_engine}
     ${src_engine_data}
@@ -254,6 +306,7 @@ SOURCE_GROUP(src\\hwvideo FILES ${src_hwvideo})
 SOURCE_GROUP(src\\hwaudio FILES ${src_hwaudio})
 SOURCE_GROUP(src\\sdl FILES ${src_sdl})
 SOURCE_GROUP(src\\sdl FILES ${src_render})
+SOURCE_GROUP(src\\sdl\\scalers FILES ${src_scalers})
 SOURCE_GROUP(src\\directx FILES ${src_directx})
 SOURCE_GROUP(src\\engine FILES ${src_engine})
 SOURCE_GROUP(src\\engine\\data FILES ${src_engine_data})
@@ -331,6 +384,8 @@ endif()
 # headers used like #include "sdl2/foo.hpp" live under src/main
 target_include_directories(cannonball-se PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/main"
+  "${CB_SCALER_GEN_DIR}/xbrz"
+  "${CB_SCALER_GEN_DIR}/hqx"
   ${_SDL2_INCLUDE_DIRS}               # present on all platforms
 )
 
@@ -517,7 +572,6 @@ if(ENABLE_PROFILING)
         # $ cmake --build build -j
         #
         message(STATUS "Profiling: Google perftools (CPU) enabled")
-
         # Prefer pkg-config if available
         find_package(PkgConfig QUIET)
         if(PkgConfig_FOUND)
