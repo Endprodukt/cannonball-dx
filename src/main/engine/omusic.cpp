@@ -16,7 +16,10 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/ostats.hpp"
+#include "frontend/menu.hpp"
 #include "directx/ffeedback.hpp"
+
+extern Menu* menu;
 
 OMusic omusic;
 
@@ -26,6 +29,12 @@ OMusic::OMusic(void)
     tile_patch = NULL;
     ffb_detent_spring_applied = -1;
     ffb_detent_target_applied = 0;
+    game_mode_selected = Outrun::MODE_ORIGINAL;
+    menu_gear_initialized = false;
+    menu_gear_state = false;
+    return_from_time_trial = false;
+    skip_music_tick = false;
+    pending_music_selected = 0;
 }
 
 
@@ -33,6 +42,109 @@ OMusic::~OMusic(void)
 {
     if (tilemap)    delete tilemap;
     if (tile_patch) delete tile_patch;
+}
+
+void OMusic::set_game_mode(int mode)
+{
+    if (mode == Outrun::MODE_ORIGINAL ||
+        mode == Outrun::MODE_CONT ||
+        mode == Outrun::MODE_TTRIAL)
+    {
+        game_mode_selected = mode;
+    }
+}
+
+void OMusic::cycle_game_mode()
+{
+    if (game_mode_selected == Outrun::MODE_ORIGINAL)
+        set_game_mode(Outrun::MODE_CONT);
+    else if (game_mode_selected == Outrun::MODE_CONT)
+        set_game_mode(Outrun::MODE_TTRIAL);
+    else
+        set_game_mode(Outrun::MODE_ORIGINAL);
+}
+
+void OMusic::cycle_car_color(int direction)
+{
+    int color = config.engine.car_pal + direction;
+
+    if (color < 0)
+        color = 4;
+    else if (color > 4)
+        color = 0;
+
+    config.engine.car_pal = color;
+}
+
+void OMusic::set_continuous_traffic_from_difficulty()
+{
+    // Continuous no longer needs a separate traffic choice when launched from
+    // the arcade flow. Start with the same traffic density as stage 1 of the
+    // selected original-game difficulty. The existing continuous setting is
+    // retained only for backwards compatibility with the legacy frontend.
+    static const uint8_t TRAFFIC_BY_DIFFICULTY[] = { 2, 3, 4, 5 };
+
+    int difficulty = config.engine.dip_traffic;
+    if (difficulty < 0)
+        difficulty = 0;
+    else if (difficulty > 3)
+        difficulty = 3;
+
+    outrun.custom_traffic = TRAFFIC_BY_DIFFICULTY[difficulty];
+}
+
+void OMusic::draw_color_swatch(uint16_t x, uint16_t y)
+{
+    // Reserve text palette 7 for the music-screen colour swatch. Fill all of
+    // its visible colour entries with one RGB value, then draw the wide rev-bar
+    // tile as a compact solid block. The normal game palette is rebuilt during
+    // GS_INIT_GAME, so this temporary palette cannot leak into the race HUD.
+    static const uint16_t CAR_COLORS[] =
+    {
+        0x100F, // Red
+        0x4F00, // Blue
+        0x30FF, // Yellow
+        0x20F0, // Green
+        0x6FF0, // Cyan
+    };
+
+    int color = config.engine.car_pal;
+    if (color < 0 || color > 4)
+        color = 0;
+
+    uint32_t pal_addr = 0x120000 + (7 * 0x20);
+    video.write_pal16(&pal_addr, 0);
+    for (int i = 1; i < 16; i++)
+        video.write_pal16(&pal_addr, CAR_COLORS[color]);
+
+    // Priority + palette 7 + tile 0x1FD (the filled/wide rev-counter segment).
+    video.write_text16(ohud.translate(x, y), 0x8FFD);
+}
+
+void OMusic::draw_game_options()
+{
+    const char* mode_name = "ORIGINAL";
+
+    if (game_mode_selected == Outrun::MODE_CONT)
+        mode_name = "CONTINUOUS";
+    else if (game_mode_selected == Outrun::MODE_TTRIAL)
+        mode_name = "TIME TRIAL";
+
+    const std::string mode_line = std::string("MODE: ") + mode_name;
+    const int mode_x = 20 - (static_cast<int>(mode_line.length()) / 2);
+
+    // These rows sit around the existing PRESS START prompt without replacing
+    // the original ROM text. Clear them first because mode names have different
+    // lengths when the player cycles between them.
+    ohud.blit_text_new(0, 18, "                                        ", OHud::GREY);
+    ohud.blit_text_new(mode_x, 18, mode_line.c_str(), OHud::GREEN);
+
+    ohud.blit_text_new(0, 19, "                                        ", OHud::GREY);
+    ohud.blit_text_new(16, 19, "COLOR", OHud::GREY);
+    draw_color_swatch(22, 19);
+
+    ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
+    ohud.blit_text_new(11, 23, "VIEW - CHANGE MODE", OHud::GREY);
 }
 
 int OMusic::get_music_selected()
@@ -197,6 +309,37 @@ bool OMusic::load_widescreen_map(std::string path)
 // Source: 0xB342
 void OMusic::enable()
 {
+    // Returning from the Time Trial course map normally causes the engine to
+    // visit GS_INIT_MUSIC again. If this Time Trial was launched from the music
+    // screen, preserve the song already chosen and turn that second visit into
+    // a one-tick handoff straight to GS_INIT_GAME.
+    if (return_from_time_trial && outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+    {
+        return_from_time_trial = false;
+        skip_music_tick = true;
+        total_tracks = static_cast<int>(config.sound.music.size());
+
+        if (pending_music_selected < 0 || pending_music_selected >= total_tracks)
+            pending_music_selected = 0;
+
+        cursor_pos = pending_music_selected;
+        music_selected = pending_music_selected;
+        last_music_selected = pending_music_selected;
+
+        // GS_INIT_MUSIC increments playcount before calling enable(). This is
+        // the same play, not a second credit, so cancel that duplicate count.
+        if (config.stats.playcount > 0)
+            config.stats.playcount--;
+
+        video.enabled = false;
+        return;
+    }
+
+    // A cancelled course selection returns to the normal frontend without
+    // changing cannonball_mode, so do not let a stale marker skip a later game.
+    return_from_time_trial = false;
+    skip_music_tick = false;
+
     oferrari.car_ctrl_active = false;
     video.clear_text_ram();
     osprites.disable_sprites();
@@ -247,6 +390,17 @@ void OMusic::enable()
     music_selected = cursor_pos;
     ffb_detent_spring_applied = -1;
     ffb_detent_target_applied = 0;
+
+    if (outrun.cannonball_mode == Outrun::MODE_CONT)
+        set_game_mode(Outrun::MODE_CONT);
+    else if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+        set_game_mode(Outrun::MODE_TTRIAL);
+    else
+        set_game_mode(Outrun::MODE_ORIGINAL);
+
+    menu_gear_state = oinputs.gear;
+    menu_gear_initialized = true;
+    draw_game_options();
 }
 
 void OMusic::disable()
@@ -346,22 +500,109 @@ void OMusic::setup_sprite5()
     osprites.map_palette(e);
 }
 
-// Check for start button during music selection screen
+// Check for mode, colour and start input during music selection screen
 //
 // Source: 0xB768
 void OMusic::check_start()
 {
-    if (ostats.credits && input.has_pressed(Input::START))
+    // Direct three-button cabinets select modes immediately. The traditional
+    // single VIEW button cycles through the same three choices.
+    if (input.has_pressed(Input::VIEW1))
+        set_game_mode(Outrun::MODE_ORIGINAL);
+    else if (input.has_pressed(Input::VIEW2))
+        set_game_mode(Outrun::MODE_CONT);
+    else if (input.has_pressed(Input::VIEW3))
+        set_game_mode(Outrun::MODE_TTRIAL);
+    else if (input.has_pressed(Input::VIEWPOINT))
+        cycle_game_mode();
+
+    // Use the shifter as a colour selector only on this screen. A real arcade
+    // LOW/HIGH shifter naturally moves backwards/forwards through the palette;
+    // separate gear buttons and automatic setups get explicit previous/next.
+    if (config.controls.gear == config.controls.GEAR_SEPARATE ||
+        config.controls.gear == config.controls.GEAR_AUTO)
     {
-        outrun.game_state = GS_INIT_GAME;
+        if (input.has_pressed(Input::GEAR1))
+            cycle_car_color(-1);
+        else if (input.has_pressed(Input::GEAR2))
+            cycle_car_color(1);
+    }
+    else
+    {
+        const bool gear_now = oinputs.gear;
+
+        if (!menu_gear_initialized)
+        {
+            menu_gear_state = gear_now;
+            menu_gear_initialized = true;
+        }
+        else if (gear_now != menu_gear_state)
+        {
+            cycle_car_color(gear_now ? 1 : -1);
+            menu_gear_state = gear_now;
+        }
+    }
+
+    if (!ostats.credits || !input.has_pressed(Input::START))
+        return;
+
+    // Persist the selected car colour when the player commits to a run rather
+    // than writing config.xml on every shifter movement.
+    config.save();
+
+    if (game_mode_selected == Outrun::MODE_TTRIAL)
+    {
+        pending_music_selected = music_selected;
+        return_from_time_trial = true;
+
+        // The Time Trial selector provides its own ambience. Stop a custom WAV
+        // preview before handing control to the frontend course map.
+        cannonball::audio.clear_wav();
+        osoundint.queue_sound(sound::FM_RESET);
+
         ologo.disable();
         disable();
+
+        if (menu)
+        {
+            menu->start_time_trial_from_music();
+            return;
+        }
+
+        // Defensive fallback for builds without a frontend menu object.
+        return_from_time_trial = false;
+        set_game_mode(Outrun::MODE_ORIGINAL);
     }
+
+    outrun.cannonball_mode = game_mode_selected;
+
+    if (game_mode_selected == Outrun::MODE_CONT)
+        set_continuous_traffic_from_difficulty();
+
+    // Music-select mode switching happens after boot(), so refresh the correct
+    // high-score table now rather than leaving the table from the launch mode.
+    config.load_scores(game_mode_selected == Outrun::MODE_ORIGINAL);
+
+    outrun.game_state = GS_INIT_GAME;
+    ologo.disable();
+    disable();
 }
 
 // Tick and Blit
 void OMusic::tick()
 {
+    // Time Trial selected from this screen has already chosen its music. The
+    // frontend restarted the engine after course selection, so skip the normal
+    // second music screen and let GS_INIT_GAME use the remembered song.
+    if (skip_music_tick)
+    {
+        skip_music_tick = false;
+        ostats.frame_counter = ostats.frame_reset + 1;
+        outrun.game_state = GS_INIT_GAME;
+        video.enabled = false;
+        return;
+    }
+
     // Radio Sprite
     osprites.do_spr_order_shadows(&osprites.jump_table[entry_start + 0]);
 
@@ -385,6 +626,8 @@ void OMusic::tick()
     osprites.do_spr_order_shadows(e);
     osprites.do_spr_order_shadows(dial);
     osprites.do_spr_order_shadows(hand);;
+
+    draw_game_options();
 
     // Enhancement: Preview Music On Sound Selection Screen
     if (config.sound.preview)
