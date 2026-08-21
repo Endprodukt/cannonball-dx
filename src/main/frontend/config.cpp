@@ -28,6 +28,7 @@
 #include "engine/outils.hpp"
 #include "engine/audio/osoundint.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
+#include "sdl2/pixel_scaler_state.hpp"
 
 // Retain the existing Config::load/save implementation under private names.
 #define load load_base
@@ -244,6 +245,17 @@ void Config::load()
 {
     load_base();
 
+    int scaler_mode = cfg.get_int("video.pixel_scaler", pixel_scaler::OFF);
+    int scaler_last = cfg.get_int("video.pixel_scaler_last", pixel_scaler::XBRZ_4X);
+
+    if (!pixel_scaler::valid(scaler_mode))
+        scaler_mode = pixel_scaler::OFF;
+    if (!pixel_scaler::active(scaler_last))
+        scaler_last = pixel_scaler::XBRZ_4X;
+
+    pixel_scaler::last_mode.store(scaler_last, std::memory_order_relaxed);
+    pixel_scaler::set(scaler_mode);
+
     // Rumble enable is deliberately independent from rumble strength. Legacy
     // configs used strength 0 as OFF, so preserve that intent on first load.
     const bool legacy_rumble_enabled = controls.rumble > 0.0f;
@@ -284,6 +296,13 @@ void Config::load()
 
 bool Config::save()
 {
+    cfg.put_int(
+        "video.pixel_scaler",
+        pixel_scaler::mode.load(std::memory_order_relaxed));
+    cfg.put_int(
+        "video.pixel_scaler_last",
+        pixel_scaler::last_mode.load(std::memory_order_relaxed));
+
     // Keep the on/off state separate so switching rumble off never overwrites
     // the user's preferred intensity.
     cfg.put_int(
