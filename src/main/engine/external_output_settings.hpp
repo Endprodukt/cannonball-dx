@@ -141,7 +141,6 @@ private:
 
     bool showcase_active = false;
     bool showcase_announcing = false;
-    bool manual_override = false;
 
     // Every real GS_ATTRACT driving section gets one midpoint showcase. After a
     // Logo -> Attract transition it additionally gets one early showcase after
@@ -270,7 +269,6 @@ private:
         showcase_phase = phase;
         phase_view = VIEWS[phase];
         announcement_hold_view = oroad.get_view_mode();
-        manual_override = false;
         showcase_announcing = true;
         phase_start_frame = cannonball::frame;
         phase_due_tick = outrun.tick_counter + ANNOUNCE_TIME_TICKS;
@@ -279,7 +277,6 @@ private:
     void apply_announced_view()
     {
         showcase_announcing = false;
-        manual_override = false;
 
         // Camera change only. Vehicle speed, AI, traffic, road position and all
         // other Enhanced Attract logic continue exactly as they normally would.
@@ -313,7 +310,6 @@ private:
         attract_cycle_saved = false;
         showcase_active = false;
         showcase_phase = -1;
-        manual_override = false;
         video.clear_text_ram();
     }
 
@@ -322,7 +318,6 @@ private:
         showcase_active = false;
         showcase_announcing = false;
         showcase_phase = -1;
-        manual_override = false;
         attract_cycle_saved = false;
     }
 
@@ -401,15 +396,17 @@ private:
             }
             else
             {
-                if (manual_view_pressed())
-                    manual_override = true;
+                // Consume all view-button edges while the presentation owns the
+                // camera. This keeps held buttons from becoming a fresh input as
+                // soon as the showcase ends, but no view input is acted upon.
+                manual_view_pressed();
 
                 if (showcase_announcing)
                 {
-                    // Keep the live view stable against the normal automatic
-                    // Enhanced Attract view timer while the next view is being
-                    // announced. A real VR-button press is still respected.
-                    if (!manual_override && oroad.get_view_mode() != announcement_hold_view)
+                    // Keep the currently displayed camera fixed during the
+                    // two-second announcement. Automatic attract changes and
+                    // player view-button changes are both ignored here.
+                    if (oroad.get_view_mode() != announcement_hold_view)
                         oroad.set_view_mode(announcement_hold_view, true);
 
                     draw_showcase_text();
@@ -419,9 +416,9 @@ private:
                 }
                 else
                 {
-                    // During the six-second demonstration hold the announced
-                    // automatic view, but never fight a real player VR override.
-                    if (!manual_override && oroad.get_view_mode() != phase_view)
+                    // During the six-second demonstration the announced view
+                    // owns the camera. All VIEW1/2/3/VIEWPOINT input is ignored.
+                    if (oroad.get_view_mode() != phase_view)
                         oroad.set_view_mode(phase_view, true);
 
                     draw_showcase_text();
