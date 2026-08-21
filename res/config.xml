@@ -21,20 +21,20 @@
 	<vsync>0</vsync>
 	<x_offset>0</x_offset>
 	<y_offset>0</y_offset>
-	<shader_mode>2</shader_mode>
-	<shadow_mask>2</shadow_mask>
+	<shader_mode>0</shader_mode>
+	<shadow_mask>0</shadow_mask>
 	<maskDim>75</maskDim>
 	<maskBoost>125</maskBoost>
 	<scanlines>0</scanlines>
-	<crt_shape>1</crt_shape>
-	<vignette>30</vignette>
-	<noise>6</noise>
-	<warpX>1</warpX>
-	<warpY>3</warpY>
-	<desaturate>5</desaturate>
-	<desaturate_edges>4</desaturate_edges>
-	<brightboost>1</brightboost>
-	<blargg>1</blargg>
+	<crt_shape>0</crt_shape>
+	<vignette>0</vignette>
+	<noise>0</noise>
+	<warpX>0</warpX>
+	<warpY>0</warpY>
+	<desaturate>0</desaturate>
+	<desaturate_edges>0</desaturate_edges>
+	<brightboost>0</brightboost>
+	<blargg>0</blargg>
 	<saturation>30</saturation>
 	<contrast>0</contrast>
 	<brightness>0</brightness>
@@ -59,10 +59,8 @@
 	     The arcade ran at 31,250Hz (or possibly 15,625Hz). This build supports that, except if using custom music via mp3,
 	     then 22050 or 44100 must be used. -->
 	<rate>44100</rate>
-	<!-- A list of SDL audio devices will be shown on screen when cannonball is started. Devices often list more than one
-         device, e.g. HDMI Audio and any USB sound device. Enter the number under playback_device corresponding to the device
-         listed by the game. -->
-	<playback_device>0</playback_device>
+	<!-- -1 uses the operating system's current default playback device. Set a specific SDL device index to override it. -->
+	<playback_device>-1</playback_device>
 	<!-- Callback Rate - either 0 (8ms) or 1 (16ms). 16ms will double the audio latency but may reduce dropouts on some systems. -->
 	<callback_rate>0</callback_rate>
 	<!-- Custom Music: Put .WAV, .MP3, or .YM files in res/ folder named as:
@@ -158,7 +156,7 @@
          0 = Easy      (80 seconds)
          1 = Normal    (75 seconds) 
          2 = Hard      (72 seconds) 
-         3 = Very Hard (70 seconds)  
+         3 = Very Hard (70 seconds) 
          4 = Infinite Time 
     -->
 	<time>0</time>
