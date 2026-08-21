@@ -76,19 +76,13 @@ namespace pixel_scaler
             last_mode.store(value, std::memory_order_relaxed);
     }
 
-    inline void toggle()
+    inline int cycle()
     {
-        const int current = mode.load(std::memory_order_relaxed);
-        if (active(current))
-        {
-            last_mode.store(current, std::memory_order_relaxed);
-            mode.store(OFF, std::memory_order_relaxed);
-            return;
-        }
+        int next = mode.load(std::memory_order_relaxed) + 1;
+        if (next >= MODE_COUNT)
+            next = OFF;
 
-        int restore = last_mode.load(std::memory_order_relaxed);
-        if (!active(restore))
-            restore = XBRZ_4X;
-        mode.store(restore, std::memory_order_relaxed);
+        set(next);
+        return next;
     }
 }
