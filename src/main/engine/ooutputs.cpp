@@ -33,14 +33,16 @@ namespace
     bool direct_view1_old = false;
     bool direct_view2_old = false;
     bool direct_view3_old = false;
+    bool viewpoint_old = false;
     int music_mode_synced = -1;
     bool music_color_initialized = false;
 
-    void handle_direct_view_buttons(bool controls_active)
+    void handle_direct_view_buttons(bool controls_active, bool attract_cycle_active)
     {
         const bool view1 = input.is_pressed(Input::VIEW1);
         const bool view2 = input.is_pressed(Input::VIEW2);
         const bool view3 = input.is_pressed(Input::VIEW3);
+        const bool viewpoint = input.is_pressed(Input::VIEWPOINT);
 
         if (controls_active)
         {
@@ -50,11 +52,20 @@ namespace
                 oroad.set_view_mode(ORoad::VIEW_ELEVATED);
             else if (view3 && !direct_view3_old)
                 oroad.set_view_mode(ORoad::VIEW_INCAR);
+            else if (attract_cycle_active && viewpoint && !viewpoint_old)
+            {
+                int mode = oroad.get_view_mode() + 1;
+                if (mode > ORoad::VIEW_INCAR)
+                    mode = ORoad::VIEW_ORIGINAL;
+
+                oroad.set_view_mode(mode);
+            }
         }
 
         direct_view1_old = view1;
         direct_view2_old = view2;
         direct_view3_old = view3;
+        viewpoint_old = viewpoint;
     }
 
     void sync_music_selection_mode(bool music_selection)
@@ -296,18 +307,29 @@ void OOutputs::writeDigitalToConsole()
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
 
-    const bool view_controls_active =
+    const bool enhanced_attract_driving =
+        cannonball::state == cannonball::STATE_GAME &&
+        config.engine.new_attract &&
+        outrun.game_state == GS_ATTRACT;
+
+    const bool race_view_controls_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state <= GS_INGAME;
 
+    // Player view controls also work while the enhanced attract driving scene
+    // is active. This does not touch the attract timer or attract_view sequence,
+    // so the existing automatic view changes continue on their normal cadence.
+    handle_direct_view_buttons(
+        race_view_controls_active || enhanced_attract_driving,
+        enhanced_attract_driving);
+
     // During the race the single VIEW lamp remains the normal availability
-    // lamp. During music selection it becomes a mode-selection lamp and blinks
-    // in sync with the one matching VIEW1/2/3 lamp below.
+    // lamp. During music selection it becomes a mode-selection lamp. During
+    // enhanced attract driving it blinks together with the currently selected
+    // direct-view lamp instead of remaining steadily lit.
     const bool view_lamp_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state < GS_INIT_GAMEOVER;
-
-    handle_direct_view_buttons(view_controls_active);
 
     const uint8_t view = oroad.get_view_mode();
 
@@ -343,6 +365,13 @@ void OOutputs::writeDigitalToConsole()
         music_selection &&
         (outrun.tick_counter & BIT_4);
 
+    // Enhanced attract mode uses the same cabinet-friendly blink cadence. This
+    // is intentionally GS_ATTRACT-only, so Best OutRunners and the logo screen
+    // leave all view lamps off while the START lamp keeps its existing logic.
+    const bool attract_view_lamp_blink =
+        enhanced_attract_driving &&
+        (outrun.tick_counter & BIT_4);
+
     const int selected_game_mode = omusic.get_game_mode();
 
     const auto& settings = external_output_settings();
@@ -356,14 +385,22 @@ void OOutputs::writeDigitalToConsole()
         is_set(D_BRAKE_LAMP),
         music_selection
             ? (mode_lamp_blink ? 1 : 0)
-            : (view_lamp_active ? 1 : 0),
+            : (enhanced_attract_driving
+                ? (attract_view_lamp_blink ? 1 : 0)
+                : (view_lamp_active ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_ORIGINAL) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0),
+            : (enhanced_attract_driving
+                ? ((attract_view_lamp_blink && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)
+                : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_CONT) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0),
+            : (enhanced_attract_driving
+                ? ((attract_view_lamp_blink && view == ORoad::VIEW_ELEVATED) ? 1 : 0)
+                : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_TTRIAL) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0));
+            : (enhanced_attract_driving
+                ? ((attract_view_lamp_blink && view == ORoad::VIEW_INCAR) ? 1 : 0)
+                : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0)));
 }
