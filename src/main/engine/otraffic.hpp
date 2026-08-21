@@ -45,6 +45,11 @@ public:
     void traffic_logic();
     void traffic_sound();
 
+    // Continuous mode can mirror the original OutRun difficulty table after
+    // its stage lookup advances. Keep the actual spawn cap synchronized with
+    // the public custom_traffic value without waiting for another checkpoint.
+    void set_custom_max_traffic(uint8_t value) { max_traffic = value; }
+
 private:
 
 	// -------------------------------------------------------------------------
