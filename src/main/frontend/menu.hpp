@@ -15,6 +15,7 @@
 #include "stdint.hpp"
 #include "main.hpp"
 #include "frontend/ttrial.hpp"
+#include "sdl2/pixel_scaler_state.hpp"
 
 class CabDiag;
 
@@ -152,6 +153,16 @@ public:
             else
                 ++it;
         }
+
+        const int scaler_mode =
+            pixel_scaler::mode.load(std::memory_order_relaxed);
+        const std::string scaler_entry =
+            std::string("PIXEL SCALER ") + pixel_scaler::name(scaler_mode);
+
+        if (!menu_enhancements.empty())
+            menu_enhancements.insert(menu_enhancements.end() - 1, scaler_entry);
+        else
+            menu_enhancements.push_back(scaler_entry);
     }
 
     // Wrapper hook used to keep analog steering from moving normal menu
