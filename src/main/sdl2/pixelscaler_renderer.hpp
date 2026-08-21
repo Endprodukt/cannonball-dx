@@ -385,10 +385,6 @@ private:
             std::cout << "Pixel scaler: "
                       << pixel_scaler::name(next)
                       << std::endl;
-
-            // Changing scaler changes texture dimensions and, for OFF, the
-            // renderer implementation itself, so rebuild the video path.
-            config.videoRestartRequired = true;
         }
 
         f6_was_down = down;
@@ -472,7 +468,6 @@ private:
         // Hi-res mode doubles the raw System 16 dimensions. Double the tiny
         // bitmap font as well so the physical label remains roughly the same.
         const int ui_scale = src_height >= (S16_HEIGHT * 2) ? 2 : 1;
-        const int glyph_width = 5 * ui_scale;
         const int glyph_height = 7 * ui_scale;
         const int advance = 6 * ui_scale;
         const int padding = 2 * ui_scale;
