@@ -17,7 +17,6 @@
 #include "hwvideo/hwtiles.hpp"
 #include "hwvideo/hwsprites.hpp"
 #include "hwvideo/hwroad.hpp"
-#include "sdl2/renderbase.hpp"
 
 namespace shadow
 {
@@ -26,6 +25,7 @@ namespace shadow
 };
 
 class hwsprites;
+class RenderBase;
 struct video_settings_t;
 
 class Video
@@ -45,26 +45,6 @@ public:
 	int init(Roms* roms, video_settings_t* settings);
     void swap_buffers();
     void disable();
-
-    // Rebuild only the SDL/GPU renderer. Unlike disable()+init(), this keeps
-    // the live System 16 tile/text RAM, road state and framebuffer allocation
-    // intact. Pixel-scaler changes use this path so a mid-game F6 switch does
-    // not erase the current background layers.
-    bool restart_renderer(int source_width,
-                          int source_height,
-                          int source_scale,
-                          int video_mode,
-                          int scanlines)
-    {
-        renderer->disable();
-        return renderer->init(
-            source_width,
-            source_height,
-            source_scale,
-            video_mode,
-            scanlines);
-    }
-
     int set_video_mode(video_settings_t* settings);
     void set_shadow_intensity(float);
     void prepare_frame();
