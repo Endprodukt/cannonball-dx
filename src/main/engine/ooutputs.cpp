@@ -33,28 +33,51 @@ namespace
     bool direct_view1_old = false;
     bool direct_view2_old = false;
     bool direct_view3_old = false;
+    bool viewpoint_old = false;
     int music_mode_synced = -1;
     bool music_color_initialized = false;
 
-    void handle_direct_view_buttons(bool controls_active)
+    bool handle_direct_view_buttons(bool controls_active, bool attract_cycle_active)
     {
         const bool view1 = input.is_pressed(Input::VIEW1);
         const bool view2 = input.is_pressed(Input::VIEW2);
         const bool view3 = input.is_pressed(Input::VIEW3);
+        const bool viewpoint = input.is_pressed(Input::VIEWPOINT);
+        bool view_changed = false;
 
         if (controls_active)
         {
             if (view1 && !direct_view1_old)
+            {
                 oroad.set_view_mode(ORoad::VIEW_ORIGINAL);
+                view_changed = true;
+            }
             else if (view2 && !direct_view2_old)
+            {
                 oroad.set_view_mode(ORoad::VIEW_ELEVATED);
+                view_changed = true;
+            }
             else if (view3 && !direct_view3_old)
+            {
                 oroad.set_view_mode(ORoad::VIEW_INCAR);
+                view_changed = true;
+            }
+            else if (attract_cycle_active && viewpoint && !viewpoint_old)
+            {
+                int mode = oroad.get_view_mode() + 1;
+                if (mode > ORoad::VIEW_INCAR)
+                    mode = ORoad::VIEW_ORIGINAL;
+
+                oroad.set_view_mode(mode);
+                view_changed = true;
+            }
         }
 
         direct_view1_old = view1;
         direct_view2_old = view2;
         direct_view3_old = view3;
+        viewpoint_old = viewpoint;
+        return view_changed;
     }
 
     void sync_music_selection_mode(bool music_selection)
@@ -296,20 +319,119 @@ void OOutputs::writeDigitalToConsole()
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
 
-    const bool view_controls_active =
+    const bool enhanced_attract_driving =
+        cannonball::state == cannonball::STATE_GAME &&
+        config.engine.new_attract &&
+        outrun.game_state == GS_ATTRACT;
+
+    const bool race_view_controls_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state <= GS_INGAME;
 
+    // Player view controls also work while the enhanced attract driving scene
+    // is active. This does not touch the attract timer or attract_view sequence,
+    // so the existing automatic view changes continue on their normal cadence.
+    const bool attract_manual_view_changed =
+        handle_direct_view_buttons(
+            race_view_controls_active || enhanced_attract_driving,
+            enhanced_attract_driving) &&
+        enhanced_attract_driving;
+
     // During the race the single VIEW lamp remains the normal availability
-    // lamp. During music selection it becomes a mode-selection lamp and blinks
-    // in sync with the one matching VIEW1/2/3 lamp below.
+    // lamp. During music selection it becomes a mode-selection lamp. During
+    // enhanced attract driving the dedicated VIEW1/2/3 lamps provide the show,
+    // so the legacy single VIEW lamp stays off there.
     const bool view_lamp_active =
         outrun.game_state >= GS_START1 &&
         outrun.game_state < GS_INIT_GAMEOVER;
 
-    handle_direct_view_buttons(view_controls_active);
-
     const uint8_t view = oroad.get_view_mode();
+
+    // Mirror only the existing enhanced-attract automatic timer. This lets the
+    // lamp logic distinguish an automatic view from a manual override without
+    // changing the actual automatic sequence in Outrun::tick_attract().
+    static bool attract_sequence_tracking = false;
+    static int attract_sequence_counter = 0;
+    static uint8_t attract_sequence_view = 0;
+    static bool attract_current_view_automatic = true;
+    static bool attract_original_intro = false;
+    static uint32_t attract_original_intro_start = 0;
+    static uint32_t attract_original_chase_start = 0;
+
+    if (enhanced_attract_driving)
+    {
+        bool automatic_view_changed = false;
+
+        if (!attract_sequence_tracking)
+        {
+            attract_sequence_tracking = true;
+            attract_sequence_counter = outrun.tick_frame ? 1 : 0;
+            attract_sequence_view = 0;
+            attract_current_view_automatic = true;
+            attract_original_intro = false;
+            attract_original_intro_start = 0;
+            attract_original_chase_start = outrun.tick_counter;
+        }
+        else if (outrun.tick_frame && ++attract_sequence_counter > 240)
+        {
+            attract_sequence_counter = 0;
+            if (++attract_sequence_view > 2)
+                attract_sequence_view = 0;
+            automatic_view_changed = true;
+        }
+
+        if (automatic_view_changed)
+        {
+            attract_current_view_automatic = true;
+
+            if (attract_sequence_view == 0)
+            {
+                // Only an automatic return to ORIGINAL gets the three-flash
+                // intro and subsequent ping-pong chase.
+                attract_original_intro = true;
+                attract_original_intro_start = outrun.tick_counter;
+                attract_original_chase_start = outrun.tick_counter + 48;
+            }
+            else
+            {
+                attract_original_intro = false;
+                attract_original_intro_start = 0;
+                attract_original_chase_start = 0;
+            }
+        }
+
+        // Manual input happens after the engine's automatic attract update in
+        // the current frame, so a manual choice deliberately wins if both occur.
+        if (attract_manual_view_changed)
+        {
+            attract_current_view_automatic = false;
+            attract_original_intro = false;
+            attract_original_intro_start = 0;
+            attract_original_chase_start = 0;
+        }
+    }
+    else
+    {
+        attract_sequence_tracking = false;
+        attract_sequence_counter = 0;
+        attract_sequence_view = 0;
+        attract_current_view_automatic = true;
+        attract_original_intro = false;
+        attract_original_intro_start = 0;
+        attract_original_chase_start = 0;
+    }
+
+    uint32_t attract_original_intro_elapsed = 0;
+    if (attract_original_intro)
+    {
+        attract_original_intro_elapsed =
+            outrun.tick_counter - attract_original_intro_start;
+
+        // All view-lamp effects run twice as fast as START: 8 ticks on,
+        // 8 ticks off. Three complete flashes therefore take 48 ticks.
+        if (attract_original_intro_elapsed >= 48)
+            attract_original_intro = false;
+    }
 
     // MAMEHooker START lamp behaviour is deliberately cabinet-oriented rather
     // than tied to the original D_START_LAMP bit. In particular, CannonBall's
@@ -323,8 +445,7 @@ void OOutputs::writeDigitalToConsole()
     const bool press_start_available =
         config.engine.freeplay || ostats.credits > 0;
 
-    // Blink during attract PRESS START and throughout music selection. The
-    // attract phase uses the same BIT_4 timing as OHud::draw_insert_coin().
+    // START keeps its original BIT_4 blink cadence.
     const bool start_lamp_blink =
         ((press_start_screen && press_start_available) ||
          music_selection) &&
@@ -336,12 +457,59 @@ void OOutputs::writeDigitalToConsole()
         outrun.game_state >= GS_INIT_GAME &&
         outrun.game_state <= GS_BONUS;
 
-    // Music-select game mode indication. The traditional single VIEW lamp
-    // always blinks here, while only the lamp for the selected direct-view
-    // button blinks with it. The other two remain off.
+    // Music-select game mode indication remains unchanged.
     const bool mode_lamp_blink =
         music_selection &&
         (outrun.tick_counter & BIT_4);
+
+    // Every Attract-mode view-button blink runs at BIT_3, twice the frequency
+    // of the START lamp's BIT_4 cadence.
+    const bool attract_view_blink_fast =
+        enhanced_attract_driving &&
+        (outrun.tick_counter & BIT_3);
+
+    const bool attract_original_intro_lit =
+        attract_original_intro &&
+        (((attract_original_intro_elapsed >> 3) & 1) == 0);
+
+    // Automatic ORIGINAL: after the three-flash intro, run the ping-pong chase
+    // VIEW1 -> VIEW2 -> VIEW3 -> VIEW2 -> ... at the same fast step rate.
+    uint8_t attract_chase_phase = 0;
+    if (attract_current_view_automatic &&
+        view == ORoad::VIEW_ORIGINAL &&
+        !attract_original_intro)
+    {
+        const uint32_t chase_elapsed =
+            outrun.tick_counter - attract_original_chase_start;
+        attract_chase_phase =
+            static_cast<uint8_t>((chase_elapsed >> 3) & 3);
+    }
+
+    const bool attract_chase_active =
+        enhanced_attract_driving &&
+        attract_current_view_automatic &&
+        view == ORoad::VIEW_ORIGINAL &&
+        !attract_original_intro;
+
+    const bool attract_chase_view1 =
+        attract_chase_active &&
+        attract_chase_phase == 0;
+
+    const bool attract_chase_view2 =
+        attract_chase_active &&
+        (attract_chase_phase == 1 || attract_chase_phase == 3);
+
+    const bool attract_chase_view3 =
+        attract_chase_active &&
+        attract_chase_phase == 2;
+
+    // Manual ORIGINAL is deliberately different from automatic ORIGINAL:
+    // only VIEW1 blinks, just like VIEW2/VIEW3 when selected manually.
+    const bool attract_manual_view1_blink =
+        enhanced_attract_driving &&
+        !attract_current_view_automatic &&
+        view == ORoad::VIEW_ORIGINAL &&
+        attract_view_blink_fast;
 
     const int selected_game_mode = omusic.get_game_mode();
 
@@ -356,14 +524,30 @@ void OOutputs::writeDigitalToConsole()
         is_set(D_BRAKE_LAMP),
         music_selection
             ? (mode_lamp_blink ? 1 : 0)
-            : (view_lamp_active ? 1 : 0),
+            : (enhanced_attract_driving
+                ? 0
+                : (view_lamp_active ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_ORIGINAL) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0),
+            : (enhanced_attract_driving
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? ((attract_original_intro_lit ||
+                        attract_chase_view1 ||
+                        attract_manual_view1_blink) ? 1 : 0)
+                    : 0)
+                : ((view_lamp_active && view == ORoad::VIEW_ORIGINAL) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_CONT) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0),
+            : (enhanced_attract_driving
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? ((attract_original_intro_lit || attract_chase_view2) ? 1 : 0)
+                    : ((view == ORoad::VIEW_ELEVATED && attract_view_blink_fast) ? 1 : 0))
+                : ((view_lamp_active && view == ORoad::VIEW_ELEVATED) ? 1 : 0)),
         music_selection
             ? ((mode_lamp_blink && selected_game_mode == Outrun::MODE_TTRIAL) ? 1 : 0)
-            : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0));
+            : (enhanced_attract_driving
+                ? ((view == ORoad::VIEW_ORIGINAL)
+                    ? ((attract_original_intro_lit || attract_chase_view3) ? 1 : 0)
+                    : ((view == ORoad::VIEW_INCAR && attract_view_blink_fast) ? 1 : 0))
+                : ((view_lamp_active && view == ORoad::VIEW_INCAR) ? 1 : 0)));
 }
