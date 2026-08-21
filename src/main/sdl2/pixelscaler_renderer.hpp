@@ -13,16 +13,17 @@
 #include <cstdint>
 #include <iostream>
 #include <mutex>
+#include <new>
 #include <string>
+#include <utility>
 #include <vector>
 
-// Pixel-scaler rendering path used for xBRZ/HQx. When the scaler is OFF this
-// class delegates directly to the existing RenderSurface, so the established
-// CannonBall-SE CRT/Blargg renderer remains untouched.
+// xBRZ/HQx rendering path. OFF delegates to the original RenderSurface.
 class PixelScalerRenderer final : public RenderSurface
 {
 public:
     PixelScalerRenderer() = default;
+
     ~PixelScalerRenderer()
     {
         if (scaler_path)
@@ -36,9 +37,8 @@ public:
         active_mode = pixel_scaler::mode.load(std::memory_order_relaxed);
         scaler_path = pixel_scaler::active(active_mode);
 
-        // Keep the requested renderer parameters even while using the stock
-        // RenderSurface path. They are needed for a renderer-only rebuild when
-        // F6 switches between OFF and one of the pixel scalers at runtime.
+        // Keep these values in both paths. They are required for a safe
+        // renderer-only switch between the stock GL renderer and the scaler.
         src_width = source_width;
         src_height = source_height;
         scale = std::max(1, source_scale);
@@ -46,158 +46,63 @@ public:
         scanlines = std::max(0, requested_scanlines);
 
         if (!scaler_path)
+        {
             return RenderSurface::init(
                 source_width,
                 source_height,
                 source_scale,
                 requested_video_mode,
                 requested_scanlines);
-
-        factor = pixel_scaler::factor(active_mode);
-
-        // CannonBall-SE's Hi-Res mode is already a 2x internal rendering pass.
-        // Feeding that enlarged image to xBRZ/HQx makes the algorithms see
-        // 2x2 pixel blocks instead of the original arcade pixels, which makes
-        // their edge reconstruction much less obvious. For pixel scalers we
-        // therefore sample the completed frame back to the native System 16
-        // grid first. This is deliberately nearest/decimation, not averaging:
-        // the scaler should receive crisp source pixels just like the xBRZ
-        // reference/testing tools do.
-        input_step = config.video.hires ? 2 : 1;
-        scaler_input_width = std::max(1, src_width / input_step);
-        scaler_input_height = std::max(1, src_height / input_step);
-
-        if (pixel_scaler::is_hqx(active_mode))
-        {
-            std::call_once(hqx_init_once, []()
-            {
-                hqxInit();
-            });
         }
 
-        if (!sdl_screen_size())
-            return false;
-
-        if (video_mode == video_settings_t::MODE_WINDOW)
-        {
-            // Preserve CannonBall's requested window size. The scaler texture
-            // is independent from the window/output resolution.
-            scn_width = src_width * scale;
-            scn_height = src_height * scale;
-        }
-        else
-        {
-            scn_width = orig_width;
-            scn_height = orig_height;
-        }
-
-        window = SDL_CreateWindow(
-            "Cannonball",
-            SDL_WINDOWPOS_CENTERED,
-            SDL_WINDOWPOS_CENTERED,
-            scn_width,
-            scn_height,
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-
-        if (!window)
-        {
-            std::cerr << "Pixel scaler window creation failed: "
-                      << SDL_GetError() << std::endl;
-            return false;
-        }
-
-        if (video_mode != video_settings_t::MODE_WINDOW)
-        {
-            if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
-            {
-                std::cerr << "Pixel scaler fullscreen failed: "
-                          << SDL_GetError() << std::endl;
-            }
-            SDL_ShowCursor(SDL_DISABLE);
-        }
-        else
-        {
-            SDL_ShowCursor(SDL_ENABLE);
-        }
-
-        Uint32 renderer_flags = SDL_RENDERER_ACCELERATED;
-        if (config.video.vsync)
-            renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
-
-        sdl_renderer = SDL_CreateRenderer(window, -1, renderer_flags);
-        if (!sdl_renderer)
-        {
-            // Some SDL backends do not expose an accelerated renderer. The CPU
-            // scaler remains useful, so fall back to whatever renderer exists.
-            sdl_renderer = SDL_CreateRenderer(window, -1, 0);
-        }
-
-        if (!sdl_renderer)
-        {
-            std::cerr << "Pixel scaler renderer creation failed: "
-                      << SDL_GetError() << std::endl;
-            disable_scaler();
-            return false;
-        }
-
-        scaled_width = scaler_input_width * factor;
-        scaled_height = scaler_input_height * factor;
-
-        texture = SDL_CreateTexture(
-            sdl_renderer,
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            scaled_width,
-            scaled_height);
-
-        if (!texture)
-        {
-            std::cerr << "Pixel scaler texture creation failed: "
-                      << SDL_GetError() << std::endl;
-            disable_scaler();
-            return false;
-        }
-
-        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
-
-        source_pixels.assign(
-            static_cast<size_t>(scaler_input_width) * scaler_input_height,
-            0xFF000000u);
-        scaled_pixels.assign(
-            static_cast<size_t>(scaled_width) * scaled_height,
-            0xFF000000u);
-
-        std::cout << "Pixel scaler enabled: "
-                  << pixel_scaler::name(active_mode)
-                  << " | frame " << src_width << "x" << src_height
-                  << " | scaler input " << scaler_input_width << "x"
-                  << scaler_input_height
-                  << " | output " << scaled_width << "x" << scaled_height;
-
-        if (input_step == 2)
-            std::cout << " (Hi-Res decimated to native arcade pixels)";
-
-        std::cout << std::endl;
-        return true;
+        return init_scaler_backend();
     }
 
     void swap_buffers() override
     {
-        // Video::swap_buffers() is called only after all render workers have
-        // completed. That makes this the safe place to rebuild SDL/GL resources
-        // for a scaler change without touching the live System 16 video state.
+        // This point is reached only after the render workers completed.
         if (pixel_scaler::consume_renderer_restart_request())
         {
+            const int requested_mode =
+                pixel_scaler::mode.load(std::memory_order_acquire);
+
+            // Scaler -> scaler does NOT need a new window or SDL_Renderer.
+            // Replacing those for every F6 press caused needless driver churn
+            // and could crash intermittently. Only the output texture/buffer
+            // depends on xBRZ/HQx mode and factor.
+            if (scaler_path && pixel_scaler::active(requested_mode))
+            {
+                if (!reconfigure_scaler_output(requested_mode))
+                {
+                    std::cerr
+                        << "Pixel scaler reconfiguration failed; keeping "
+                        << pixel_scaler::name(active_mode)
+                        << std::endl;
+
+                    // Keep state consistent with the renderer that survived.
+                    pixel_scaler::set(active_mode);
+                }
+                return;
+            }
+
+            // OFF <-> scaler crosses renderer backends and therefore still
+            // needs one full renderer-only rebuild. The emulated video state,
+            // tile RAM, text RAM, road and game framebuffers remain untouched.
             const int restart_width = src_width;
             const int restart_height = src_height;
             const int restart_scale = scale;
             const int restart_video_mode = video_mode;
             const int restart_scanlines = scanlines;
 
-            if (!scaler_path)
-                RenderSurface::disable();
-            else
+            std::cout << "Pixel scaler backend switch: "
+                      << pixel_scaler::name(active_mode)
+                      << " -> " << pixel_scaler::name(requested_mode)
+                      << std::endl;
+
+            if (scaler_path)
                 disable_scaler();
+            else
+                RenderSurface::disable();
 
             if (!init(
                     restart_width,
@@ -238,10 +143,6 @@ public:
         if (!pixels)
             return;
 
-        // Render the temporary scaler label into the raw System 16 frame. This
-        // makes the notification work both with the original renderer (OFF) and
-        // with the xBRZ/HQx renderer. Worker 1 owns the bottom half, so only the
-        // other worker touches the top-of-screen notification area.
         if (fastpass != 1 && notification_visible())
             draw_scaler_notification(pixels);
 
@@ -251,16 +152,14 @@ public:
             return;
         }
 
-        // CannonBall can call draw_frame concurrently for the top and bottom
-        // halves. xBRZ/HQx operate on the complete image here; worker 0 does
-        // the work and worker 1 simply returns.
+        // xBRZ/HQx need the complete frame. Worker 0 owns this operation;
+        // worker 1 returns instead of writing the same output concurrently.
         if (fastpass == 1)
             return;
 
-        // Convert the completed palette-index frame to 0xAARRGGBB while, when
-        // Hi-Res is active, decimating the 2x frame back to native arcade
-        // pixels. Sampling the top-left pixel of each 2x2 block preserves hard
-        // pixel boundaries and avoids pre-blurring the scaler input.
+        // Hi-Res is a 2x CannonBall rendering pass. Decimate it back to the
+        // native arcade pixel grid before xBRZ/HQx. Do not average: the scaler
+        // must receive hard pixel edges like the xBRZ reference tools.
         for (int y = 0; y < scaler_input_height; ++y)
         {
             const int source_y = y * input_step;
@@ -313,6 +212,7 @@ public:
                         scaler_input_width,
                         scaler_input_height);
                     break;
+
                 case 3:
                     hq3x_32(
                         source_pixels.data(),
@@ -320,6 +220,7 @@ public:
                         scaler_input_width,
                         scaler_input_height);
                     break;
+
                 default:
                     hq4x_32(
                         source_pixels.data(),
@@ -395,11 +296,6 @@ public:
         destination.y += config.video.y_offset;
 
 #if SDL_VERSION_ATLEAST(2, 0, 12)
-        // Preserve the xBRZ/HQx result when it has to be reduced to the actual
-        // display area. Nearest-neighbour downsampling can simply throw away
-        // many of the reconstructed intermediate pixels and make the effect
-        // look much weaker. When no downsampling is needed, keep nearest so an
-        // integer/near-integer upscale stays crisp.
         const bool final_downscale =
             destination.w < scaled_width || destination.h < scaled_height;
         SDL_SetTextureScaleMode(
@@ -431,8 +327,6 @@ public:
 private:
     inline static std::once_flag hqx_init_once;
 
-    // System 16 resistor-ladder output levels. These match renderbase.cpp and
-    // allow the scaler to operate on the same colours as the normal renderer.
     inline static constexpr std::array<uint32_t, 32> STANDARD_DAC = {
         0, 8, 16, 24, 31, 39, 47, 55,
         62, 70, 78, 86, 94, 102, 109, 117,
@@ -446,6 +340,193 @@ private:
         80, 85, 90, 95, 100, 105, 110, 115,
         120, 126, 130, 136, 140, 146, 150, 156
     };
+
+    bool init_scaler_backend()
+    {
+        input_step = config.video.hires ? 2 : 1;
+        scaler_input_width = std::max(1, src_width / input_step);
+        scaler_input_height = std::max(1, src_height / input_step);
+
+        try
+        {
+            source_pixels.assign(
+                static_cast<size_t>(scaler_input_width) * scaler_input_height,
+                0xFF000000u);
+        }
+        catch (const std::bad_alloc&)
+        {
+            std::cerr << "Pixel scaler source buffer allocation failed."
+                      << std::endl;
+            scaler_path = false;
+            return false;
+        }
+
+        if (!sdl_screen_size())
+        {
+            scaler_path = false;
+            return false;
+        }
+
+        if (video_mode == video_settings_t::MODE_WINDOW)
+        {
+            scn_width = src_width * scale;
+            scn_height = src_height * scale;
+        }
+        else
+        {
+            scn_width = orig_width;
+            scn_height = orig_height;
+        }
+
+        window = SDL_CreateWindow(
+            "Cannonball",
+            SDL_WINDOWPOS_CENTERED,
+            SDL_WINDOWPOS_CENTERED,
+            scn_width,
+            scn_height,
+            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+
+        if (!window)
+        {
+            std::cerr << "Pixel scaler window creation failed: "
+                      << SDL_GetError() << std::endl;
+            scaler_path = false;
+            return false;
+        }
+
+        if (video_mode != video_settings_t::MODE_WINDOW)
+        {
+            if (SDL_SetWindowFullscreen(
+                    window,
+                    SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+            {
+                std::cerr << "Pixel scaler fullscreen failed: "
+                          << SDL_GetError() << std::endl;
+            }
+            SDL_ShowCursor(SDL_DISABLE);
+        }
+        else
+        {
+            SDL_ShowCursor(SDL_ENABLE);
+        }
+
+        Uint32 renderer_flags = SDL_RENDERER_ACCELERATED;
+        if (config.video.vsync)
+            renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
+
+        sdl_renderer = SDL_CreateRenderer(window, -1, renderer_flags);
+        if (!sdl_renderer)
+            sdl_renderer = SDL_CreateRenderer(window, -1, 0);
+
+        if (!sdl_renderer)
+        {
+            std::cerr << "Pixel scaler renderer creation failed: "
+                      << SDL_GetError() << std::endl;
+            disable_scaler();
+            return false;
+        }
+
+        if (!reconfigure_scaler_output(active_mode, true))
+        {
+            disable_scaler();
+            return false;
+        }
+
+        return true;
+    }
+
+    bool reconfigure_scaler_output(int requested_mode, bool initial = false)
+    {
+        if (!pixel_scaler::active(requested_mode) || !sdl_renderer)
+            return false;
+
+        if (pixel_scaler::is_hqx(requested_mode))
+        {
+            std::call_once(hqx_init_once, []()
+            {
+                hqxInit();
+            });
+        }
+
+        const int new_factor = pixel_scaler::factor(requested_mode);
+        const int new_width = scaler_input_width * new_factor;
+        const int new_height = scaler_input_height * new_factor;
+
+        // Allocate the replacement CPU buffer before touching the live output.
+        std::vector<uint32_t> new_scaled_pixels;
+        try
+        {
+            new_scaled_pixels.assign(
+                static_cast<size_t>(new_width) * new_height,
+                0xFF000000u);
+        }
+        catch (const std::bad_alloc&)
+        {
+            std::cerr << "Pixel scaler output buffer allocation failed for "
+                      << pixel_scaler::name(requested_mode)
+                      << std::endl;
+            return false;
+        }
+
+        // Create the replacement texture before destroying the old one. This
+        // makes a failed mode change non-destructive.
+        SDL_Texture* new_texture = SDL_CreateTexture(
+            sdl_renderer,
+            SDL_PIXELFORMAT_ARGB8888,
+            SDL_TEXTUREACCESS_STREAMING,
+            new_width,
+            new_height);
+
+        if (!new_texture)
+        {
+            std::cerr << "Pixel scaler texture creation failed for "
+                      << pixel_scaler::name(requested_mode)
+                      << ": " << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        SDL_SetTextureBlendMode(new_texture, SDL_BLENDMODE_NONE);
+
+        const int previous_mode = active_mode;
+
+        if (texture)
+            SDL_DestroyTexture(texture);
+
+        texture = new_texture;
+        scaled_pixels.swap(new_scaled_pixels);
+        active_mode = requested_mode;
+        factor = new_factor;
+        scaled_width = new_width;
+        scaled_height = new_height;
+        scaler_path = true;
+
+        if (initial)
+        {
+            std::cout << "Pixel scaler enabled: "
+                      << pixel_scaler::name(active_mode)
+                      << " | frame " << src_width << "x" << src_height
+                      << " | scaler input " << scaler_input_width << "x"
+                      << scaler_input_height
+                      << " | output " << scaled_width << "x"
+                      << scaled_height;
+
+            if (input_step == 2)
+                std::cout << " (Hi-Res decimated to native arcade pixels)";
+
+            std::cout << std::endl;
+        }
+        else
+        {
+            std::cout << "Pixel scaler texture switch: "
+                      << pixel_scaler::name(previous_mode)
+                      << " -> " << pixel_scaler::name(active_mode)
+                      << " | " << scaled_width << "x" << scaled_height
+                      << " (window/renderer preserved)"
+                      << std::endl;
+        }
+
+        return true;
+    }
 
     void handle_cycle_hotkey()
     {
@@ -541,8 +622,6 @@ private:
             std::string("PIXEL SCALER: ") +
             pixel_scaler::name(notification_mode);
 
-        // Hi-res mode doubles the raw System 16 dimensions. Double the tiny
-        // bitmap font as well so the physical label remains roughly the same.
         const int ui_scale = src_height >= (S16_HEIGHT * 2) ? 2 : 1;
         const int glyph_height = 7 * ui_scale;
         const int advance = 6 * ui_scale;
@@ -557,8 +636,6 @@ private:
         const auto [background, foreground] =
             notification_palette_indices();
 
-        // Dark backing rectangle keeps the label readable regardless of the
-        // current road/sky colours underneath it.
         for (int y = 0; y < box_height; ++y)
         {
             const int py = box_y + y;
@@ -656,6 +733,8 @@ private:
 
         source_pixels.clear();
         scaled_pixels.clear();
+        scaled_width = 0;
+        scaled_height = 0;
         scaler_path = false;
     }
 
