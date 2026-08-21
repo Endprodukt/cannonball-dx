@@ -16,6 +16,46 @@
 
 #include "globals.hpp"
 
+// Some Windows SDK / platform headers define short, generic macros such as
+// END_PATH. LayOut historically uses similarly named constants for offsets in
+// its binary header. Preprocessor macros are expanded even after `LayOut::`, so
+// clear every potentially colliding field name before declaring the struct.
+// Keeping this protection here makes TrackLoader safe regardless of include
+// order (notably when included by the Windows external-output path).
+#ifdef HEADER
+#undef HEADER
+#endif
+#ifdef PATH_OFFSET
+#undef PATH_OFFSET
+#endif
+#ifdef LEVELS
+#undef LEVELS
+#endif
+#ifdef END_PATH
+#undef END_PATH
+#endif
+#ifdef END_LEVELS
+#undef END_LEVELS
+#endif
+#ifdef SPLIT_PATH
+#undef SPLIT_PATH
+#endif
+#ifdef SPLIT_LEVEL
+#undef SPLIT_LEVEL
+#endif
+#ifdef PAL_SKY
+#undef PAL_SKY
+#endif
+#ifdef PAL_GND
+#undef PAL_GND
+#endif
+#ifdef SPRITE_MAPS
+#undef SPRITE_MAPS
+#endif
+#ifdef HEIGHT_MAPS
+#undef HEIGHT_MAPS
+#endif
+
 // Road Generator Palette Representation
 struct RoadPalette
 {
