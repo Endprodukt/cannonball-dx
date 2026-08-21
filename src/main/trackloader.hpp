@@ -20,8 +20,6 @@
 // END_PATH. LayOut historically uses similarly named constants for offsets in
 // its binary header. Preprocessor macros are expanded even after `LayOut::`, so
 // clear every potentially colliding field name before declaring the struct.
-// Keeping this protection here makes TrackLoader safe regardless of include
-// order (notably when included by the Windows external-output path).
 #ifdef HEADER
 #undef HEADER
 #endif
@@ -104,15 +102,6 @@ class TrackLoader
 {
 
 public:
-    struct RuntimeState
-    {
-        Level* current_level;
-        uint8_t* current_path;
-        uint32_t curve_offset;
-        uint32_t wh_offset;
-        uint32_t scenery_offset;
-    };
-
     // Reference to stage mapping/ordering table
     uint8_t* stage_data;
 
@@ -141,26 +130,6 @@ public:
 
     TrackLoader();
     ~TrackLoader();
-
-    RuntimeState capture_runtime_state() const
-    {
-        RuntimeState state;
-        state.current_level = current_level;
-        state.current_path = current_path;
-        state.curve_offset = curve_offset;
-        state.wh_offset = wh_offset;
-        state.scenery_offset = scenery_offset;
-        return state;
-    }
-
-    void restore_runtime_state(const RuntimeState& state)
-    {
-        current_level = state.current_level;
-        current_path = state.current_path;
-        curve_offset = state.curve_offset;
-        wh_offset = state.wh_offset;
-        scenery_offset = state.scenery_offset;
-    }
 
     void init(bool jap);
     bool set_layout_track(const char* filename);
