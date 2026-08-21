@@ -36,6 +36,15 @@ public:
         active_mode = pixel_scaler::mode.load(std::memory_order_relaxed);
         scaler_path = pixel_scaler::active(active_mode);
 
+        // Keep the requested renderer parameters even while using the stock
+        // RenderSurface path. They are needed for a renderer-only rebuild when
+        // F6 switches between OFF and one of the pixel scalers at runtime.
+        src_width = source_width;
+        src_height = source_height;
+        scale = std::max(1, source_scale);
+        video_mode = requested_video_mode;
+        scanlines = std::max(0, requested_scanlines);
+
         if (!scaler_path)
             return RenderSurface::init(
                 source_width,
@@ -44,11 +53,6 @@ public:
                 requested_video_mode,
                 requested_scanlines);
 
-        src_width = source_width;
-        src_height = source_height;
-        scale = std::max(1, source_scale);
-        video_mode = requested_video_mode;
-        scanlines = std::max(0, requested_scanlines);
         factor = pixel_scaler::factor(active_mode);
 
         if (pixel_scaler::is_hqx(active_mode))
@@ -160,6 +164,34 @@ public:
 
     void swap_buffers() override
     {
+        // Video::swap_buffers() is called only after all render workers have
+        // completed. That makes this the safe place to rebuild SDL/GL resources
+        // for a scaler change without touching the live System 16 video state.
+        if (pixel_scaler::consume_renderer_restart_request())
+        {
+            const int restart_width = src_width;
+            const int restart_height = src_height;
+            const int restart_scale = scale;
+            const int restart_video_mode = video_mode;
+            const int restart_scanlines = scanlines;
+
+            if (!scaler_path)
+                RenderSurface::disable();
+            else
+                disable_scaler();
+
+            if (!init(
+                    restart_width,
+                    restart_height,
+                    restart_scale,
+                    restart_video_mode,
+                    restart_scanlines))
+            {
+                std::cerr << "Pixel scaler renderer restart failed." << std::endl;
+            }
+            return;
+        }
+
         if (!scaler_path)
             RenderSurface::swap_buffers();
     }
