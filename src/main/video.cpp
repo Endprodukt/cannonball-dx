@@ -29,13 +29,13 @@
 #include "frontend/config.hpp"
 #include "engine/oroad.hpp"
 
-#include "sdl2/rendersurface.hpp"
+#include "sdl2/pixelscaler_renderer.hpp"
 
 Video video;
 
 Video::Video(void)
 {
-    renderer     = new RenderSurface(); // JJP - backport CRT emulation code
+    renderer     = new PixelScalerRenderer();
     pixels       = NULL;
     sprite_layer = new hwsprites();
     tile_layer   = new hwtiles();
@@ -627,4 +627,3 @@ void Video::refresh_palette(uint32_t palAddr)
     renderer->convert_palette(palAddr, r, g, b);
 }
 */
-
