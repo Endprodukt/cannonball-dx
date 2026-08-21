@@ -13,9 +13,10 @@
 #include <vector>
 #include <string>
 #include "stdint.hpp"
+#include "main.hpp"
+#include "frontend/ttrial.hpp"
 
 class CabDiag;
-class TTrial;
 
 // Base menu implementation retained from the current CannonBall-SE code.
 // Menu derives from this only so the external-output feature can extend the
@@ -136,9 +137,36 @@ public:
     Menu() = default;
     ~Menu() override = default;
 
+    // Populate the existing menus, then remove the now-obsolete Continuous
+    // traffic selector. Continuous traffic follows the normal OutRun DIP
+    // difficulty automatically; the legacy config value remains loadable for
+    // backwards compatibility but is no longer presented to the player.
+    void populate()
+    {
+        MenuBase::populate();
+
+        for (auto it = menu_cont.begin(); it != menu_cont.end(); )
+        {
+            if (it->rfind("TRAFFIC ", 0) == 0)
+                it = menu_cont.erase(it);
+            else
+                ++it;
+        }
+    }
+
     // Wrapper hook used to keep analog steering from moving normal menu
     // cursors while leaving in-game steering untouched.
     void tick();
+
+    // Enter the existing Time Trial course selector from the in-game music
+    // screen. TTrial itself still owns track/lap/traffic setup; once a track is
+    // confirmed the normal frontend path starts the engine again.
+    void start_time_trial_from_music()
+    {
+        state = STATE_TTRIAL;
+        ttrial->init();
+        cannonball::state = cannonball::STATE_MENU;
+    }
 
 protected:
     void populate_controls() override;
