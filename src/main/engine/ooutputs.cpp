@@ -181,9 +181,8 @@ namespace
         }
 
         // Reuse the exact single-row font and palette of FREE PLAY. The lower
-        // line shares the FREE PLAY row, while the short HI - LOW hint sits one
-        // row above it. Keeping both right-aligned makes the control hint read
-        // as one compact arcade-style block instead of a long sentence.
+        // line shares the FREE PLAY row, while LOW - HI sits one row above it.
+        // Both lines use the same centre point so the block stays symmetrical.
         uint32_t freeplay_record = TEXT1_FREEPLAY;
         const uint32_t freeplay_dst = roms.rom0.read32(&freeplay_record);
         roms.rom0.read16(&freeplay_record); // tile count
@@ -195,12 +194,12 @@ namespace
         const uint16_t freeplay_y =
             static_cast<uint16_t>(freeplay_relative / 0x80);
 
-        const char* line1 = "HI - LOW";
+        const char* line1 = "LOW - HI";
         const char* line2 = "CHANGE COLOR";
         const int line1_length = 8;
         const int line2_length = 12;
-        const int line1_x = 40 - line1_length;
         const int line2_x = 40 - line2_length;
+        const int line1_x = line2_x + ((line2_length - line1_length) / 2);
         const uint16_t line1_y = freeplay_y > 0 ? freeplay_y - 1 : freeplay_y;
 
         // Clear only the compact right-hand block. FREE PLAY on the left remains
@@ -238,10 +237,11 @@ namespace
         preview->shadow = roms.rom0p->read8(map_ferrari_entry + 2);
         preview->zoom = roms.rom0p->read8(map_ferrari_entry + 3);
 
-        // Pull the preview in beside the compact two-line hint so the car and
-        // its control instruction form one visual group in the lower-right.
-        preview->x = 48;
-        preview->y = static_cast<int16_t>((freeplay_y * 8) - 4);
+        // Centre the preview directly above the '-' in LOW - HI. Sprite X is
+        // relative to the 320-pixel playfield centre, while text X is in tiles.
+        const int dash_x = line1_x + 4;
+        preview->x = static_cast<int16_t>(((dash_x * 8) + 4) - 160);
+        preview->y = static_cast<int16_t>((line1_y * 8) - 8);
         preview->priority = 0x1FF;
         preview->road_priority = 0x1FF;
         preview->addr = outrun.adr.sprite_minicar_right;
