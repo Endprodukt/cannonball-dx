@@ -20,6 +20,7 @@ namespace pixel_scaler
 
     inline std::atomic<int> mode{OFF};
     inline std::atomic<int> last_mode{XBRZ_4X};
+    inline std::atomic<bool> renderer_restart_requested{false};
 
     inline bool valid(int value)
     {
@@ -83,6 +84,12 @@ namespace pixel_scaler
             next = OFF;
 
         set(next);
+        renderer_restart_requested.store(true, std::memory_order_release);
         return next;
+    }
+
+    inline bool consume_renderer_restart_request()
+    {
+        return renderer_restart_requested.exchange(false, std::memory_order_acq_rel);
     }
 }
