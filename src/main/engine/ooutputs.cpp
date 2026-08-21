@@ -17,8 +17,11 @@
 #undef writeDigitalToConsole
 
 #include "main.hpp"
+#include "engine/oferrari.hpp"
+#include "engine/ohud.hpp"
 #include "engine/omusic.hpp"
 #include "engine/oroad.hpp"
+#include "engine/osprites.hpp"
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
 #include "sdl2/input.hpp"
@@ -132,6 +135,88 @@ namespace
         outrun.custom_traffic = traffic;
         otraffic.set_custom_max_traffic(traffic);
     }
+
+    void draw_music_color_preview(bool music_selection)
+    {
+        if (!music_selection || outrun.game_state != GS_MUSIC)
+            return;
+
+        // Replace the temporary COLOR/swatch row drawn by OMusic with a proper
+        // arcade-style instruction. Reuse the exact font and palette from the
+        // original SELECT MUSIC BY STEERING ROM record.
+        uint32_t select_music_style = TEXT2_SELECT_MUSIC + 2;
+        uint16_t prompt_pal = roms.rom0.read8(&select_music_style);
+        prompt_pal = 0x80A0 | ((prompt_pal << 9) | ((prompt_pal >> 7) & 1));
+
+        const char* text = "CHANGE CAR COLOR WITH GEAR";
+        const int length = 26;
+        const int x_start = 20 - (length / 2);
+
+        for (int x = 0; x < 40; x++)
+        {
+            video.write_text16(ohud.translate(x, 14), 0);
+            video.write_text16(ohud.translate(x, 14) + 0x80, 0);
+        }
+
+        uint32_t dst_addr = ohud.translate(x_start, 14);
+        for (int i = 0; i < length; i++)
+        {
+            uint16_t c = static_cast<uint8_t>(text[i]);
+
+            if (c == ' ')
+            {
+                video.write_text16(&dst_addr, 0);
+                video.write_text16(0x7E + dst_addr, 0);
+            }
+            else
+            {
+                c = ((c - 'A') * 2) + prompt_pal;
+                video.write_text16(&dst_addr, c);
+                video.write_text16(0x7E + dst_addr, c + 1);
+            }
+        }
+
+        // Reuse the small Ferrari that normally drives across the course map.
+        // The map entry supplies its native size/anchor properties, while the
+        // palette is deliberately replaced by the same five Ferrari palettes
+        // used by the full-size in-game car.
+        const int preview_index = (OSprites::SPRITE_ENTRIES - 0x10) + 5;
+        oentry* preview = &osprites.jump_table[preview_index];
+        preview->init(preview_index);
+
+        const uint32_t map_ferrari_entry =
+            outrun.adr.sprite_coursemap + (25 * 20);
+
+        preview->draw_props = roms.rom0p->read8(map_ferrari_entry + 1);
+        preview->shadow = roms.rom0p->read8(map_ferrari_entry + 2);
+        preview->zoom = roms.rom0p->read8(map_ferrari_entry + 3);
+        preview->x = 0;
+        preview->y = 154;
+        preview->priority = 0x1FF;
+        preview->road_priority = 0x1FF;
+        preview->addr = outrun.adr.sprite_minicar_right;
+
+        static const uint16_t CAR_PALETTES[] =
+        {
+            OFerrari::PAL_RED,
+            OFerrari::PAL_BLUE,
+            OFerrari::PAL_YELLOW,
+            OFerrari::PAL_GREEN,
+            OFerrari::PAL_CYAN,
+        };
+
+        int color = config.engine.car_pal;
+        if (color < 0 || color >= 5)
+            color = 0;
+
+        preview->pal_src = CAR_PALETTES[color];
+        osprites.map_palette(preview);
+
+        // writeDigitalToConsole() runs after the current engine frame has been
+        // assembled. Queue the preview here and it joins the Music Select sprite
+        // list on the following frame; doing this every frame keeps it stable.
+        osprites.do_spr_order_shadows(preview);
+    }
 }
 
 void OOutputs::writeDigitalToConsole()
@@ -148,6 +233,9 @@ void OOutputs::writeDigitalToConsole()
     // This is intentionally independent of whether external outputs are enabled;
     // this method is already called every engine tick by main.cpp.
     sync_continuous_traffic_to_difficulty();
+
+    // Draw the car-colour instruction and queue the small map Ferrari preview.
+    draw_music_color_preview(music_selection);
 
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
