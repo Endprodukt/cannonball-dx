@@ -142,6 +142,18 @@ namespace
         if (!music_selection)
         {
             music_color_initialized = false;
+
+            // Car-colour selection belongs to the player's next run only.
+            // Attract/demo mode must always use the canonical red Ferrari,
+            // regardless of the colour chosen for the previous game.
+            if (cannonball::state == cannonball::STATE_GAME &&
+                (outrun.game_state == GS_INIT ||
+                 outrun.game_state == GS_ATTRACT))
+            {
+                config.engine.car_pal = 0;
+                oferrari.ferrari_pal = OFerrari::PAL_RED;
+            }
+
             return;
         }
 
@@ -260,7 +272,8 @@ void OOutputs::writeDigitalToConsole()
     sync_continuous_traffic_to_difficulty();
 
     // New runs always begin from the red Ferrari, then allow a temporary colour
-    // choice with the shifter for that run.
+    // choice with the shifter for that run. Attract mode is also forced back to
+    // red here so a previous player colour never leaks into the demo sequence.
     sync_music_car_color(music_selection);
 
     // Draw the car-colour instruction and queue the small map Ferrari preview.
