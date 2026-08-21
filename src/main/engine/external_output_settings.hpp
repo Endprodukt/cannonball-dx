@@ -1,21 +1,46 @@
 #pragma once
 
+#include <array>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "main.hpp"
 #include "roms.hpp"
 #include "video.hpp"
+#include "engine/oanimseq.hpp"
+#include "engine/oattractai.hpp"
+#include "engine/obonus.hpp"
+#include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinitengine.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/olevelobjs.hpp"
+#include "engine/opalette.hpp"
 #include "engine/oroad.hpp"
+#include "engine/osmoke.hpp"
 #include "engine/osprites.hpp"
+#include "engine/ostats.hpp"
+#include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "frontend/config.hpp"
 #include "frontend/xml_parser.h"
 #include "sdl2/input.hpp"
+
+// windows.h defines PATH in some SDK configurations. TrackLoader also has the
+// legitimate LayOut::PATH constant, so hide only the Windows macro while this
+// header is parsed and restore it immediately afterwards.
+#ifdef PATH
+#pragma push_macro("PATH")
+#undef PATH
+#define CANNONBALL_RESTORE_PATH_MACRO
+#endif
+#include "trackloader.hpp"
+#ifdef CANNONBALL_RESTORE_PATH_MACRO
+#pragma pop_macro("PATH")
+#undef CANNONBALL_RESTORE_PATH_MACRO
+#endif
 
 // Optional external-output transport settings. SmartyPi remains independent.
 struct ExternalOutputSettings
@@ -64,6 +89,11 @@ inline ExternalOutputSettings& external_output_settings()
 class ExternalOutputsWithAttractShowcase : public ExternalOutputs
 {
 public:
+    bool is_showcase_active() const
+    {
+        return showcase_active;
+    }
+
     void update(bool enable_network,
                 bool enable_windows,
                 int port,
@@ -129,8 +159,38 @@ public:
     }
 
 private:
-    static constexpr uint32_t VIEW_TIME = 120; // 4 seconds at the 30 Hz game tick.
+    static constexpr uint32_t VIEW_TIME = 210; // 7 seconds at the 30 Hz game tick.
     static constexpr uint32_t TOTAL_TIME = VIEW_TIME * 3;
+
+    struct AttractResumeSnapshot
+    {
+        ORoad road;
+        OInitEngine initengine;
+        OFerrari ferrari;
+        OSprites sprites;
+        OTraffic traffic;
+        OLevelObjs levelobjs;
+        OAttractAI attractai;
+        OCrash crash;
+        OAnimSeq animseq;
+        OSmoke smoke;
+        OBonus bonus;
+        OStats stats;
+        OPalette palette;
+        OTiles tiles;
+
+        hwtiles hw_tiles;
+        hwsprites hw_sprites;
+        HWRoad hw_road;
+
+        TrackLoader::RuntimeState track;
+        Outrun::AttractRuntimeState attract;
+        std::array<uint16_t, S16_PALETTE_ENTRIES> palette_ram;
+
+        int16_t steering_adjust;
+        uint8_t acc_adjust;
+        uint8_t brake_adjust;
+    };
 
     bool showcase_pending = false;
     bool showcase_active = false;
@@ -144,6 +204,86 @@ private:
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
     uint32_t showcase_start_tick = 0;
     uint32_t phase_start_tick = 0;
+    std::unique_ptr<AttractResumeSnapshot> resume_state;
+
+    void capture_attract_state()
+    {
+        resume_state.reset(new AttractResumeSnapshot());
+
+        resume_state->road = oroad;
+        resume_state->initengine = oinitengine;
+        resume_state->ferrari = oferrari;
+        resume_state->sprites = osprites;
+        resume_state->traffic = otraffic;
+        resume_state->levelobjs = olevelobjs;
+        resume_state->attractai = oattractai;
+        resume_state->crash = ocrash;
+        resume_state->animseq = oanimseq;
+        resume_state->smoke = osmoke;
+        resume_state->bonus = obonus;
+        resume_state->stats = ostats;
+        resume_state->palette = opalette;
+        resume_state->tiles = otiles;
+
+        resume_state->hw_tiles = *video.tile_layer;
+        resume_state->hw_sprites = *video.sprite_layer;
+        resume_state->hw_road = hwroad;
+
+        resume_state->track = trackloader.capture_runtime_state();
+        resume_state->attract = outrun.capture_attract_runtime_state();
+
+        for (uint32_t i = 0; i < S16_PALETTE_ENTRIES; i++)
+            resume_state->palette_ram[i] =
+                video.read_pal16(S16_PALETTE_BASE + (i << 1));
+
+        resume_state->steering_adjust = oinputs.steering_adjust;
+        resume_state->acc_adjust = oinputs.acc_adjust;
+        resume_state->brake_adjust = oinputs.brake_adjust;
+    }
+
+    void restore_attract_state()
+    {
+        if (!resume_state)
+            return;
+
+        // Restore the software-side engine first. Ferrari/traffic/crash objects
+        // contain pointers into the global OSprites table, whose address never
+        // changes; restoring OSprites puts the pointed-to entries back in place.
+        osprites = resume_state->sprites;
+        oroad = resume_state->road;
+        oinitengine = resume_state->initengine;
+        oferrari = resume_state->ferrari;
+        otraffic = resume_state->traffic;
+        olevelobjs = resume_state->levelobjs;
+        oattractai = resume_state->attractai;
+        ocrash = resume_state->crash;
+        oanimseq = resume_state->animseq;
+        osmoke = resume_state->smoke;
+        obonus = resume_state->bonus;
+        ostats = resume_state->stats;
+        opalette = resume_state->palette;
+        otiles = resume_state->tiles;
+
+        trackloader.restore_runtime_state(resume_state->track);
+        outrun.restore_attract_runtime_state(resume_state->attract);
+
+        // Restore the emulated video hardware too. This is what makes resuming
+        // work even if the normal attract had already reached a later stage,
+        // palette transition or road split before High Scores / Logo appeared.
+        *video.tile_layer = resume_state->hw_tiles;
+        *video.sprite_layer = resume_state->hw_sprites;
+        hwroad = resume_state->hw_road;
+
+        uint32_t pal_addr = S16_PALETTE_BASE;
+        for (uint32_t i = 0; i < S16_PALETTE_ENTRIES; i++)
+            video.write_pal16(&pal_addr, resume_state->palette_ram[i]);
+
+        oinputs.steering_adjust = resume_state->steering_adjust;
+        oinputs.acc_adjust = resume_state->acc_adjust;
+        oinputs.brake_adjust = resume_state->brake_adjust;
+
+        resume_state.reset();
+    }
 
     void clear_double_row(uint8_t y)
     {
@@ -248,9 +388,9 @@ private:
 
     void reset_showcase_segment(uint8_t view)
     {
-        // Reuse the first few seconds of Coconut Beach for every camera. This
-        // keeps all three comparisons on the same straight road section and
-        // avoids ever reaching the first bend during the 12-second showcase.
+        // Reuse the opening Coconut Beach straight for every camera. Each
+        // seven-second section starts from the same point, so all views get a
+        // directly comparable road scene without reaching the first bend.
         oroad.init();
         oinitengine.init(0);
 
@@ -290,22 +430,42 @@ private:
         showcase_active = true;
         showcase_phase = 0;
         showcase_start_tick = outrun.tick_counter;
+
+        // GS_INIT has just restored the normal Enhanced Attract to the point at
+        // which it stopped before High Scores / Logo. Freeze that exact runtime
+        // state here, use the live engine for the disposable showcase, then put
+        // this snapshot back afterwards.
+        capture_attract_state();
+
         video.clear_text_ram();
         reset_showcase_segment(ORoad::VIEW_ORIGINAL);
     }
 
     void end_showcase()
     {
+        restore_attract_state();
+
         showcase_active = false;
         showcase_phase = -1;
         manual_override = false;
-        video.clear_text_ram();
-        oroad.set_view_mode(ORoad::VIEW_ORIGINAL, true);
-        otraffic.set_max_traffic();
 
-        // GS_INIT restarts the existing enhanced attract timer/view sequence on
-        // the next engine tick. No normal attract behaviour is replaced.
-        outrun.game_state = GS_INIT;
+        // Continue the already-resumed Enhanced Attract directly. Do not enter
+        // GS_INIT again: doing so would reset its timer/view sequence instead of
+        // carrying on from the state captured immediately after the logo.
+        outrun.game_state = GS_ATTRACT;
+    }
+
+    void abort_showcase(bool restore_attract)
+    {
+        if (restore_attract)
+            restore_attract_state();
+        else
+            resume_state.reset();
+
+        showcase_active = false;
+        showcase_pending = false;
+        showcase_phase = -1;
+        manual_override = false;
     }
 
     void update_showcase()
@@ -334,11 +494,12 @@ private:
         {
             if (!enhanced_game || outrun.game_state != GS_ATTRACT)
             {
-                showcase_active = false;
-                showcase_pending = false;
-                showcase_phase = -1;
-                manual_override = false;
-                otraffic.set_max_traffic();
+                // If the player inserted a credit, the game has legitimately
+                // left Attract for Music Select; do not overwrite that state.
+                // If Enhanced Attract itself was merely disabled while we are
+                // still in GS_ATTRACT, put the pre-showcase scene back first.
+                const bool can_restore = outrun.game_state == GS_ATTRACT;
+                abort_showcase(can_restore);
             }
             else
             {
@@ -371,7 +532,7 @@ private:
                         // The existing Enhanced Attract view timer still ticks
                         // underneath us. Hold the showcase's intended automatic
                         // view against that timer, but never fight a real player
-                        // VR-button override inside the current 4-second phase.
+                        // VR-button override inside the current seven-second phase.
                         if (!manual_override && oroad.get_view_mode() != phase_view)
                             oroad.set_view_mode(phase_view, true);
                     }
