@@ -350,6 +350,7 @@ void OOutputs::writeDigitalToConsole()
             attract_sequence_counter = outrun.tick_frame ? 1 : 0;
             attract_sequence_view = 0;
             attract_original_intro = false;
+            attract_original_intro_start = 0;
         }
         else if (outrun.tick_frame && ++attract_sequence_counter > 240)
         {
@@ -372,12 +373,16 @@ void OOutputs::writeDigitalToConsole()
         attract_sequence_counter = 0;
         attract_sequence_view = 0;
         attract_original_intro = false;
+        attract_original_intro_start = 0;
     }
 
     // If the player manually leaves ORIGINAL while the automatic return intro
     // is running, cancel it immediately rather than flashing the wrong view.
     if (attract_original_intro && view != ORoad::VIEW_ORIGINAL)
+    {
         attract_original_intro = false;
+        attract_original_intro_start = 0;
+    }
 
     uint32_t attract_original_intro_elapsed = 0;
     if (attract_original_intro)
