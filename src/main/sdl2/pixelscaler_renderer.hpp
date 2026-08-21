@@ -528,7 +528,7 @@ private:
 
         if (down && !f6_was_down)
         {
-            const int next = pixel_scaler::cycle();
+            const int next = pixel_scaler::cycle_hotkey();
             notification_mode = next;
             notification_until_ms = SDL_GetTicks() + 1500;
 
