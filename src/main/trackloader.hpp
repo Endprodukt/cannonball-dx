@@ -16,6 +16,14 @@
 
 #include "globals.hpp"
 
+// Some Windows SDK/include combinations define PATH as a macro. LayOut has
+// used PATH as a binary-header field name for years, so remove the macro at
+// the header boundary before the struct is parsed. This makes inclusion safe
+// regardless of include order.
+#ifdef PATH
+#undef PATH
+#endif
+
 // Road Generator Palette Representation
 struct RoadPalette
 {
