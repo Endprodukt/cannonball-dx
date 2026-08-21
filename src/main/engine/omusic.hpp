@@ -43,6 +43,15 @@ public:
     // outputs use this to blink only the matching VIEW 1/2/3 lamp.
     int get_game_mode() const { return game_mode_selected; }
 
+    // The Time Trial course selector can be cancelled back to the frontend.
+    // Clear the one-shot handoff so a later Time Trial cannot accidentally
+    // reuse the music selection from the cancelled run.
+    void cancel_time_trial_from_music()
+    {
+        return_from_time_trial = false;
+        skip_music_tick = false;
+    }
+
 private:
     // Modified Widescreen version of the Music Select Tilemap
     RomLoader* tilemap;
