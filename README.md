@@ -1,68 +1,55 @@
-# CannonBall-SE
+# CannonBall DX
 
-*A fork of Chris White's CannonBall, extended by James Pearce's CannonBall-SE and further enhanced in this repository.*
+*An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine.*
 
-CannonBall-SE is an enhanced OutRun engine aimed at arcade cabinets and modern PCs while retaining support for low-power Raspberry Pi systems.
+**CannonBall DX** builds on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to make CannonBall especially well suited to modern racing wheels, multi-device PC setups and dedicated arcade cabinets while keeping the original OutRun feel intact.
 
-This repository is based on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The additional work in this fork focuses on modern racing-wheel support, multi-device controls, 21:9 ultrawide output and expanded force feedback.
-
-The modifications in this fork were developed with the assistance of **ChatGPT by OpenAI, using GPT-5.6 Sol**.
+The additional work in this fork was developed with the assistance of **ChatGPT by OpenAI, using GPT-5.6 Sol**.
 
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
-![CannonBall-SE Start Line](screenshots/CannonBall-SE-Startline.jpg)
+![CannonBall DX Start Line](screenshots/CannonBall-SE-Startline.jpg)
 
 ---
 
-## Features
+## CannonBall DX Highlights
 
-### Original CannonBall
+- **Arcade cabinet and racing-wheel focus** with modern USB wheel, pedal, shifter and gamepad support
+- **True multi-device input** - steering, pedals, shifter and buttons can come from different physical devices
+- **Unified control-binding matrix** with separate Keyboard, Gamepad and Wheel assignments
+- **Expanded DirectInput force feedback** - cornering weight, tyre slip, off-road effects, gear-change kick, crashes/spins, start/rev effects and music-selector detents
+- **Gamepad rumble support** with enable and strength controls on supported controllers
+- **Direct View 1 / View 2 / View 3 controls** alongside the original single-button view cycling
+- **21:9 ultrawide support** in addition to the original 4:3 presentation and existing widescreen modes
+- **Game-mode selection from the Music Select screen** - Original, Continuous or Time Trial via the VIEW controls
+- **Ferrari colour selection from the Music Select screen** using the shifter, with the original mini-car sprite as a preview
+- **Continuous Mode traffic follows the normal OutRun difficulty and stage scaling**
+- **Arcade lamp outputs** for START, BRAKE and VIEW lamps via **MAME network output**, **Windows MAMEOutput / MAMEHooker** and the existing **SmartyPi** output path
 
-**Chris White's CannonBall** provides the core C++ recreation and enhancement of Sega OutRun, including the game engine, ROM loading, enhanced modes, controls, widescreen support and steering-wheel force feedback / haptics.
+---
+
+## Upstream Features
+
+### CannonBall
+
+**Chris White's CannonBall** provides the core C++ recreation and enhancement of Sega OutRun, including the game engine, ROM loading, enhanced modes, controls, widescreen support and steering-wheel force feedback.
 
 ### CannonBall-SE
 
 **James Pearce's CannonBall-SE** adds a large range of cabinet, performance, audio and display improvements, including:
 
-- Configurable CRT / analogue video processing
-  - NTSC filtering
-  - Curvature
-  - Shadow mask
-  - Analogue noise
-  - Vignette and desaturation
+- CRT / analogue video processing and NTSC filtering
 - High-resolution rendering improvements
 - Gameplay fixes and enhancements
-- Skid rumble
 - Automatic 30/60 fps operation
 - Multi-threaded rendering for low-power hardware
-- Reworked audio system with WAV, MP3 and YM custom music support
+- WAV, MP3 and YM custom music support
 - Machine play-count and runtime statistics
 - Raspberry Pi watchdog support
 - Numerous performance and stability improvements
 - RISC-V RVV SIMD support and x86 SSE2 fallback contributed by **rtissera**
 
-### Additional features in this fork
-
-- **21:9 ultrawide support** in addition to the original 4:3 presentation and existing widescreen modes
-- **True multi-device input**
-  - Wheel, accelerator and brake may come from different USB / SDL devices
-  - Separate shifters and button interfaces are supported
-  - Device bindings survive changes in SDL device order
-- **Improved controller configuration**
-  - Analog axes remember the physical device they belong to
-  - Custom HAT / directional bindings are supported
-- **Reworked Windows DirectInput force feedback**
-  - Adjustable overall FFB strength
-  - Adjustable centering spring
-  - Speed- and corner-dependent steering weight
-  - Tyre-slip vibration
-  - Gear-change kick
-  - Off-road vibration and directional pull
-  - Distinct crash / spin / flip feedback
-  - Start-sequence and throttle/rev feedback
-  - Physical wheel detents on the music-selection screen
-
-CannonBall already included steering-wheel force feedback. This fork **extends that existing system** rather than replacing a simple rumble-only implementation.
+CannonBall already included steering-wheel force feedback. CannonBall DX **extends that existing system** rather than replacing a rumble-only implementation.
 
 ---
 
@@ -78,7 +65,7 @@ The expanded DirectInput force-feedback implementation is primarily intended for
 
 ## ROMs
 
-CannonBall-SE requires the original **OutRun revision B** ROM set. Copy the ROMs into the `roms/` directory.
+CannonBall DX requires the original **OutRun revision B** ROM set. Copy the ROMs into the `roms/` directory.
 
 You are expected to legally own the original ROMs; usage may be restricted by local law.
 
@@ -99,13 +86,13 @@ Then copy the OutRun revision B ROMs into `./roms/` and run:
 build/cannonball-se
 ```
 
-The included installer handles the required packages, build process and relevant Linux device permissions.
+The repository and executable currently retain the existing `cannonball-se` technical names for compatibility.
 
 ---
 
 ## Quick Start - Windows
 
-CannonBall-SE can be compiled with Visual Studio.
+CannonBall DX can be compiled with Visual Studio.
 
 See:
 
@@ -117,49 +104,24 @@ The features documented here are included in the **`master`** branch.
 
 ## Controls and Multiple Devices
 
-Controls are best configured through:
+Controls are configured through:
 
 **Menu -> Settings -> Controls**
 
-Steering, accelerator and brake can each be assigned to different physical devices. CannonBall-SE stores both the axis number and a persistent device signature so the bindings can be restored on the next launch.
+The binding editor provides separate **Keyboard**, **Gamepad** and **Wheel** columns. Steering, accelerator, brake, shifter and buttons can be assigned independently, including devices such as separate USB pedals or shifters.
 
-Example:
+Device bindings store a persistent device signature so assignments survive changes in SDL device order.
 
-```xml
-<controls>
-    <analog enabled="1">
-        <axis>
-            <wheel>0</wheel>
-            <accel invert="1">2</accel>
-            <brake invert="1">1</brake>
-        </axis>
-
-        <axis_device>
-            <wheel>DEVICE-GUID|A3|B12|H1</wheel>
-            <accel>DEVICE-GUID|A3|B12|H1</accel>
-            <brake>OTHER-DEVICE-GUID|A3|B0|H0</brake>
-        </axis_device>
-
-        <haptic enabled="1">
-            <strength>50</strength>
-            <centering_strength>30</centering_strength>
-        </haptic>
-    </analog>
-</controls>
-```
-
-Device signatures are generated automatically and normally should not be edited manually.
-
-### Relevant FFB settings
+### Force Feedback settings
 
 | XML option | Values | Description |
 |---|---:|---|
-| `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback. |
-| `controls.analog.haptic.strength` | `10`-`100` | Overall FFB strength in percent. |
-| `controls.analog.haptic.centering_strength` | `0`-`100` | Base centering spring strength. `0` disables it. |
-| `controls.rumble` | `0.0`-`1.0` | Basic controller rumble level. |
+| `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback |
+| `controls.analog.haptic.strength` | `10`-`100` | Overall FFB strength in percent |
+| `controls.analog.haptic.centering_strength` | `0`-`100` | Base centering spring strength |
+| `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level |
 
-The individual driving effects are automatic and do not require separate configuration.
+The individual driving effects are automatic.
 
 If multiple DirectInput FFB devices are connected on Windows, a specific device can optionally be selected with the `FF_TARGET_VIDPID` environment variable.
 
@@ -187,23 +149,38 @@ Controls can be remapped in the in-game menu.
 
 ---
 
-## Custom Music
+## Music Select
 
-Place custom audio files in `./res/` using:
+The Music Select screen can now also be used to prepare the next run:
+
+- **VIEW** cycles Original -> Continuous -> Time Trial
+- **VIEW1 / VIEW2 / VIEW3** select those modes directly
+- **LOW / HIGH gear** changes Ferrari colour
+- **START** confirms the selection
+
+The Ferrari starts red for every new selection and remains red in attract/demo mode.
+
+Custom music files can still be placed in `./res/` using:
 
 ```text
 [01-99]_Track_Display_Name.[wav|mp3|ym]
 ```
 
-Example:
+Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. On supported Windows wheels, the selector uses physical FFB detents across the steering range.
 
-```text
-04_AHA_Take_On_Me.mp3
-```
+---
 
-Tracks `01-03` replace the original three songs. Tracks `04+` add additional entries to the radio selector.
+## Arcade Outputs
 
-With an analog steering wheel, the available tracks are distributed across the steering range. The FFB system creates physical selector positions for them on supported Windows wheels.
+CannonBall DX exposes its lamp outputs through:
+
+- **MAME network output**
+- **Windows MAMEOutput messages / MAMEHooker**
+- **SmartyPi**
+
+Currently exposed lamps include **START**, **BRAKE**, **VIEW**, **VIEW1**, **VIEW2** and **VIEW3**.
+
+See `EXTERNAL_OUTPUTS.md` for configuration details.
 
 ---
 
@@ -223,15 +200,15 @@ With an analog steering wheel, the available tracks are distributed across the s
 
 ## Credits
 
-This fork builds directly on the work of the original projects and their contributors.
+CannonBall DX builds directly on the work of the original projects and their contributors.
 
 - **Chris White** - creator of the original **CannonBall** engine and core OutRun recreation
 - **James Pearce (J1mbo)** - creator and maintainer of **CannonBall-SE**, including its cabinet, video, performance, audio and gameplay enhancements
 - **Shay Green (Blargg)** - `snes_ntsc` NTSC filter library
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
-- **Endprodukt** - multi-device input, 21:9 support and the current steering-wheel / force-feedback extensions in this fork
-- **ChatGPT by OpenAI - GPT-5.6 Sol** - development assistance for the additional work in this fork
+- **Endprodukt** - CannonBall DX fork, multi-device input, ultrawide, cabinet-output and modern wheel / feedback extensions
+- **ChatGPT by OpenAI - GPT-5.6 Sol** - development assistance for the additional work in CannonBall DX
 
 Upstream projects:
 
