@@ -310,14 +310,8 @@ bool Menu::select_pressed()
 
         if (starts_with_label(option, PIXEL_SCALER_LABEL))
         {
-            int next =
-                pixel_scaler::mode.load(std::memory_order_relaxed) + 1;
-            if (next >= pixel_scaler::MODE_COUNT)
-                next = pixel_scaler::OFF;
-
-            pixel_scaler::set(next);
+            pixel_scaler::cycle();
             menu_enhancements[cursor] = pixel_scaler_menu_text();
-            config.videoRestartRequired = true;
             return false;
         }
     }
