@@ -10,6 +10,7 @@
 #include "engine/external_outputs.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oroad.hpp"
+#include "engine/ostats.hpp"
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 #include "frontend/xml_parser.h"
@@ -140,21 +141,28 @@ private:
 
     static constexpr std::chrono::milliseconds FREEZE_TIME{900};
     static constexpr std::chrono::seconds DRIVE_TIME{7};
-    static constexpr std::chrono::seconds INITIAL_SHOWCASE_DELAY{30};
-    static constexpr std::chrono::milliseconds POST_LOGO_SHOWCASE_DELAY{4500};
+
+    // Enhanced Attract starts each driving section at BCD 0x80 (80 seconds).
+    // Trigger the in-section presentation at the real halfway point: 40 seconds
+    // remaining. Using the game timer means menu visits automatically pause it.
+    static constexpr uint8_t ATTRACT_MIDPOINT_BCD = 0x40;
+
+    // After a Logo screen we also introduce the views shortly after the real
+    // attract drive resumes. tick_counter runs at the engine's 30 Hz logic rate
+    // and stops while the game is in the menu or our short presentation freeze.
+    static constexpr uint32_t POST_LOGO_DELAY_TICKS = 135; // 4.5 seconds at 30 Hz.
 
     bool showcase_active = false;
     bool showcase_freezing = false;
     bool manual_override = false;
 
-    // Scheduling: the first presentation happens about 30 seconds after the
-    // initial Enhanced Attract drive begins. Later presentations are armed by
-    // Logo -> Attract and begin 4.5 seconds after the resumed drive starts.
-    bool initial_attract_seen = false;
-    bool first_showcase_started = false;
-    bool delayed_showcase_pending = false;
+    // Every real GS_ATTRACT driving section gets one midpoint showcase. After a
+    // Logo -> Attract transition it additionally gets one early showcase after
+    // 4.5 seconds. These flags describe the current driving section only.
+    bool midpoint_showcase_pending = false;
     bool post_logo_resume_pending = false;
-    Clock::time_point showcase_due{};
+    bool post_logo_showcase_pending = false;
+    uint32_t post_logo_due_tick = 0;
 
     bool view1_old = false;
     bool view2_old = false;
@@ -271,8 +279,9 @@ private:
         phase_start_frame = cannonball::frame;
 
         // Preserve the exact native Enhanced Attract vehicle state. We never
-        // write car_increment, accelerator, brake or steering here. The road
-        // pass only rebuilds the same road position with the snapped camera.
+        // write car_increment, accelerator, brake or steering here. This road
+        // pass only rebuilds the same road position with the snapped camera so
+        // the new view is already visible during the explanatory freeze.
         oroad.set_view_mode(phase_view, true);
         oroad.tick();
         pause_engine = true;
@@ -280,8 +289,6 @@ private:
 
     void start_showcase()
     {
-        delayed_showcase_pending = false;
-        first_showcase_started = true;
         showcase_active = true;
         attract_cycle_state = outrun.capture_attract_runtime_state();
         attract_cycle_saved = true;
@@ -320,13 +327,9 @@ private:
         attract_cycle_saved = false;
     }
 
-    void reset_schedule()
+    bool post_logo_delay_elapsed() const
     {
-        initial_attract_seen = false;
-        first_showcase_started = false;
-        delayed_showcase_pending = false;
-        post_logo_resume_pending = false;
-        showcase_due = Clock::time_point{};
+        return static_cast<int32_t>(outrun.tick_counter - post_logo_due_tick) >= 0;
     }
 
     void update_showcase()
@@ -336,49 +339,60 @@ private:
             cannonball::state == cannonball::STATE_GAME &&
             config.engine.new_attract;
 
-        // If Enhanced Attract is disabled, the next activation gets a fresh
-        // first-run schedule instead of inheriting an old pending timer.
-        if (!config.engine.new_attract)
-            reset_schedule();
-
-        // First run: start counting when the initial real attract drive begins.
-        // This deliberately does not depend on the High Score / Logo cycle.
+        // Logo timeout changes GS_LOGO -> GS_INIT for one frame. Remember this
+        // edge so the resumed driving section also gets its early presentation.
         if (enhanced_game &&
-            outrun.game_state == GS_ATTRACT &&
-            !initial_attract_seen)
-        {
-            initial_attract_seen = true;
-            delayed_showcase_pending = true;
-            showcase_due = now + INITIAL_SHOWCASE_DELAY;
-        }
-
-        // Subsequent runs: Logo times out to GS_INIT for one frame. Arm the
-        // delayed presentation here, but start its 4.5-second timer only once
-        // the normal Enhanced Attract drive has actually resumed.
-        if (enhanced_game &&
-            first_showcase_started &&
             previous_game_state == GS_LOGO &&
             outrun.game_state == GS_INIT)
         {
             post_logo_resume_pending = true;
         }
 
+        // A transition into GS_ATTRACT means a new real driving section has
+        // begun. Arm one midpoint presentation every time, including the first
+        // attract after boot/game start. Menu visits do not create this edge,
+        // because the underlying game_state remains GS_ATTRACT while in menu.
         if (enhanced_game &&
-            post_logo_resume_pending &&
-            outrun.game_state == GS_ATTRACT)
+            outrun.game_state == GS_ATTRACT &&
+            previous_game_state != GS_ATTRACT)
         {
-            post_logo_resume_pending = false;
-            delayed_showcase_pending = true;
-            showcase_due = now + POST_LOGO_SHOWCASE_DELAY;
+            midpoint_showcase_pending = true;
+
+            if (post_logo_resume_pending)
+            {
+                post_logo_resume_pending = false;
+                post_logo_showcase_pending = true;
+                post_logo_due_tick = outrun.tick_counter + POST_LOGO_DELAY_TICKS;
+            }
         }
 
-        if (!showcase_active &&
-            delayed_showcase_pending &&
-            enhanced_game &&
-            outrun.game_state == GS_ATTRACT &&
-            now >= showcase_due)
+        // If Enhanced Attract itself is turned off, discard presentation work.
+        // Do not do this merely because the menu is open: that is exactly what
+        // lets the real attract timer survive a menu round-trip.
+        if (!config.engine.new_attract)
         {
-            start_showcase();
+            midpoint_showcase_pending = false;
+            post_logo_resume_pending = false;
+            post_logo_showcase_pending = false;
+        }
+
+        if (!showcase_active && enhanced_game && outrun.game_state == GS_ATTRACT)
+        {
+            // Shortly after every Logo, show the early presentation first.
+            if (post_logo_showcase_pending && post_logo_delay_elapsed())
+            {
+                post_logo_showcase_pending = false;
+                start_showcase();
+            }
+            // Then show exactly one more presentation at the genuine halfway
+            // point of this 80-second driving section. Because time_counter is
+            // the engine timer, menu time and our freezes do not advance it.
+            else if (midpoint_showcase_pending &&
+                     ostats.time_counter <= ATTRACT_MIDPOINT_BCD)
+            {
+                midpoint_showcase_pending = false;
+                start_showcase();
+            }
         }
 
         if (showcase_active)
