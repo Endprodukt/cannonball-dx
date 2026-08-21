@@ -233,24 +233,12 @@ private:
             clear_double_row(7);
     }
 
-    bool manual_view_pressed()
+    void sync_view_button_states()
     {
-        const bool view1 = input.is_pressed(Input::VIEW1);
-        const bool view2 = input.is_pressed(Input::VIEW2);
-        const bool view3 = input.is_pressed(Input::VIEW3);
-        const bool viewpoint = input.is_pressed(Input::VIEWPOINT);
-
-        const bool pressed =
-            (view1 && !view1_old) ||
-            (view2 && !view2_old) ||
-            (view3 && !view3_old) ||
-            (viewpoint && !viewpoint_old);
-
-        view1_old = view1;
-        view2_old = view2;
-        view3_old = view3;
-        viewpoint_old = viewpoint;
-        return pressed;
+        view1_old = input.is_pressed(Input::VIEW1);
+        view2_old = input.is_pressed(Input::VIEW2);
+        view3_old = input.is_pressed(Input::VIEW3);
+        viewpoint_old = input.is_pressed(Input::VIEWPOINT);
     }
 
     void reset_view_on_start()
@@ -416,10 +404,10 @@ private:
             }
             else
             {
-                // Consume all view-button edges while the presentation owns the
-                // camera. This keeps held buttons from becoming a fresh input as
-                // soon as the showcase ends, but no view input is acted upon.
-                manual_view_pressed();
+                // Consume all view-button states while the presentation owns
+                // the camera. This prevents a held button from becoming a fresh
+                // input as soon as the showcase ends.
+                sync_view_button_states();
 
                 if (showcase_announcing)
                 {
@@ -457,7 +445,7 @@ private:
         {
             // Keep edge trackers current outside the showcase so a held VR
             // button cannot become a false new press at the next presentation.
-            manual_view_pressed();
+            sync_view_button_states();
         }
 
         previous_game_state = outrun.game_state;
