@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <cstring>
 #include <string>
 
@@ -15,10 +14,6 @@
 #include "frontend/config.hpp"
 #include "frontend/xml_parser.h"
 #include "sdl2/input.hpp"
-
-// Main engine pause flag. The showcase owns this only for its short camera
-// presentation freezes; audio and rendering continue normally.
-extern bool pause_engine;
 
 // Optional external-output transport settings. SmartyPi remains independent.
 struct ExternalOutputSettings
@@ -62,9 +57,9 @@ inline ExternalOutputSettings& external_output_settings()
 }
 
 // Enhanced-attract showcase wrapper. The normal Enhanced Attract drive is
-// reused directly: no demo level, speed override, traffic override or road
-// reset is used. The showcase only changes the camera and briefly pauses the
-// engine while introducing each view.
+// reused directly: no demo level, speed override, traffic override, road reset
+// or engine pause is used. Each camera is announced first, then applied while
+// the live attract drive continues uninterrupted.
 class ExternalOutputsWithAttractShowcase : public ExternalOutputs
 {
 public:
@@ -88,7 +83,8 @@ public:
 
         if (showcase_active)
         {
-            // The dedicated VR lamps own the presentation during the showcase.
+            // The dedicated VR lamps always follow the camera that is actually
+            // on screen, including during the two-second announcement period.
             view_lamp = 0;
             view1_lamp = 0;
             view2_lamp = 0;
@@ -137,23 +133,23 @@ public:
     }
 
 private:
-    using Clock = std::chrono::steady_clock;
-
-    static constexpr std::chrono::milliseconds FREEZE_TIME{900};
-    static constexpr std::chrono::seconds DRIVE_TIME{7};
+    // Each view is announced for two seconds while the previous live camera
+    // continues to drive, then demonstrated for six seconds after the switch.
+    static constexpr uint32_t ANNOUNCE_TIME_TICKS = 60; // 2 seconds at 30 Hz.
+    static constexpr uint32_t VIEW_TIME_TICKS = 180;    // 6 seconds at 30 Hz.
 
     // Enhanced Attract starts each driving section at BCD 0x80 (80 seconds).
     // Trigger the in-section presentation at the real halfway point: 40 seconds
     // remaining. Using the game timer means menu visits automatically pause it.
     static constexpr uint8_t ATTRACT_MIDPOINT_BCD = 0x40;
 
-    // After a Logo screen we also introduce the views shortly after the real
-    // attract drive resumes. tick_counter runs at the engine's 30 Hz logic rate
-    // and stops while the game is in the menu or our short presentation freeze.
+    // After a Logo screen we additionally introduce the views shortly after the
+    // normal attract drive resumes. tick_counter follows the 30 Hz engine logic
+    // and therefore does not advance while the game is in the menu.
     static constexpr uint32_t POST_LOGO_DELAY_TICKS = 135; // 4.5 seconds at 30 Hz.
 
     bool showcase_active = false;
-    bool showcase_freezing = false;
+    bool showcase_announcing = false;
     bool manual_override = false;
 
     // Every real GS_ATTRACT driving section gets one midpoint showcase. After a
@@ -171,8 +167,9 @@ private:
     int previous_game_state = -1;
     int showcase_phase = -1;
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
+    uint8_t announcement_hold_view = ORoad::VIEW_ORIGINAL;
     uint32_t phase_start_frame = 0;
-    Clock::time_point phase_time{};
+    uint32_t phase_due_tick = 0;
     Outrun::AttractRuntimeState attract_cycle_state{};
     bool attract_cycle_saved = false;
 
@@ -217,6 +214,15 @@ private:
         }
     }
 
+    const char* phase_view_name() const
+    {
+        if (phase_view == ORoad::VIEW_ELEVATED)
+            return "ELEVATED VIEW";
+        if (phase_view == ORoad::VIEW_INCAR)
+            return "IN CAR VIEW";
+        return "ORIGINAL VIEW";
+    }
+
     void draw_showcase_text()
     {
         // Extract the exact palette used by the original SELECT MUSIC prompt.
@@ -227,17 +233,11 @@ private:
         draw_double_row_centered(2, "TRY THREE DIFFERENT VIEWS", prompt_pal);
         draw_double_row_centered(4, "WITH THE VR BUTTONS!", prompt_pal);
 
-        const char* view_name = "ORIGINAL VIEW";
-        const uint8_t view = oroad.get_view_mode();
-        if (view == ORoad::VIEW_ELEVATED)
-            view_name = "ELEVATED VIEW";
-        else if (view == ORoad::VIEW_INCAR)
-            view_name = "IN CAR VIEW";
-
-        // Keep the name solid during the short freeze so the changed camera is
-        // clearly explained. Once driving resumes it returns to the arcade blink.
-        if (showcase_freezing || (cannonball::frame & 0x10))
-            draw_double_row_centered(7, view_name, 0x8AA0);
+        // During the two-second lead-in the upcoming view name is held solid so
+        // the player reads the explanation before the camera actually changes.
+        // Once the view is active, the name returns to the arcade-style blink.
+        if (showcase_announcing || (cannonball::frame & 0x10))
+            draw_double_row_centered(7, phase_view_name(), 0x8AA0);
         else
             clear_double_row(7);
     }
@@ -262,6 +262,11 @@ private:
         return pressed;
     }
 
+    bool tick_due(uint32_t due) const
+    {
+        return static_cast<int32_t>(outrun.tick_counter - due) >= 0;
+    }
+
     void begin_view_phase(int phase)
     {
         static const uint8_t VIEWS[] =
@@ -273,18 +278,23 @@ private:
 
         showcase_phase = phase;
         phase_view = VIEWS[phase];
+        announcement_hold_view = oroad.get_view_mode();
         manual_override = false;
-        showcase_freezing = true;
-        phase_time = Clock::now();
+        showcase_announcing = true;
         phase_start_frame = cannonball::frame;
+        phase_due_tick = outrun.tick_counter + ANNOUNCE_TIME_TICKS;
+    }
 
-        // Preserve the exact native Enhanced Attract vehicle state. We never
-        // write car_increment, accelerator, brake or steering here. This road
-        // pass only rebuilds the same road position with the snapped camera so
-        // the new view is already visible during the explanatory freeze.
+    void apply_announced_view()
+    {
+        showcase_announcing = false;
+        manual_override = false;
+
+        // Camera change only. Vehicle speed, AI, traffic, road position and all
+        // other Enhanced Attract logic continue exactly as they normally would.
         oroad.set_view_mode(phase_view, true);
-        oroad.tick();
-        pause_engine = true;
+        phase_start_frame = cannonball::frame;
+        phase_due_tick = outrun.tick_counter + VIEW_TIME_TICKS;
     }
 
     void start_showcase()
@@ -298,8 +308,7 @@ private:
 
     void finish_showcase()
     {
-        pause_engine = false;
-        showcase_freezing = false;
+        showcase_announcing = false;
 
         // Re-sync the normal automatic view timer to the view on screen so the
         // next automatic attract change starts a fresh, predictable cycle.
@@ -319,9 +328,8 @@ private:
 
     void abort_showcase()
     {
-        pause_engine = false;
         showcase_active = false;
-        showcase_freezing = false;
+        showcase_announcing = false;
         showcase_phase = -1;
         manual_override = false;
         attract_cycle_saved = false;
@@ -329,12 +337,11 @@ private:
 
     bool post_logo_delay_elapsed() const
     {
-        return static_cast<int32_t>(outrun.tick_counter - post_logo_due_tick) >= 0;
+        return tick_due(post_logo_due_tick);
     }
 
     void update_showcase()
     {
-        const Clock::time_point now = Clock::now();
         const bool enhanced_game =
             cannonball::state == cannonball::STATE_GAME &&
             config.engine.new_attract;
@@ -386,7 +393,7 @@ private:
             }
             // Then show exactly one more presentation at the genuine halfway
             // point of this 80-second driving section. Because time_counter is
-            // the engine timer, menu time and our freezes do not advance it.
+            // the engine timer, menu time does not advance it.
             else if (midpoint_showcase_pending &&
                      ostats.time_counter <= ATTRACT_MIDPOINT_BCD)
             {
@@ -401,45 +408,40 @@ private:
             {
                 abort_showcase();
             }
-            else if (showcase_freezing)
-            {
-                // Ignore manual VR changes during the explanatory freeze;
-                // the announced view owns this short presentation moment.
-                manual_view_pressed();
-                if (oroad.get_view_mode() != phase_view)
-                {
-                    oroad.set_view_mode(phase_view, true);
-                    oroad.tick();
-                }
-
-                draw_showcase_text();
-
-                if (now - phase_time >= FREEZE_TIME)
-                {
-                    showcase_freezing = false;
-                    pause_engine = false;
-                    phase_time = now;
-                }
-            }
             else
             {
                 if (manual_view_pressed())
                     manual_override = true;
 
-                // The existing Enhanced Attract timer may try to change the
-                // view underneath the presentation. Hold the announced view
-                // unless the player deliberately used a VR button.
-                if (!manual_override && oroad.get_view_mode() != phase_view)
-                    oroad.set_view_mode(phase_view, true);
-
-                draw_showcase_text();
-
-                if (now - phase_time >= DRIVE_TIME)
+                if (showcase_announcing)
                 {
-                    if (showcase_phase < 2)
-                        begin_view_phase(showcase_phase + 1);
-                    else
-                        finish_showcase();
+                    // Keep the live view stable against the normal automatic
+                    // Enhanced Attract view timer while the next view is being
+                    // announced. A real VR-button press is still respected.
+                    if (!manual_override && oroad.get_view_mode() != announcement_hold_view)
+                        oroad.set_view_mode(announcement_hold_view, true);
+
+                    draw_showcase_text();
+
+                    if (tick_due(phase_due_tick))
+                        apply_announced_view();
+                }
+                else
+                {
+                    // During the six-second demonstration hold the announced
+                    // automatic view, but never fight a real player VR override.
+                    if (!manual_override && oroad.get_view_mode() != phase_view)
+                        oroad.set_view_mode(phase_view, true);
+
+                    draw_showcase_text();
+
+                    if (tick_due(phase_due_tick))
+                    {
+                        if (showcase_phase < 2)
+                            begin_view_phase(showcase_phase + 1);
+                        else
+                            finish_showcase();
+                    }
                 }
             }
         }
