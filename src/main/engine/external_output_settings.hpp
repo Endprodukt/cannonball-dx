@@ -270,9 +270,9 @@ private:
         phase_time = Clock::now();
         phase_start_frame = cannonball::frame;
 
-        // The car keeps the exact speed/input state produced by Enhanced Attract.
-        // We only switch the camera. A road pass re-renders the same road position
-        // with the new snapped horizon before the short presentation freeze.
+        // Preserve the exact native Enhanced Attract vehicle state. We never
+        // write car_increment, accelerator, brake or steering here. The road
+        // pass only rebuilds the same road position with the snapped camera.
         oroad.set_view_mode(phase_view, true);
         oroad.tick();
         pause_engine = true;
