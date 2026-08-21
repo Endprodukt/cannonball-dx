@@ -55,6 +55,18 @@ public:
 
         factor = pixel_scaler::factor(active_mode);
 
+        // CannonBall-SE's Hi-Res mode is already a 2x internal rendering pass.
+        // Feeding that enlarged image to xBRZ/HQx makes the algorithms see
+        // 2x2 pixel blocks instead of the original arcade pixels, which makes
+        // their edge reconstruction much less obvious. For pixel scalers we
+        // therefore sample the completed frame back to the native System 16
+        // grid first. This is deliberately nearest/decimation, not averaging:
+        // the scaler should receive crisp source pixels just like the xBRZ
+        // reference/testing tools do.
+        input_step = config.video.hires ? 2 : 1;
+        scaler_input_width = std::max(1, src_width / input_step);
+        scaler_input_height = std::max(1, src_height / input_step);
+
         if (pixel_scaler::is_hqx(active_mode))
         {
             std::call_once(hqx_init_once, []()
@@ -68,6 +80,8 @@ public:
 
         if (video_mode == video_settings_t::MODE_WINDOW)
         {
+            // Preserve CannonBall's requested window size. The scaler texture
+            // is independent from the window/output resolution.
             scn_width = src_width * scale;
             scn_height = src_height * scale;
         }
@@ -126,8 +140,8 @@ public:
             return false;
         }
 
-        scaled_width = src_width * factor;
-        scaled_height = src_height * factor;
+        scaled_width = scaler_input_width * factor;
+        scaled_height = scaler_input_height * factor;
 
         texture = SDL_CreateTexture(
             sdl_renderer,
@@ -147,7 +161,7 @@ public:
         SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
 
         source_pixels.assign(
-            static_cast<size_t>(src_width) * src_height,
+            static_cast<size_t>(scaler_input_width) * scaler_input_height,
             0xFF000000u);
         scaled_pixels.assign(
             static_cast<size_t>(scaled_width) * scaled_height,
@@ -155,10 +169,15 @@ public:
 
         std::cout << "Pixel scaler enabled: "
                   << pixel_scaler::name(active_mode)
-                  << " (" << src_width << "x" << src_height
-                  << " -> " << scaled_width << "x" << scaled_height << ")"
-                  << std::endl;
+                  << " | frame " << src_width << "x" << src_height
+                  << " | scaler input " << scaler_input_width << "x"
+                  << scaler_input_height
+                  << " | output " << scaled_width << "x" << scaled_height;
 
+        if (input_step == 2)
+            std::cout << " (Hi-Res decimated to native arcade pixels)";
+
+        std::cout << std::endl;
         return true;
     }
 
@@ -238,27 +257,39 @@ public:
         if (fastpass == 1)
             return;
 
-        const size_t pixel_count =
-            static_cast<size_t>(src_width) * src_height;
-
-        for (size_t i = 0; i < pixel_count; ++i)
+        // Convert the completed palette-index frame to 0xAARRGGBB while, when
+        // Hi-Res is active, decimating the 2x frame back to native arcade
+        // pixels. Sampling the top-left pixel of each 2x2 block preserves hard
+        // pixel boundaries and avoids pre-blurring the scaler input.
+        for (int y = 0; y < scaler_input_height; ++y)
         {
-            const uint16_t palette_index =
-                pixels[i] & ((S16_PALETTE_ENTRIES * 2) - 1);
-            const uint16_t raw = rgb_blargg[palette_index];
+            const int source_y = y * input_step;
+            const size_t dst_row =
+                static_cast<size_t>(y) * scaler_input_width;
+            const size_t src_row =
+                static_cast<size_t>(source_y) * src_width;
 
-            const bool shadow = (raw & 0x8000u) != 0;
-            const uint32_t r5 = (raw >> 10) & 0x1Fu;
-            const uint32_t g5 = (raw >> 5) & 0x1Fu;
-            const uint32_t b5 = raw & 0x1Fu;
+            for (int x = 0; x < scaler_input_width; ++x)
+            {
+                const int source_x = x * input_step;
+                const uint16_t palette_index =
+                    pixels[src_row + source_x] &
+                    ((S16_PALETTE_ENTRIES * 2) - 1);
+                const uint16_t raw = rgb_blargg[palette_index];
 
-            const auto& table = shadow ? SHADOW_DAC : STANDARD_DAC;
-            const uint32_t r = table[r5];
-            const uint32_t g = table[g5];
-            const uint32_t b = table[b5];
+                const bool shadow = (raw & 0x8000u) != 0;
+                const uint32_t r5 = (raw >> 10) & 0x1Fu;
+                const uint32_t g5 = (raw >> 5) & 0x1Fu;
+                const uint32_t b5 = raw & 0x1Fu;
 
-            source_pixels[i] =
-                0xFF000000u | (r << 16) | (g << 8) | b;
+                const auto& table = shadow ? SHADOW_DAC : STANDARD_DAC;
+                const uint32_t r = table[r5];
+                const uint32_t g = table[g5];
+                const uint32_t b = table[b5];
+
+                source_pixels[dst_row + x] =
+                    0xFF000000u | (r << 16) | (g << 8) | b;
+            }
         }
 
         if (pixel_scaler::is_xbrz(active_mode))
@@ -267,8 +298,8 @@ public:
                 static_cast<size_t>(factor),
                 source_pixels.data(),
                 scaled_pixels.data(),
-                src_width,
-                src_height,
+                scaler_input_width,
+                scaler_input_height,
                 xbrz::ColorFormat::ARGB);
         }
         else
@@ -279,22 +310,22 @@ public:
                     hq2x_32(
                         source_pixels.data(),
                         scaled_pixels.data(),
-                        src_width,
-                        src_height);
+                        scaler_input_width,
+                        scaler_input_height);
                     break;
                 case 3:
                     hq3x_32(
                         source_pixels.data(),
                         scaled_pixels.data(),
-                        src_width,
-                        src_height);
+                        scaler_input_width,
+                        scaler_input_height);
                     break;
                 default:
                     hq4x_32(
                         source_pixels.data(),
                         scaled_pixels.data(),
-                        src_width,
-                        src_height);
+                        scaler_input_width,
+                        scaler_input_height);
                     break;
             }
         }
@@ -338,8 +369,8 @@ public:
         if (video_mode != video_settings_t::MODE_STRETCH)
         {
             const double source_aspect =
-                static_cast<double>(src_width) /
-                static_cast<double>(src_height);
+                static_cast<double>(scaler_input_width) /
+                static_cast<double>(scaler_input_height);
             const double output_aspect =
                 static_cast<double>(output_width) /
                 static_cast<double>(output_height);
@@ -362,6 +393,19 @@ public:
 
         destination.x += config.video.x_offset;
         destination.y += config.video.y_offset;
+
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+        // Preserve the xBRZ/HQx result when it has to be reduced to the actual
+        // display area. Nearest-neighbour downsampling can simply throw away
+        // many of the reconstructed intermediate pixels and make the effect
+        // look much weaker. When no downsampling is needed, keep nearest so an
+        // integer/near-integer upscale stays crisp.
+        const bool final_downscale =
+            destination.w < scaled_width || destination.h < scaled_height;
+        SDL_SetTextureScaleMode(
+            texture,
+            final_downscale ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+#endif
 
         SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
         SDL_RenderClear(sdl_renderer);
@@ -622,6 +666,9 @@ private:
     Uint32 notification_until_ms = 0;
     int factor = 1;
     int scale = 1;
+    int input_step = 1;
+    int scaler_input_width = 0;
+    int scaler_input_height = 0;
     int scaled_width = 0;
     int scaled_height = 0;
 
