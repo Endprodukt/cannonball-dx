@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <iostream>
 #include <mutex>
+#include <string>
 #include <vector>
 
 // Pixel-scaler rendering path used for xBRZ/HQx. When the scaler is OFF this
@@ -22,7 +23,7 @@ class PixelScalerRenderer final : public RenderSurface
 {
 public:
     PixelScalerRenderer() = default;
-    ~PixelScalerRenderer() override
+    ~PixelScalerRenderer()
     {
         if (scaler_path)
             disable_scaler();
@@ -183,6 +184,16 @@ public:
 
     void draw_frame(uint16_t* pixels, int fastpass) override
     {
+        if (!pixels)
+            return;
+
+        // Render the temporary scaler label into the raw System 16 frame. This
+        // makes the notification work both with the original renderer (OFF) and
+        // with the xBRZ/HQx renderer. Worker 1 owns the bottom half, so only the
+        // other worker touches the top-of-screen notification area.
+        if (fastpass != 1 && notification_visible())
+            draw_scaler_notification(pixels);
+
         if (!scaler_path)
         {
             RenderSurface::draw_frame(pixels, fastpass);
@@ -192,7 +203,7 @@ public:
         // CannonBall can call draw_frame concurrently for the top and bottom
         // halves. xBRZ/HQx operate on the complete image here; worker 0 does
         // the work and worker 1 simply returns.
-        if (fastpass == 1 || !pixels)
+        if (fastpass == 1)
             return;
 
         const size_t pixel_count =
@@ -261,7 +272,7 @@ public:
 
     bool finalize_frame() override
     {
-        handle_toggle_hotkey();
+        handle_cycle_hotkey();
 
         if (config.videoRestartRequired)
             return true;
@@ -360,22 +371,172 @@ private:
         120, 126, 130, 136, 140, 146, 150, 156
     };
 
-    void handle_toggle_hotkey()
+    void handle_cycle_hotkey()
     {
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
         const bool down = keyboard && keyboard[SDL_SCANCODE_F6] != 0;
 
         if (down && !f6_was_down)
         {
-            pixel_scaler::toggle();
+            const int next = pixel_scaler::cycle();
+            notification_mode = next;
+            notification_until_ms = SDL_GetTicks() + 1500;
+
             std::cout << "Pixel scaler: "
-                      << pixel_scaler::name(
-                          pixel_scaler::mode.load(std::memory_order_relaxed))
+                      << pixel_scaler::name(next)
                       << std::endl;
+
+            // Changing scaler changes texture dimensions and, for OFF, the
+            // renderer implementation itself, so rebuild the video path.
             config.videoRestartRequired = true;
         }
 
         f6_was_down = down;
+    }
+
+    bool notification_visible() const
+    {
+        if (notification_until_ms == 0)
+            return false;
+
+        return static_cast<Sint32>(
+            notification_until_ms - SDL_GetTicks()) > 0;
+    }
+
+    static std::array<uint8_t, 7> glyph(char c)
+    {
+        switch (c)
+        {
+            case 'A': return {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
+            case 'B': return {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E};
+            case 'C': return {0x0F, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0F};
+            case 'E': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F};
+            case 'F': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10};
+            case 'H': return {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
+            case 'I': return {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F};
+            case 'L': return {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F};
+            case 'O': return {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
+            case 'P': return {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10};
+            case 'Q': return {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D};
+            case 'R': return {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11};
+            case 'S': return {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E};
+            case 'X': return {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11};
+            case 'Z': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F};
+            case '2': return {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F};
+            case '3': return {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E};
+            case '4': return {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02};
+            case '5': return {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E};
+            case '6': return {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E};
+            case ':': return {0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00};
+            default:  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        }
+    }
+
+    std::pair<uint16_t, uint16_t> notification_palette_indices() const
+    {
+        uint16_t darkest = 0;
+        uint16_t brightest = 0;
+        int darkest_luma = 1000;
+        int brightest_luma = -1;
+
+        for (int i = 0; i < S16_PALETTE_ENTRIES * 2; ++i)
+        {
+            const uint16_t raw = rgb_blargg[i];
+            const int luma =
+                static_cast<int>((raw >> 10) & 0x1F) +
+                static_cast<int>((raw >> 5) & 0x1F) +
+                static_cast<int>(raw & 0x1F);
+
+            if (luma < darkest_luma)
+            {
+                darkest_luma = luma;
+                darkest = static_cast<uint16_t>(i);
+            }
+
+            if (luma > brightest_luma)
+            {
+                brightest_luma = luma;
+                brightest = static_cast<uint16_t>(i);
+            }
+        }
+
+        return {darkest, brightest};
+    }
+
+    void draw_scaler_notification(uint16_t* pixels)
+    {
+        const std::string text =
+            std::string("PIXEL SCALER: ") +
+            pixel_scaler::name(notification_mode);
+
+        // Hi-res mode doubles the raw System 16 dimensions. Double the tiny
+        // bitmap font as well so the physical label remains roughly the same.
+        const int ui_scale = src_height >= (S16_HEIGHT * 2) ? 2 : 1;
+        const int glyph_width = 5 * ui_scale;
+        const int glyph_height = 7 * ui_scale;
+        const int advance = 6 * ui_scale;
+        const int padding = 2 * ui_scale;
+        const int text_width =
+            static_cast<int>(text.size()) * advance - ui_scale;
+        const int box_width = text_width + padding * 2;
+        const int box_height = glyph_height + padding * 2;
+        const int box_x = std::max(0, (src_width - box_width) / 2);
+        const int box_y = 4 * ui_scale;
+
+        const auto [background, foreground] =
+            notification_palette_indices();
+
+        // Dark backing rectangle keeps the label readable regardless of the
+        // current road/sky colours underneath it.
+        for (int y = 0; y < box_height; ++y)
+        {
+            const int py = box_y + y;
+            if (py < 0 || py >= src_height)
+                continue;
+
+            for (int x = 0; x < box_width; ++x)
+            {
+                const int px = box_x + x;
+                if (px >= 0 && px < src_width)
+                    pixels[py * src_width + px] = background;
+            }
+        }
+
+        int cursor_x = box_x + padding;
+        const int text_y = box_y + padding;
+
+        for (char c : text)
+        {
+            const auto rows = glyph(c);
+
+            for (int row = 0; row < 7; ++row)
+            {
+                for (int col = 0; col < 5; ++col)
+                {
+                    if ((rows[row] & (1u << (4 - col))) == 0)
+                        continue;
+
+                    const int x0 = cursor_x + col * ui_scale;
+                    const int y0 = text_y + row * ui_scale;
+
+                    for (int sy = 0; sy < ui_scale; ++sy)
+                    {
+                        const int py = y0 + sy;
+                        if (py < 0 || py >= src_height)
+                            continue;
+
+                        for (int sx = 0; sx < ui_scale; ++sx)
+                        {
+                            const int px = x0 + sx;
+                            if (px >= 0 && px < src_width)
+                                pixels[py * src_width + px] = foreground;
+                        }
+                    }
+                }
+            }
+
+            cursor_x += advance;
+        }
     }
 
     void apply_scanlines_if_enabled()
@@ -430,6 +591,8 @@ private:
     bool scaler_path = false;
     bool f6_was_down = false;
     int active_mode = pixel_scaler::OFF;
+    int notification_mode = pixel_scaler::OFF;
+    Uint32 notification_until_ms = 0;
     int factor = 1;
     int scale = 1;
     int scaled_width = 0;
