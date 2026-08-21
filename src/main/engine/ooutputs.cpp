@@ -34,6 +34,7 @@ namespace
     bool direct_view2_old = false;
     bool direct_view3_old = false;
     int music_mode_synced = -1;
+    bool music_color_initialized = false;
 
     void handle_direct_view_buttons(bool controls_active)
     {
@@ -136,45 +137,65 @@ namespace
         otraffic.set_custom_max_traffic(traffic);
     }
 
+    void sync_music_car_color(bool music_selection)
+    {
+        if (!music_selection)
+        {
+            music_color_initialized = false;
+            return;
+        }
+
+        if (!music_color_initialized)
+        {
+            // Every new arcade Music Select starts from the canonical red
+            // Ferrari. Shifter changes are deliberately per-run choices.
+            config.engine.car_pal = 0;
+            music_color_initialized = true;
+        }
+    }
+
     void draw_music_color_preview(bool music_selection)
     {
         if (!music_selection || outrun.game_state != GS_MUSIC)
             return;
 
-        // Replace the temporary COLOR/swatch row drawn by OMusic with a proper
-        // arcade-style instruction. Reuse the exact font and palette from the
-        // original SELECT MUSIC BY STEERING ROM record.
-        uint32_t select_music_style = TEXT2_SELECT_MUSIC + 2;
-        uint16_t prompt_pal = roms.rom0.read8(&select_music_style);
-        prompt_pal = 0x80A0 | ((prompt_pal << 9) | ((prompt_pal >> 7) & 1));
-
-        const char* text = "CHANGE CAR COLOR WITH GEAR";
-        const int length = 26;
-        const int x_start = 20 - (length / 2);
-
+        // OMusic used an experimental centre-screen COLOR row while this
+        // feature was being prototyped. Clear both affected rows so the final
+        // presentation leaves the centre of the original Music Select clean.
         for (int x = 0; x < 40; x++)
         {
             video.write_text16(ohud.translate(x, 14), 0);
-            video.write_text16(ohud.translate(x, 14) + 0x80, 0);
+            video.write_text16(ohud.translate(x, 15), 0);
         }
 
-        uint32_t dst_addr = ohud.translate(x_start, 14);
-        for (int i = 0; i < length; i++)
-        {
-            uint16_t c = static_cast<uint8_t>(text[i]);
+        // Put the instruction on exactly the same row and in exactly the same
+        // single-row font/palette as the original FREE PLAY text. Right-align
+        // it so FREE PLAY remains untouched on the left side of the screen.
+        uint32_t freeplay_record = TEXT1_FREEPLAY;
+        const uint32_t freeplay_dst = roms.rom0.read32(&freeplay_record);
+        roms.rom0.read16(&freeplay_record); // tile count
+        const uint16_t freeplay_data = roms.rom0.read16(&freeplay_record);
+        const uint16_t freeplay_pal = (freeplay_data >> 8) & 0xFF;
 
-            if (c == ' ')
-            {
-                video.write_text16(&dst_addr, 0);
-                video.write_text16(0x7E + dst_addr, 0);
-            }
-            else
-            {
-                c = ((c - 'A') * 2) + prompt_pal;
-                video.write_text16(&dst_addr, c);
-                video.write_text16(0x7E + dst_addr, c + 1);
-            }
-        }
+        const uint32_t freeplay_relative =
+            (freeplay_dst - 0x110030) & 0x0FFF;
+        const uint16_t freeplay_y =
+            static_cast<uint16_t>(freeplay_relative / 0x80);
+
+        const char* text = "CHANGE CAR COLOR WITH GEAR";
+        const int length = 26;
+        const int x_start = 40 - length;
+
+        // Only clear the right-hand portion. The original FREE PLAY text is
+        // redrawn by OHud on the left each frame and must remain untouched.
+        for (int x = x_start; x < 40; x++)
+            video.write_text16(ohud.translate(x, freeplay_y), 0);
+
+        ohud.blit_text_new(
+            static_cast<uint16_t>(x_start),
+            freeplay_y,
+            text,
+            freeplay_pal);
 
         // Reuse the small Ferrari that normally drives across the course map.
         // The map entry supplies its native size/anchor properties, while the
@@ -190,8 +211,11 @@ namespace
         preview->draw_props = roms.rom0p->read8(map_ferrari_entry + 1);
         preview->shadow = roms.rom0p->read8(map_ferrari_entry + 2);
         preview->zoom = roms.rom0p->read8(map_ferrari_entry + 3);
-        preview->x = 0;
-        preview->y = 154;
+
+        // Mirror the FREE PLAY placement: preview the selected car just above
+        // the new right-hand instruction rather than in the middle of screen.
+        preview->x = 112;
+        preview->y = static_cast<int16_t>((freeplay_y * 8) - 12);
         preview->priority = 0x1FF;
         preview->road_priority = 0x1FF;
         preview->addr = outrun.adr.sprite_minicar_right;
@@ -222,8 +246,9 @@ namespace
 void OOutputs::writeDigitalToConsole()
 {
     const bool music_selection =
-        outrun.game_state == GS_INIT_MUSIC ||
-        outrun.game_state == GS_MUSIC;
+        cannonball::state == cannonball::STATE_GAME &&
+        (outrun.game_state == GS_INIT_MUSIC ||
+         outrun.game_state == GS_MUSIC);
 
     // Keep the visible Music Select choice and the underlying mode in sync,
     // including the original automatic Music Select timeout behaviour.
@@ -233,6 +258,10 @@ void OOutputs::writeDigitalToConsole()
     // This is intentionally independent of whether external outputs are enabled;
     // this method is already called every engine tick by main.cpp.
     sync_continuous_traffic_to_difficulty();
+
+    // New runs always begin from the red Ferrari, then allow a temporary colour
+    // choice with the shifter for that run.
+    sync_music_car_color(music_selection);
 
     // Draw the car-colour instruction and queue the small map Ferrari preview.
     draw_music_color_preview(music_selection);
