@@ -20,6 +20,7 @@
 #include "engine/omusic.hpp"
 #include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
+#include "engine/otraffic.hpp"
 #include "sdl2/input.hpp"
 
 namespace
@@ -122,8 +123,14 @@ namespace
         else if (stage_group > 4)
             stage_group = 4;
 
-        outrun.custom_traffic =
+        const uint8_t traffic =
             ORIGINAL_TRAFFIC[(difficulty * 5) + stage_group];
+
+        // Keep both values synchronized. OTraffic::set_max_traffic() samples
+        // custom_traffic at checkpoints; updating max_traffic too ensures the
+        // new stage-group value takes effect immediately on that same frame.
+        outrun.custom_traffic = traffic;
+        otraffic.set_custom_max_traffic(traffic);
     }
 }
 
