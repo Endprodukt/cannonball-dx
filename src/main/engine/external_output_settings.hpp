@@ -16,6 +16,7 @@
 #include "engine/otraffic.hpp"
 #include "frontend/config.hpp"
 #include "frontend/xml_parser.h"
+#include "sdl2/input.hpp"
 
 // Optional external-output transport settings. SmartyPi remains independent.
 struct ExternalOutputSettings
@@ -129,12 +130,16 @@ public:
     }
 
 private:
-    static const uint32_t VIEW_TIME = 120; // 4 seconds at the 30 Hz game tick.
-    static const uint32_t TOTAL_TIME = VIEW_TIME * 3;
+    static constexpr uint32_t VIEW_TIME = 120; // 4 seconds at the 30 Hz game tick.
+    static constexpr uint32_t TOTAL_TIME = VIEW_TIME * 3;
 
     bool showcase_pending = false;
     bool showcase_active = false;
     bool manual_override = false;
+    bool view1_old = false;
+    bool view2_old = false;
+    bool view3_old = false;
+    bool viewpoint_old = false;
     int previous_game_state = -1;
     int showcase_phase = -1;
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
@@ -197,7 +202,7 @@ private:
         if (view == ORoad::VIEW_ELEVATED)
             view_name = "ELEVATED VIEW";
         else if (view == ORoad::VIEW_INCAR)
-            view_name = "IN-CAR VIEW";
+            view_name = "IN CAR VIEW";
 
         // Same yellow/black double-row style as the enhanced Music Select song
         // title. The selected view deliberately blinks like an arcade prompt.
@@ -205,6 +210,26 @@ private:
             draw_double_row_centered(7, view_name, 0x8AA0);
         else
             clear_double_row(7);
+    }
+
+    bool manual_view_pressed()
+    {
+        const bool view1 = input.is_pressed(Input::VIEW1);
+        const bool view2 = input.is_pressed(Input::VIEW2);
+        const bool view3 = input.is_pressed(Input::VIEW3);
+        const bool viewpoint = input.is_pressed(Input::VIEWPOINT);
+
+        const bool pressed =
+            (view1 && !view1_old) ||
+            (view2 && !view2_old) ||
+            (view3 && !view3_old) ||
+            (viewpoint && !viewpoint_old);
+
+        view1_old = view1;
+        view2_old = view2;
+        view3_old = view3;
+        viewpoint_old = viewpoint;
+        return pressed;
     }
 
     void hide_non_palm_opening_scenery()
@@ -339,22 +364,29 @@ private:
                         showcase_phase = phase;
                         reset_showcase_segment(VIEWS[phase]);
                     }
-                    else if (oroad.get_view_mode() != phase_view)
+                    else
                     {
-                        // OOutputs already processed the cabinet/player VR
-                        // button before this wrapper runs, so a mismatch here is
-                        // a real manual override. Keep it until the next phase.
-                        manual_override = true;
+                        if (manual_view_pressed())
+                            manual_override = true;
+
+                        // The existing Enhanced Attract view timer still ticks
+                        // underneath us. Hold the showcase's intended automatic
+                        // view against that timer, but never fight a real player
+                        // VR-button override inside the current 4-second phase.
+                        if (!manual_override && oroad.get_view_mode() != phase_view)
+                            oroad.set_view_mode(phase_view, true);
                     }
 
-                    // Keep the demonstration pinned to full speed and centreline
-                    // regardless of normal AI braking/collision decisions.
+                    // Keep the demonstration pinned to full speed, normal road
+                    // width and centreline regardless of AI/collision decisions.
                     oinitengine.car_increment = 0xFA << 16;
                     oferrari.car_inc_old = 0xFA;
                     oinitengine.car_x_pos = 0;
                     oinputs.acc_adjust = 0xFF;
                     oinputs.brake_adjust = 0;
                     oinputs.steering_adjust = 0;
+                    oroad.road_width = 0xD4 << 16;
+                    oroad.road_width_bak = 0xD4;
                     otraffic.disable_traffic();
                     otraffic.set_custom_max_traffic(0);
                     otraffic.ai_traffic = 0;
@@ -362,6 +394,12 @@ private:
                     draw_showcase_text();
                 }
             }
+        }
+        else
+        {
+            // Keep edge trackers current outside the showcase so holding a VR
+            // button across the transition cannot look like a fresh press.
+            manual_view_pressed();
         }
 
         previous_game_state = outrun.game_state;
