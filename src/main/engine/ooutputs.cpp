@@ -29,6 +29,7 @@ namespace
     bool direct_view1_old = false;
     bool direct_view2_old = false;
     bool direct_view3_old = false;
+    int music_mode_synced = -1;
 
     void handle_direct_view_buttons(bool controls_active)
     {
@@ -49,6 +50,48 @@ namespace
         direct_view1_old = view1;
         direct_view2_old = view2;
         direct_view3_old = view3;
+    }
+
+    void sync_music_selection_mode(bool music_selection)
+    {
+        if (!music_selection)
+        {
+            music_mode_synced = -1;
+            return;
+        }
+
+        const int selected = omusic.get_game_mode();
+
+        // A newly selected Time Trial still needs the course map. Keep the
+        // music-selection timer alive so the normal timeout cannot start a
+        // stale/unselected Time Trial track. A legacy Time Trial has already
+        // chosen its course, so its normal timer behaviour is preserved.
+        if (selected == Outrun::MODE_TTRIAL &&
+            outrun.cannonball_mode != Outrun::MODE_TTRIAL)
+        {
+            ostats.time_counter = config.sound.music_timer;
+            ostats.frame_counter = ostats.frame_reset;
+            music_mode_synced = selected;
+            return;
+        }
+
+        if (selected != Outrun::MODE_ORIGINAL &&
+            selected != Outrun::MODE_CONT)
+        {
+            music_mode_synced = selected;
+            return;
+        }
+
+        // Keep the underlying engine mode aligned with what the player sees.
+        // This also makes the original Music Select auto-timeout launch the
+        // selected Original/Continuous mode rather than whichever mode booted.
+        outrun.cannonball_mode = selected;
+
+        if (selected != music_mode_synced)
+        {
+            config.load_scores(selected == Outrun::MODE_ORIGINAL);
+            music_mode_synced = selected;
+        }
     }
 
     void sync_continuous_traffic_to_difficulty()
@@ -86,6 +129,14 @@ namespace
 
 void OOutputs::writeDigitalToConsole()
 {
+    const bool music_selection =
+        outrun.game_state == GS_INIT_MUSIC ||
+        outrun.game_state == GS_MUSIC;
+
+    // Keep the visible Music Select choice and the underlying mode in sync,
+    // including the original automatic Music Select timeout behaviour.
+    sync_music_selection_mode(music_selection);
+
     // Keep Continuous traffic tied to the normal OutRun difficulty setting.
     // This is intentionally independent of whether external outputs are enabled;
     // this method is already called every engine tick by main.cpp.
@@ -120,10 +171,6 @@ void OOutputs::writeDigitalToConsole()
 
     const bool press_start_available =
         config.engine.freeplay || ostats.credits > 0;
-
-    const bool music_selection =
-        outrun.game_state == GS_INIT_MUSIC ||
-        outrun.game_state == GS_MUSIC;
 
     // Blink during attract PRESS START and throughout music selection. The
     // attract phase uses the same BIT_4 timing as OHud::draw_insert_coin().
