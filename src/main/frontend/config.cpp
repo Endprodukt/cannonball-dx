@@ -451,6 +451,7 @@ void Config::load()
         video.hue = 0;
 
         sound.playback_device = -1;
+        controls.haptic = 0;
 
         // Mark the standard Xbox/SDL profile even if an old resource config
         // was loaded. It will be materialized to the physical pad after SDL
