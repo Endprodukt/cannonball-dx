@@ -61,7 +61,7 @@ protected:
     // Counter for showing messages
     int32_t message_counter;
 
-    // Number of seconds to show messages for
+    // Number of seconds to show message for
     const static int32_t MESSAGE_TIME = 5;
 
     // Message text
