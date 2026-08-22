@@ -16,6 +16,44 @@
 
 #include "globals.hpp"
 
+// Some Windows SDK / platform headers define short, generic macros such as
+// END_PATH. LayOut historically uses similarly named constants for offsets in
+// its binary header. Preprocessor macros are expanded even after `LayOut::`, so
+// clear every potentially colliding field name before declaring the struct.
+#ifdef HEADER
+#undef HEADER
+#endif
+#ifdef PATH_OFFSET
+#undef PATH_OFFSET
+#endif
+#ifdef LEVELS
+#undef LEVELS
+#endif
+#ifdef END_PATH
+#undef END_PATH
+#endif
+#ifdef END_LEVELS
+#undef END_LEVELS
+#endif
+#ifdef SPLIT_PATH
+#undef SPLIT_PATH
+#endif
+#ifdef SPLIT_LEVEL
+#undef SPLIT_LEVEL
+#endif
+#ifdef PAL_SKY
+#undef PAL_SKY
+#endif
+#ifdef PAL_GND
+#undef PAL_GND
+#endif
+#ifdef SPRITE_MAPS
+#undef SPRITE_MAPS
+#endif
+#ifdef HEIGHT_MAPS
+#undef HEIGHT_MAPS
+#endif
+
 // Road Generator Palette Representation
 struct RoadPalette
 {
@@ -46,8 +84,8 @@ struct LayOut
     static const uint32_t EXPECTED_VERSION = 1;
 
     static const uint32_t HEADER      = 0;
-    static const uint32_t PATH        = HEADER      + sizeof(uint32_t) + sizeof(uint8_t);
-    static const uint32_t LEVELS      = PATH        + sizeof(uint32_t);
+    static const uint32_t PATH_OFFSET = HEADER      + sizeof(uint32_t) + sizeof(uint8_t);
+    static const uint32_t LEVELS      = PATH_OFFSET + sizeof(uint32_t);
     static const uint32_t END_PATH    = LEVELS      + (STAGES * sizeof(uint32_t));
     static const uint32_t END_LEVELS  = END_PATH    + sizeof(uint32_t);
     static const uint32_t SPLIT_PATH  = END_LEVELS  + (5 * sizeof(uint32_t));

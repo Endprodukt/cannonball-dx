@@ -203,7 +203,7 @@ void TrackLoader::init_layout_tracks(bool jap)
         setup_level(&levels[i], layout, STAGE_ADR);
 
         // CPU 1 Data
-        const uint32_t PATH_ADR = layout->read32(LayOut::PATH);
+        const uint32_t PATH_ADR = layout->read32(LayOut::PATH_OFFSET);
         levels[i].path = &layout->rom[ PATH_ADR + ((ROAD_END_CPU1 * sizeof(uint32_t)) * i) ];
     }
 

@@ -180,6 +180,13 @@ class OOutputs;
 class Outrun
 {
 public:
+    struct AttractRuntimeState
+    {
+        uint8_t view;
+        int16_t counter;
+        uint32_t car_increment_backup;
+    };
+
     OOutputs* outputs;
 
     bool freeze_timer;
@@ -220,6 +227,22 @@ public:
 	void vint();
     void init_best_outrunners();
     void select_course(const bool jap, const bool prototype);
+
+    AttractRuntimeState capture_attract_runtime_state() const
+    {
+        AttractRuntimeState state;
+        state.view = attract_view;
+        state.counter = attract_counter;
+        state.car_increment_backup = car_inc_bak;
+        return state;
+    }
+
+    void restore_attract_runtime_state(const AttractRuntimeState& state)
+    {
+        attract_view = state.view;
+        attract_counter = state.counter;
+        car_inc_bak = state.car_increment_backup;
+    }
 
     // JJP - expose skidding state
     bool SkiddingOnRoad();
