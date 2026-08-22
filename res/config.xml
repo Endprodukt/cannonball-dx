@@ -144,8 +144,8 @@
                  A good Logitech Racing wheel should not need this -->
 			<dead>0</dead>
 		</wheel>
-		<!-- Force Feedback / Haptic Support -->
-		<haptic enabled="1">
+		<!-- Force Feedback / Haptic Support: disabled by default, values below are retained for when enabled. -->
+		<haptic enabled="0">
 			<strength>50</strength>
 			<centering_strength>30</centering_strength>
 		</haptic>
