@@ -1,4 +1,6 @@
-CannonBall-SE can be compiled under Windows, and the included CMake files automate most of this.
+CannonBall DX can be compiled under Windows, and the included CMake files automate most of this.
+
+CannonBall DX is based on CannonBall-SE by James Pearce, which itself is based on Chris White's CannonBall.
 
 If you're unfamiliar with compiling on Windows, this guide should get you started.
 
@@ -6,7 +8,7 @@ Process:
 
 1. Install Visual Studio 26 (VS), being sure to select "Desktop Development with C++" under "Workloads" in the installer.
 
-2. Open VS, select "Clone a Respository", and enter "https://github.com/J1mbo/CannonBall-SE". Note where this will be
+2. Open VS, select "Clone a Repository", and enter "https://github.com/Endprodukt/cannonball-dx". Note where this will be
    saved to, shown in the 'Path' box (defaults to C:\Users\[username]\Source\Repos). Click Clone, and VS will download the
    source code directly from GitHub.
 
@@ -22,16 +24,16 @@ Process:
    
    The process is not finished until you see in the Output window:
 
-   1> CMake generation finsihed.
+   1> CMake generation finished.
 
 4. While CMake is running, find your ROMs and copy them into the 'roms' folder under the project path from step 2. e.g.:
 
-   C:\Users\[username]\Source\Repos\CannonBall-SE\roms\
+   C:\Users\[username]\Source\Repos\cannonball-dx\roms\
    
 5. Once CMake is finished, ensure "windows-release" is selected in the drop-down next to "Local Machine", then click on the
-   green play button just to it's right to compile.
+   green play button just to its right to compile.
 
 6. Compiling doesn't take long and after that the game should start.
 
-To compile a debug build, change the centre drop down to "windows-debug" and the drop down to it's right to:
-"cannonball-se.exe (Debug\cannonball-se.exe). Then click the green play button to (re)compile.
+To compile a debug build, change the centre drop down to "windows-debug" and the drop down to its right to:
+"cannonball-dx.exe (Debug\cannonball-dx.exe)". Then click the green play button to (re)compile.
