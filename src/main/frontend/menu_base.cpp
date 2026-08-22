@@ -120,7 +120,7 @@ void Menu::populate()
     menu_musictest.push_back(ENTRY_CALLBACK_RATE);
     menu_musictest.push_back(ENTRY_BACK);
 
-    menu_about.push_back(std::string("CANNONBALL-SE ") + CANNONBALL_SE_VERSION);
+    menu_about.push_back(std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION);
     menu_about.push_back("");
     menu_about.push_back("CANNONBALL IS FREE AND MAY NOT BE SOLD");
     menu_about.push_back("COPYRIGHT 2012-2024 CHRIS WHITE");
@@ -639,7 +639,7 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_LAPS))
             {
-                if (++config.ttrial.laps > TTrial::MAX_LAPS)
+                if (++config.ttrial.laps > TTrial::MAX_TRAFFIC)
                     config.ttrial.laps = 1;
             }
             else if (SELECTED(ENTRY_TRAFFIC))
@@ -937,8 +937,7 @@ void Menu::tick_menu()
 
         // JJP - CRT shader settings (noise/desaturation/brightness boost)
         else if (menu_selected == &menu_crt_shader2) {
-            if (SELECTED(ENTRY_NOISE))
-            {
+            if (SELECTED(ENTRY_NOISE)) {
                 if (config.video.shader_mode != video_settings_t::SHADER_FULL)
                     display_message("ENABLE FULL SHADER FIRST");
                 else {
@@ -946,8 +945,7 @@ void Menu::tick_menu()
                         config.video.noise = 0;
                 }
             }
-            else if (SELECTED(ENTRY_DESATURATE))
-            {
+            else if (SELECTED(ENTRY_DESATURATE)) {
                 if (config.video.shader_mode != video_settings_t::SHADER_FULL)
                     display_message("ENABLE FULL SHADER FIRST");
                 else {
@@ -955,8 +953,7 @@ void Menu::tick_menu()
                         config.video.desaturate = 0;
                 }
             }
-            else if (SELECTED(ENTRY_DESATURATE_EDGES))
-            {
+            else if (SELECTED(ENTRY_DESATURATE_EDGES)) {
                 if (config.video.shader_mode != video_settings_t::SHADER_FULL)
                     display_message("ENABLE FULL SHADER FIRST");
                 else {
@@ -964,8 +961,7 @@ void Menu::tick_menu()
                         config.video.desaturate_edges = 0;
                 }
             }
-            else if (SELECTED(ENTRY_BRIGHTNESS_BOOST))
-            {
+            else if (SELECTED(ENTRY_BRIGHTNESS_BOOST)) {
                 if (config.video.shader_mode == video_settings_t::SHADER_OFF)
                     display_message("ENABLE SHADER FIRST");
                 else {
@@ -1286,14 +1282,11 @@ void Menu::tick_menu()
             if (SELECTED(ENTRY_MUSIC1))
             {
                 osoundint.queue_sound(sound::FM_RESET);
-
-                // Last Wave
                 if (music_track == config.sound.music.size())
                 {
                     cannonball::audio.clear_wav();
                     osoundint.queue_sound(sound::MUSIC_LASTWAVE);
                 }
-                // Everything Else
                 else
                     omusic.play_music(music_track);
             }
@@ -1303,14 +1296,11 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_WAVEVOLUME))
             {
-                // gain applied to .wav file playback, 1-8 in 2dB steps where 5=0dB (as recorded)
                 if (++config.sound.wave_volume > 8) config.sound.wave_volume = 1;
             }
             else if (SELECTED(ENTRY_CALLBACK_RATE))
             {
-                // SDL Audio callback rate. 0=8ms (default), 1=16ms (which can provide smoother audio under WSL and on Pi-1)
                 if (++config.sound.callback_rate > 1) config.sound.callback_rate = 0;
-                // changing this setting requires re-initialising the audio subsystem
                 cannonball::audio.stop_audio();
                 cannonball::audio.init();
             }
@@ -1331,10 +1321,8 @@ void Menu::tick_menu()
 
 bool Menu::select_pressed()
 {
-    // On a real cabinet, use START button or Accelerator to select
     if (config.smartypi.enabled)
         return input.has_pressed(Input::START) || oinputs.is_analog_select();
-    // On a Joystick, use START, Digital Accelerate or Gear (as it's probably mapped to Button A)
     else
         return input.has_pressed(Input::START) || input.has_pressed(Input::ACCEL) || input.has_pressed(Input::GEAR1);
 }
@@ -1363,33 +1351,25 @@ void Menu::menu_back()
     is_text_menu = (menu_selected == &menu_about);
 }
 
-
-// ------------------------------------------------------------------------------------------------
-// Refresh menu options with latest config data
-// ------------------------------------------------------------------------------------------------
 void Menu::refresh_menu()
 {
     int16_t cursor_backup = cursor;
-    std::string s; // JJP
+    std::string s;
 
     for (cursor = 0; cursor < (int) menu_selected->size(); cursor++)
     {
-        // Get option that was selected
         const char* OPTION = menu_selected->at(cursor).c_str();
 
         if (menu_selected == &menu_settings)
         {
-            // JJP - added master break key here
             if (SELECTED(ENTRY_MASTER_BREAK))
                 set_menu_text(ENTRY_MASTER_BREAK, config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10");
         }
-        else if (menu_selected == &menu_about)  // JJP - include machine stats in about menu
+        else if (menu_selected == &menu_about)
         {
             auto message = "     " + Utils::to_string(config.stats.playcount) + " PLAYS ,  " +
                            Utils::to_string((config.stats.runtime / 60)) + " MACHINE HOURS";
             display_message(message);
-            //if (SELECTED(ENTRY_TOTAL_PLAYS))        set_menu_text(ENTRY_TOTAL_PLAYS, Utils::to_string(config.stats.playcount));
-            //else if (SELECTED(ENTRY_RUN_TIME))      set_menu_text(ENTRY_RUN_TIME, Utils::to_string((config.stats.runtime / 60)));
         }
         else if (menu_selected == &menu_timetrial)
         {
@@ -1416,11 +1396,8 @@ void Menu::refresh_menu()
             else if (SELECTED(ENTRY_PREVIEWSND))    set_menu_text(ENTRY_PREVIEWSND, config.sound.preview ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FIXSAMPLES))    set_menu_text(ENTRY_FIXSAMPLES, config.sound.fix_samples ? "ON" : "OFF");
         }
-        // JJP CRT Emulation related menus
-        // Note - no entry here for menu_crt_shader1 as it only lines to other menus
         else if (menu_selected == &menu_crt_shader1)
         {
-            // Screen feedback for selected options
             if (SELECTED(ENTRY_CRT_SHADER_MODE))
             {
                 if (config.video.shader_mode == video_settings_t::SHADER_OFF)
@@ -1523,10 +1500,9 @@ void Menu::refresh_menu()
         }
         else if (menu_selected == &menu_blargg_filter)
         {
-            // Screen feedback for selected options for the blargg filtering
             if (SELECTED(ENTRY_BLARGG))
             {
-                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)        s = "OFF";
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)         s = "OFF";
                 else if (config.video.blargg == video_settings_t::BLARGG_COMPOSITE) s = "COMPOSITE";
                 else if (config.video.blargg == video_settings_t::BLARGG_SVIDEO)    s = "S-VIDEO";
                 else if (config.video.blargg == video_settings_t::BLARGG_RGB)       s = "ARCADE RGB";
@@ -1567,63 +1543,33 @@ void Menu::refresh_menu()
                     set_menu_text(ENTRY_HUE, "0.0" + Utils::to_string(config.video.hue));
                 else if (config.video.hue > -10)
                     set_menu_text(ENTRY_HUE, "-0.0" + Utils::to_string((config.video.hue * -1)));
-                else // (config.video.hue > -20)
+                else
                     set_menu_text(ENTRY_HUE, "-0.1" + Utils::to_string((config.video.hue * -1) - 10));
             }
         }
-        // JJP end of insert
         else if (menu_selected == &menu_controls)
         {
             if (SELECTED(ENTRY_GEAR))
-                set_menu_text(
-                    ENTRY_GEAR,
-                    GEAR_LABELS[config.controls.gear]);
-
+                set_menu_text(ENTRY_GEAR, GEAR_LABELS[config.controls.gear]);
             else if (SELECTED(ENTRY_ANALOG))
-                set_menu_text(
-                    ENTRY_ANALOG,
-                    ANALOG_LABELS[config.controls.analog]);
-
+                set_menu_text(ENTRY_ANALOG, ANALOG_LABELS[config.controls.analog]);
             else if (SELECTED(ENTRY_INVERT_ACCEL))
-                set_menu_text(
-                    ENTRY_INVERT_ACCEL,
-                    config.controls.invert[1] ? "ON" : "OFF");
-
+                set_menu_text(ENTRY_INVERT_ACCEL, config.controls.invert[1] ? "ON" : "OFF");
             else if (SELECTED(ENTRY_INVERT_BRAKE))
-                set_menu_text(
-                    ENTRY_INVERT_BRAKE,
-                    config.controls.invert[2] ? "ON" : "OFF");
-
+                set_menu_text(ENTRY_INVERT_BRAKE, config.controls.invert[2] ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FFB))
-                set_menu_text(
-                    ENTRY_FFB,
-                    config.controls.haptic ? "ON" : "OFF");
-
+                set_menu_text(ENTRY_FFB, config.controls.haptic ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FFB_STRENGTH))
-                set_menu_text(
-                    ENTRY_FFB_STRENGTH,
-                    Utils::to_string(config.controls.ffb_strength) + "%");
-
+                set_menu_text(ENTRY_FFB_STRENGTH, Utils::to_string(config.controls.ffb_strength) + "%");
             else if (SELECTED(ENTRY_CENTERING_STRENGTH))
-                set_menu_text(
-                    ENTRY_CENTERING_STRENGTH,
-                    Utils::to_string(config.controls.centering_strength) + "%");
-
+                set_menu_text(ENTRY_CENTERING_STRENGTH, Utils::to_string(config.controls.centering_strength) + "%");
             else if (SELECTED(ENTRY_RUMBLE))
-                set_menu_text(
-                    ENTRY_RUMBLE,
-                    RUMBLE_LABELS[(int)(config.controls.rumble / 0.25f)]);
-
+                set_menu_text(ENTRY_RUMBLE, RUMBLE_LABELS[(int)(config.controls.rumble / 0.25f)]);
             else if (SELECTED(ENTRY_DSTEER))
-                set_menu_text(
-                    ENTRY_DSTEER,
-                    Utils::to_string(config.controls.steer_speed));
-
+                set_menu_text(ENTRY_DSTEER, Utils::to_string(config.controls.steer_speed));
             else if (SELECTED(ENTRY_DPEDAL))
-                set_menu_text(
-                    ENTRY_DPEDAL,
-                    Utils::to_string(config.controls.pedal_speed));
-                    }
+                set_menu_text(ENTRY_DPEDAL, Utils::to_string(config.controls.pedal_speed));
+        }
         else if (menu_selected == &menu_engine || menu_selected == &menu_s_dips)
         {
             if (SELECTED(ENTRY_TRACKS))             set_menu_text(ENTRY_TRACKS, config.engine.jap ? "JAPAN" : "WORLD");
@@ -1666,14 +1612,9 @@ void Menu::refresh_menu()
         {
             if (SELECTED(ENTRY_MUSIC2))             set_menu_text(ENTRY_MUSIC2, music_track >= config.sound.music.size() ? ENTRY_MUSIC3 : config.sound.music.at(music_track).title);
             else if (SELECTED(ENTRY_WAVEVOLUME)) {
-                // gain applied to .wav file playback, 1-8 in 2dB steps where 5=0dB (as recorded)
-                // present dB values in the UI
-                set_menu_text(ENTRY_WAVEVOLUME,
-                    Utils::to_string(config.sound.wave_volume*2-10) + "dB"
-                );
+                set_menu_text(ENTRY_WAVEVOLUME, Utils::to_string(config.sound.wave_volume*2-10) + "dB");
             }
             else if (SELECTED(ENTRY_CALLBACK_RATE)) {
-                // Allows the user to switch being 8ms (default) and 16ms callback rate.
                 set_menu_text(ENTRY_CALLBACK_RATE, (config.sound.callback_rate==0 ? "8ms" : "16ms"));
             }
         }
@@ -1681,7 +1622,6 @@ void Menu::refresh_menu()
     cursor = cursor_backup;
 }
 
-// Append Menu Text For A Particular Menu Entry
 void Menu::set_menu_text(std::string s1, std::string s2)
 {
     s1.append(s2);
@@ -1691,7 +1631,7 @@ void Menu::set_menu_text(std::string s1, std::string s2)
 
 void Menu::redefine_keyboard()
 {
-    if (redef_state == 7 && config.controls.gear != config.controls.GEAR_SEPARATE) // Skip redefine of second gear press
+    if (redef_state == 7 && config.controls.gear != config.controls.GEAR_SEPARATE)
         redef_state++;
 
     switch (redef_state)
@@ -1733,14 +1673,6 @@ void Menu::redefine_keyboard()
 
 void Menu::redefine_joystick()
 {
-    // ---------------------------------------------------------
-    // Release handling
-    //
-    // We only wait for the control that was JUST captured.
-    // Other buttons that were already held (e.g. H-shifter)
-    // do not block configuration.
-    // ---------------------------------------------------------
-
     enum WaitType
     {
         WAIT_NONE,
@@ -1750,76 +1682,39 @@ void Menu::redefine_joystick()
     };
 
     static WaitType wait_type = WAIT_NONE;
-
     static SDL_Keycode wait_key = SDLK_UNKNOWN;
-
     static SDL_JoystickID wait_device = -1;
     static int wait_button = -1;
     static int wait_hat = -1;
     static int wait_hat_value = SDL_HAT_CENTERED;
-
     static int next_state = 0;
-
-
-    // ---------------------------------------------------------
-    // Wait until the control we just captured is released
-    // ---------------------------------------------------------
 
     if (wait_type != WAIT_NONE)
     {
         draw_text("RELEASE CONTROL");
-
         bool released = false;
 
-        // Keyboard
         if (wait_type == WAIT_KEYBOARD)
         {
             const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
-
-            SDL_Scancode scancode =
-                SDL_GetScancodeFromKey(wait_key);
-
-            if (scancode == SDL_SCANCODE_UNKNOWN ||
-                keyboard_state[scancode] == 0)
-            {
+            SDL_Scancode scancode = SDL_GetScancodeFromKey(wait_key);
+            if (scancode == SDL_SCANCODE_UNKNOWN || keyboard_state[scancode] == 0)
                 released = true;
-            }
         }
-
-        // Wheel / Gamepad / Joystick / Shifter button
         else if (wait_type == WAIT_BUTTON)
         {
-            const InputDevice* device =
-                input.find_device(wait_device);
-
-            // Device disappeared or button was released
-            if (device == nullptr ||
-                SDL_JoystickGetButton(
-                    device->joystick,
-                    wait_button) == 0)
-            {
+            const InputDevice* device = input.find_device(wait_device);
+            if (device == nullptr || SDL_JoystickGetButton(device->joystick, wait_button) == 0)
                 released = true;
-            }
         }
         else if (wait_type == WAIT_HAT)
         {
-            const InputDevice* device =
-                input.find_device(wait_device);
-
-            if (device == nullptr ||
-                device->joystick == nullptr ||
-                wait_hat < 0 ||
-                wait_hat >= device->hats)
-            {
+            const InputDevice* device = input.find_device(wait_device);
+            if (device == nullptr || device->joystick == nullptr || wait_hat < 0 || wait_hat >= device->hats)
                 released = true;
-            }
             else
             {
-                const Uint8 value =
-                    SDL_JoystickGetHat(
-                        device->joystick,
-                        wait_hat);
-
+                const Uint8 value = SDL_JoystickGetHat(device->joystick, wait_hat);
                 if ((value & wait_hat_value) == 0)
                     released = true;
             }
@@ -1828,395 +1723,163 @@ void Menu::redefine_joystick()
         if (released)
         {
             wait_type = WAIT_NONE;
-
             wait_key = SDLK_UNKNOWN;
-
             wait_device = -1;
             wait_button = -1;
             wait_hat = -1;
             wait_hat_value = SDL_HAT_CENTERED;
-
             input.joy_hat = -1;
             input.joy_hat_value = SDL_HAT_CENTERED;
             input.joy_hat_device = -1;
-            // Clear old captured events.
-            // Anything that was already held stays ignored.
             input.key_press = -1;
             input.joy_button = -1;
             input.joy_button_device = -1;
-
             input.reset_axis_config();
-
             redef_state = next_state;
         }
-
         return;
     }
-
-
-    // ---------------------------------------------------------
-    // State 0:
-    // Steering axis
-    // ---------------------------------------------------------
 
     if (redef_state == 0)
     {
         draw_text("MOVE STEERING WHEEL - ENTER TO SKIP");
-
         SDL_JoystickID device = -1;
-
-        int axis =
-            input.get_axis_config(&device);
+        int axis = input.get_axis_config(&device);
 
         if (axis != -1)
         {
             input.set_axis_binding(0, axis, device);
             input.reset_axis_config();
-
             input.key_press = -1;
             input.joy_button = -1;
             input.joy_button_device = -1;
-
-            // Clear any stale HAT event used to navigate the menu
             input.joy_hat = -1;
             input.joy_hat_value = SDL_HAT_CENTERED;
             input.joy_hat_device = -1;
-
             redef_state = 1;
             return;
         }
 
-
-        // Keyboard-only setup:
-        // Enter skips analog steering.
         if (input.key_press == SDLK_RETURN)
         {
             wait_type = WAIT_KEYBOARD;
             wait_key = SDLK_RETURN;
-
             next_state = 1;
-
             input.key_press = -1;
-
             input.joy_hat = -1;
             input.joy_hat_value = SDL_HAT_CENTERED;
             input.joy_hat_device = -1;
-
             return;
         }
-
         return;
     }
 
-
-    // ---------------------------------------------------------
-    // Unified binding order:
-    //
-    //  1 = UP
-    //  2 = DOWN
-    //  3 = LEFT
-    //  4 = RIGHT
-    //  5 = ACCELERATE
-    //  6 = BRAKE
-    //  7 = GEAR LOW
-    //  8 = GEAR HIGH
-    //  9 = START
-    // 10 = COIN
-    // 11 = MENU
-    // 12 = VIEW
-    // ---------------------------------------------------------
-
-
-    // Skip Gear High unless separate gears are enabled
-    if (redef_state == 8 &&
-        config.controls.gear !=
-        config.controls.GEAR_SEPARATE)
-    {
+    if (redef_state == 8 && config.controls.gear != config.controls.GEAR_SEPARATE)
         redef_state = 9;
-    }
 
-
-    if (redef_state >= 1 &&
-        redef_state <= 12)
+    if (redef_state >= 1 && redef_state <= 12)
     {
-        const int key_slot =
-            redef_state - 1;
-
-
-        // Keyboard and joystick arrays use different ordering.
+        const int key_slot = redef_state - 1;
         static const int PAD_SLOT[12] =
         {
-            8,      // UP
-            9,      // DOWN
-            10,     // LEFT
-            11,     // RIGHT
-
-            0,      // ACCELERATE
-            1,      // BRAKE
-
-            2,      // GEAR LOW
-            3,      // GEAR HIGH
-
-            4,      // START
-            5,      // COIN
-            6,      // MENU
-            7       // VIEW
+            8, 9, 10, 11,
+            0, 1,
+            2, 3,
+            4, 5, 6, 7
         };
+        const int pad_slot = PAD_SLOT[key_slot];
+        draw_text(text_redefine.at(key_slot));
 
-
-        const int pad_slot =
-            PAD_SLOT[key_slot];
-
-
-        draw_text(
-            text_redefine.at(key_slot)
-        );
-
-
-        // -----------------------------------------------------
-        // Accelerator / Brake:
-        // Allow analog axis
-        // -----------------------------------------------------
-
-        if (config.controls.analog == 1 &&
-            (redef_state == 5 ||
-                redef_state == 6))
+        if (config.controls.analog == 1 && (redef_state == 5 || redef_state == 6))
         {
             SDL_JoystickID device = -1;
-
-            int axis =
-                input.get_axis_config(&device);
-
+            int axis = input.get_axis_config(&device);
             if (axis != -1)
             {
-                const int axis_slot =
-                    (redef_state == 5) ? 1 : 2;
-
-
-                input.set_axis_binding(
-                    axis_slot,
-                    axis,
-                    device
-                );
-
-
-                // Remove previous digital bindings
+                const int axis_slot = (redef_state == 5) ? 1 : 2;
+                input.set_axis_binding(axis_slot, axis, device);
                 config.controls.keyconfig[key_slot] = -1;
-
-                input.set_button_binding(
-                    pad_slot,
-                    -1,
-                    -1
-                );
-
-
+                input.set_button_binding(pad_slot, -1, -1);
                 input.key_press = -1;
                 input.joy_button = -1;
                 input.joy_button_device = -1;
-
                 input.reset_axis_config();
-
-
                 redef_state++;
-
                 return;
             }
         }
 
-        // UP / DOWN / LEFT / RIGHT can also be bound to a HAT.
-        if (key_slot < 4 &&
-            input.joy_hat != -1 &&
-            input.joy_hat_value != SDL_HAT_CENTERED)
+        if (key_slot < 4 && input.joy_hat != -1 && input.joy_hat_value != SDL_HAT_CENTERED)
         {
             const int captured_hat = input.joy_hat;
             const int captured_value = input.joy_hat_value;
-            const SDL_JoystickID captured_device =
-                input.joy_hat_device;
-
-            input.set_hat_binding(
-                key_slot,
-                captured_hat,
-                captured_value,
-                captured_device);
-
-            // HAT becomes the custom binding for this direction.
+            const SDL_JoystickID captured_device = input.joy_hat_device;
+            input.set_hat_binding(key_slot, captured_hat, captured_value, captured_device);
             config.controls.keyconfig[key_slot] = -1;
             input.set_button_binding(pad_slot, -1, -1);
             config.controls.direction_custom[key_slot] = 1;
-
             next_state = redef_state + 1;
-
             wait_type = WAIT_HAT;
             wait_device = captured_device;
             wait_hat = captured_hat;
             wait_hat_value = captured_value;
-
             input.joy_hat = -1;
             input.joy_hat_value = SDL_HAT_CENTERED;
             input.joy_hat_device = -1;
-
             return;
         }
-
-        // -----------------------------------------------------
-        // Keyboard
-        //
-        // Only a NEW key-down event gets here.
-        // -----------------------------------------------------
 
         if (input.key_press != -1)
         {
-            SDL_Keycode captured_key =
-                input.key_press;
-
+            SDL_Keycode captured_key = input.key_press;
             if (key_slot < 4)
             {
-                input.set_hat_binding(
-                    key_slot,
-                    -1,
-                    SDL_HAT_CENTERED,
-                    -1);
-
-                static const SDL_Keycode fallback_key[4] =
-                {
-                    SDLK_UP,
-                    SDLK_DOWN,
-                    SDLK_LEFT,
-                    SDLK_RIGHT
-                };
-
-                // Selecting the natural arrow key resets this direction
-                // to the standard Arrow + HAT fallback.
-                config.controls.direction_custom[key_slot] =
-                    captured_key == fallback_key[key_slot] ? 0 : 1;
+                input.set_hat_binding(key_slot, -1, SDL_HAT_CENTERED, -1);
+                static const SDL_Keycode fallback_key[4] = { SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT };
+                config.controls.direction_custom[key_slot] = captured_key == fallback_key[key_slot] ? 0 : 1;
             }
-
-            config.controls.keyconfig[key_slot] =
-                captured_key;
-
-
-            // Remove old joystick/gamepad binding
-            input.set_button_binding(
-                pad_slot,
-                -1,
-                -1
-            );
-
-
-            next_state =
-                redef_state + 1;
-
-
-            if (next_state == 8 &&
-                config.controls.gear !=
-                config.controls.GEAR_SEPARATE)
-            {
+            config.controls.keyconfig[key_slot] = captured_key;
+            input.set_button_binding(pad_slot, -1, -1);
+            next_state = redef_state + 1;
+            if (next_state == 8 && config.controls.gear != config.controls.GEAR_SEPARATE)
                 next_state = 9;
-            }
-
-
-            // Wait ONLY for this keyboard key
-            wait_type =
-                WAIT_KEYBOARD;
-
-            wait_key =
-                captured_key;
-
-
-            // Do not allow this event to be consumed again
+            wait_type = WAIT_KEYBOARD;
+            wait_key = captured_key;
             input.key_press = -1;
-
             return;
         }
-
-
-        // -----------------------------------------------------
-        // Wheel / Gamepad / Joystick / Shifter Button
-        //
-        // A button that was already held before entering this
-        // screen does NOT appear here. It must first be released
-        // and pressed again.
-        // -----------------------------------------------------
 
         if (input.joy_button != -1)
         {
-            const int captured_button =
-                input.joy_button;
-
-            const SDL_JoystickID captured_device =
-                input.joy_button_device;
-
-
-            input.set_button_binding(
-                pad_slot,
-                captured_button,
-                captured_device
-            );
-
-
-            // Remove old keyboard binding
+            const int captured_button = input.joy_button;
+            const SDL_JoystickID captured_device = input.joy_button_device;
+            input.set_button_binding(pad_slot, captured_button, captured_device);
             config.controls.keyconfig[key_slot] = -1;
-
-
-            next_state =
-                redef_state + 1;
-
-
-            if (next_state == 8 &&
-                config.controls.gear !=
-                config.controls.GEAR_SEPARATE)
-            {
+            next_state = redef_state + 1;
+            if (next_state == 8 && config.controls.gear != config.controls.GEAR_SEPARATE)
                 next_state = 9;
-            }
-
-
-            // Wait ONLY for this particular button.
-            wait_type =
-                WAIT_BUTTON;
-
-            wait_device =
-                captured_device;
-
-            wait_button =
-                captured_button;
-
-
-            // Important:
-            // Clear the captured event immediately.
-            // The actual physical release is checked directly
-            // using SDL_JoystickGetButton above.
+            wait_type = WAIT_BUTTON;
+            wait_device = captured_device;
+            wait_button = captured_button;
             input.joy_button = -1;
             input.joy_button_device = -1;
-
             return;
         }
-
-
         return;
     }
-
-
-    // ---------------------------------------------------------
-    // Finished
-    // ---------------------------------------------------------
 
     if (redef_state >= 13)
     {
         wait_type = WAIT_NONE;
-
         input.key_press = -1;
         input.joy_button = -1;
         input.joy_button_device = -1;
-
         input.reset_axis_config();
-
         state = STATE_MENU;
-
         refresh_menu();
     }
 }
 
-// Display a contextual message in the top left of the screen
 void Menu::display_message(std::string s)
 {
     msg = " " + s;
@@ -2233,26 +1896,16 @@ bool Menu::check_jap_roms()
     return true;
 }
 
-// Reinitalize Video, and stop audio to avoid crackles
 void Menu::restart_video()
 {
-//  Note: this MUST be called from the SDL rendering thread
-
-//    if (config.sound.enabled)
-//        cannonball::audio.stop_audio();
     video.disable();
     video.init(&roms, &config.video);
     config.videoRestartRequired = false;
-
-//    osoundint.init();
-//    if (config.sound.enabled)
-//        cannonball::audio.start_audio();
 }
 
 void Menu::start_game(int mode, int settings)
 {
     if (settings == 1) {
-        // Enhanced Settings
         if (!config.sound.fix_samples)
         {
             if (roms.load_pcm_rom(true) == 0)
@@ -2287,17 +1940,12 @@ void Menu::start_game(int mode, int settings)
         config.engine.level_objects = 1;
         config.engine.new_attract   = 1;
         config.engine.fix_bugs      = 1;
-
         config.sound.preview        = 1;
 
-        // try to save the settings
         display_message(config.save() ? "SETTINGS SAVED" : "ERROR SAVING SETTINGS!");
-
-        // flag to restart the video subsystem
         config.videoRestartRequired = true;
     }
     else if (settings == 2) {
-        // Original Settings
         if (config.sound.fix_samples)
         {
             if (roms.load_pcm_rom(false) == 0)
@@ -2332,17 +1980,12 @@ void Menu::start_game(int mode, int settings)
         config.engine.level_objects = 0;
         config.engine.new_attract   = 0;
         config.engine.fix_bugs      = 0;
-
         config.sound.preview        = 0;
 
-        // try to save the settings
         display_message(config.save() ? "SETTINGS SAVED" : "ERROR SAVING SETTINGS!");
-
-        // flag to restart the video subsystem
         config.videoRestartRequired = true;
     }
     else {
-        // Otherwise, use whatever is already setup...
         config.engine.fix_bugs = config.engine.fix_bugs_backup;
     }
 
