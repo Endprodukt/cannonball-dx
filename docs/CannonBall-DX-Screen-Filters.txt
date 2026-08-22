@@ -1,0 +1,17 @@
+CannonBall DX Screen Filters
+
+Modern LCDs render OutRun's low-res graphics as oversized, razor-sharp pixels, which can make the image feel clinical. CannonBall DX retains the CRT and analogue-display processing inherited from CannonBall-SE and provides the following rendering stages:
+
+1. NTSC filtering (CPU)
+
+The game's output can be passed through a SIMD-accelerated port of Blargg's NTSC filter, which softens the image and adjusts colour reproduction. Composite mode can also add analogue-style artefacts such as shimmer and dot crawl.
+
+2. CRT shader (GPU)
+
+The filtered image can then be processed with a lightweight shader that adds barrel distortion, vignette, analogue noise and a configurable shadow-mask effect.
+
+3. Bezel and aperture overlay (GPU)
+
+An overlay can simulate the CRT bezel shape by softly fading the border and reinforcing the curved-glass appearance.
+
+CannonBall DX also adds selectable pixel-scaling enhancements through the Enhancements menu. The underlying CRT/NTSC implementation originates from CannonBall-SE by James Pearce and its upstream third-party components retain their original credits and licenses.
