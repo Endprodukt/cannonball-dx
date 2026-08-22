@@ -152,6 +152,180 @@ namespace
             controls.padconfig[slot] = -1;
     }
 
+    void apply_default_gamepad_legacy_bindings(controls_settings_t& controls)
+    {
+        // First-run controller profile. These are SDL GameController values,
+        // so an Xbox 360/XInput-style pad works immediately without setup.
+        controls.gear = controls_settings_t::GEAR_SEPARATE;
+        controls.analog = 1;
+
+        controls.axis[0] = SDL_CONTROLLER_AXIS_LEFTX;
+        controls.axis[1] = SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+        controls.axis[2] = SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+        controls.axis_device[0].clear();
+        controls.axis_device[1].clear();
+        controls.axis_device[2].clear();
+        controls.invert[1] = false;
+        controls.invert[2] = false;
+        controls.asettings[0] = 0;
+        controls.asettings[1] = 0;
+
+        // Triggers are the primary analog pedals. Shoulder buttons remain as
+        // convenient digital fallbacks for controllers without usable axes.
+        controls.padconfig[0] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+        controls.padconfig[1] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+        controls.padconfig[2] = SDL_CONTROLLER_BUTTON_A;      // Low / downshift
+        controls.padconfig[3] = SDL_CONTROLLER_BUTTON_X;      // High / upshift
+        controls.padconfig[4] = SDL_CONTROLLER_BUTTON_START;
+        controls.padconfig[5] = SDL_CONTROLLER_BUTTON_B;      // Coin
+        controls.padconfig[6] = SDL_CONTROLLER_BUTTON_BACK;   // Menu
+        controls.padconfig[7] = SDL_CONTROLLER_BUTTON_Y;      // View
+
+        // D-pad is also handled permanently by Input, but keep the legacy
+        // values valid so the generated config is self-explanatory.
+        controls.padconfig[8]  = SDL_CONTROLLER_BUTTON_DPAD_UP;
+        controls.padconfig[9]  = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        controls.padconfig[10] = SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+        controls.padconfig[11] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+    }
+
+    bool binding_is_gamepad(const device_binding_t& binding)
+    {
+        return binding.device.size() >= 2 &&
+            binding.device.compare(0, 2, "G:") == 0;
+    }
+
+    bool gamepad_target_is_bound(
+        const controls_settings_t& controls,
+        int target)
+    {
+        for (const auto& binding : controls.device_bindings)
+        {
+            if (binding.target == target && binding_is_gamepad(binding))
+                return true;
+        }
+
+        return false;
+    }
+
+    void add_default_gamepad_binding(
+        controls_settings_t& controls,
+        int target,
+        int type,
+        int index,
+        const std::string& device)
+    {
+        if (gamepad_target_is_bound(controls, target))
+            return;
+
+        device_binding_t binding;
+        binding.target = target;
+        binding.type = type;
+        binding.index = index;
+        binding.value = 0;
+        binding.device = device;
+        controls.device_bindings.push_back(binding);
+    }
+
+    std::string first_gamecontroller_signature()
+    {
+        if ((SDL_WasInit(SDL_INIT_JOYSTICK) & SDL_INIT_JOYSTICK) == 0)
+            return std::string();
+
+        const int count = SDL_NumJoysticks();
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!SDL_IsGameController(i))
+                continue;
+
+            SDL_Joystick* joystick = SDL_JoystickOpen(i);
+            if (!joystick)
+                continue;
+
+            SDL_JoystickGUID guid = SDL_JoystickGetGUID(joystick);
+            char guid_string[33] = {};
+            SDL_JoystickGetGUIDString(guid, guid_string, sizeof(guid_string));
+
+            const std::string signature =
+                std::string(guid_string) +
+                "|A" + std::to_string(SDL_JoystickNumAxes(joystick)) +
+                "|B" + std::to_string(SDL_JoystickNumButtons(joystick)) +
+                "|H" + std::to_string(SDL_JoystickNumHats(joystick));
+
+            SDL_JoystickClose(joystick);
+            return signature;
+        }
+
+        return std::string();
+    }
+
+    bool materialize_default_gamepad_bindings(controls_settings_t& controls)
+    {
+        const std::string signature = first_gamecontroller_signature();
+        if (signature.empty())
+            return false;
+
+        const std::string device = "G:" + signature;
+
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_STEER,
+            device_binding_t::TYPE_AXIS,
+            SDL_CONTROLLER_AXIS_LEFTX,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_ACCEL,
+            device_binding_t::TYPE_AXIS,
+            SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_BRAKE,
+            device_binding_t::TYPE_AXIS,
+            SDL_CONTROLLER_AXIS_TRIGGERLEFT,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_GEAR1,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_A,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_GEAR2,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_X,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_START,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_START,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_COIN,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_B,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_MENU,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_BACK,
+            device);
+        add_default_gamepad_binding(
+            controls,
+            device_binding_t::TARGET_VIEW,
+            device_binding_t::TYPE_BUTTON,
+            SDL_CONTROLLER_BUTTON_Y,
+            device);
+
+        return true;
+    }
+
     bool parse_device_bindings(
         const std::string& encoded,
         std::vector<device_binding_t>& bindings)
@@ -292,13 +466,26 @@ void Config::load()
 
     const std::string encoded =
         cfg.get_string("controls.device_bindings", "");
+    const bool default_gamepad_profile =
+        cfg.get_int("controls.default_gamepad", 0) != 0;
+    const bool parsed_device_bindings =
+        parse_device_bindings(encoded, controls.device_bindings);
 
-    if (!parse_device_bindings(encoded, controls.device_bindings))
+    if (default_gamepad_profile && !parsed_device_bindings)
     {
-        migrate_legacy_device_bindings(controls);
+        // A freshly generated config starts with a standard SDL/XInput pad
+        // profile. Keep it in the legacy arrays until SDL is initialized; the
+        // first normal config save converts it to persistent device bindings.
+        controls.device_bindings.clear();
+        apply_default_gamepad_legacy_bindings(controls);
     }
+    else
+    {
+        if (!parsed_device_bindings)
+            migrate_legacy_device_bindings(controls);
 
-    disable_migrated_legacy_bindings(controls);
+        disable_migrated_legacy_bindings(controls);
+    }
 }
 
 bool Config::save()
@@ -321,6 +508,16 @@ bool Config::save()
     cfg.put_int("controls.keyconfig.view1", controls.keyconfig[12]);
     cfg.put_int("controls.keyconfig.view2", controls.keyconfig[13]);
     cfg.put_int("controls.keyconfig.view3", controls.keyconfig[14]);
+
+    // Once SDL is running, turn the first-run generic Xbox profile into the
+    // same physical-device bindings used by the binding matrix. Existing user
+    // assignments win target-by-target; missing cells receive the defaults.
+    if (cfg.get_int("controls.default_gamepad", 0) != 0 &&
+        materialize_default_gamepad_bindings(controls))
+    {
+        disable_migrated_legacy_bindings(controls);
+        cfg.erase("controls.default_gamepad");
+    }
 
     // Per-device bindings supersede the old single pad/axis assignment for all
     // controls represented by the matrix.
