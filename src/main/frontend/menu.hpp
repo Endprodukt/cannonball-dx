@@ -146,6 +146,9 @@ public:
     {
         MenuBase::populate();
 
+        if (!menu_about.empty())
+            menu_about[0] = std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION;
+
         for (auto it = menu_cont.begin(); it != menu_cont.end(); )
         {
             if (it->rfind("TRAFFIC ", 0) == 0)
