@@ -303,7 +303,7 @@ void OSprites::copy_palette_data()
         for (uint16_t j = 0; j < 8; j++)
             video.write_pal32(&dst_addr, PALETTE_EXPANSION[src_addr++]);
     }
-    pal_copy_count = 0; // All entries copied
+    pal_copy_count = 0; // All palette data copied
 }
 
 // Map Palettes from ROM to Palette RAM for a particular sprite.
@@ -396,7 +396,7 @@ void OSprites::do_spr_order_shadows(oentry* input)
     spr_cnt_shadow++;                       // Increment total shadow count
     
     uint8_t pal_dst = input->pal_dst;       // Backup Sprite Colour Palette
-    uint8_t shadow = input->shadow;         // and priority and shadow settings
+    uint8_t shadow = input->shadow;          // and priority and shadow settings
     int16_t x = input->x;                   // and x position
     uint32_t addr = input->addr;            // and original sprite data address
     input->pal_dst = 0;                     // clear colour palette
@@ -479,17 +479,58 @@ void OSprites::sprite_copy()
 
     // cont2:
     uint16_t cnt_shadow_copy = spr_cnt_shadow;
+    const uint16_t original_main_count = spr_cnt_main;
+    uint16_t ultrawide_cloud_copies = 0;
 
     // next_sprite
-    for (uint16_t i = 0; i < spr_cnt_main; i++)
+    for (uint16_t i = 0; i < original_main_count; i++)
     {
         uint16_t jump_index = sprite_order2[i];
         oentry *entry = &jump_table[jump_index];
         entry->dst_index = cnt_shadow_copy;
         cnt_shadow_copy++;
         do_sprite(entry);
+
+        // Stage 3 rightmost route uses a dedicated sprite routine for the
+        // overhead cloud sheet. In 21:9 only, tile that exact sprite entry to
+        // the left and right. Do not copy the framebuffer or any other scenery.
+        // function_holder == 2 is the cloud routine and pal_src 0xCD is set by
+        // OLevelObjs::sprite_clouds immediately before the entry is ordered.
+        if (config.video.widescreen == 2 &&
+            oroad.stage_lookup_off == 0x10 &&
+            entry->function_holder == 2 &&
+            entry->pal_src == 0xCD &&
+            (entry->control & DRAW_SPRITE) &&
+            entry->width > 0)
+        {
+            const int16_t original_x = entry->x;
+            const uint16_t original_dst_index = entry->dst_index;
+            const int32_t tile_width = static_cast<int32_t>(entry->width);
+            const uint16_t remaining_original = original_main_count - i - 1;
+
+            // Reserve room for every original sprite still to be converted and
+            // for the final end marker. Extra copies are expendable if a scene
+            // ever approaches the sprite-entry limit.
+            auto add_cloud_copy = [&](int32_t x)
+            {
+                if (cnt_shadow_copy + remaining_original + 1 >= JUMP_ENTRIES_TOTAL)
+                    return;
+
+                entry->x = static_cast<int16_t>(x);
+                entry->dst_index = cnt_shadow_copy++;
+                do_sprite(entry);
+                ultrawide_cloud_copies++;
+            };
+
+            add_cloud_copy(static_cast<int32_t>(original_x) - tile_width);
+            add_cloud_copy(static_cast<int32_t>(original_x) + tile_width);
+
+            entry->x = original_x;
+            entry->dst_index = original_dst_index;
+        }
     }
 
+    spr_cnt_main += ultrawide_cloud_copies;
     finalise_sprites();
 }
 
