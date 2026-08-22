@@ -1,19 +1,12 @@
 #pragma once
 
 #include "stdint.hpp"
-#include <string>
 
 #define CANNONBALL_DX_VERSION "1.41"
 
-// Compatibility for the inherited CannonBall-SE About-menu expression.
-// It resolves the legacy version token to the active CannonBall DX product
-// string without changing the historical upstream attribution.
-struct CannonBallDxVersionTag {};
-inline std::string operator+(const std::string&, CannonBallDxVersionTag)
-{
-    return std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION;
-}
-#define CANNONBALL_SE_VERSION CannonBallDxVersionTag{}
+// Legacy compatibility for inherited CannonBall-SE source that still refers
+// to the previous version macro internally. Active branding uses DX.
+#define CANNONBALL_SE_VERSION CANNONBALL_DX_VERSION
 
 // ------------------------------------------------------------------------------------------------
 // Compiler Settings
