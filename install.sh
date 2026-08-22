@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # install.sh
-# Install script for CannonBall-SE, a CannonBall fork by James Pearce
-# Copyright (c) 2025, James Pearce
+# Install script for CannonBall DX, based on CannonBall-SE by James Pearce
+# CannonBall-SE revisions Copyright (c) 2025, James Pearce
 # Supports Ubuntu 24.04 and RaspberryPi OS (CLI only)
 
 # Exit on unset vars and errors
@@ -37,8 +37,8 @@ function run_step() {
 }
 
 # 1. Confirm with user
-echo "Install script for CannonBall-SE, a CannonBall fork by James Pearce"
-echo "Copyright (c) 2025, James Pearce"
+echo "Install script for CannonBall DX"
+echo "Based on CannonBall-SE by James Pearce"
 echo "Supports Ubuntu 24.04 and RaspberryPi OS (CLI only)"
 echo ""
 read -rp "Do you wish to continue (you will be prompted for sudo)? [y/N] " confirm
@@ -90,7 +90,7 @@ EOF
 run_step "Install dependencies" sudo apt install -y \
   build-essential git cmake libsdl2-dev libglu1-mesa-dev libmpg123-dev pkg-config alsa-utils libtinyxml2-dev
 
-# 7. Prepare and build CannonBall
+# 7. Prepare and build CannonBall DX
 run_step "Prepare build directories" mkdir -p build roms
 run_step "Configure Project with CMake" cmake -S . -B build
 run_step "Compile" cmake --build build --parallel $NUMTHREADS
@@ -98,9 +98,9 @@ run_step "Compile" cmake --build build --parallel $NUMTHREADS
 run_step "Create default config file" bash -c 'cp res/config.xml .'
 
 # 8. List and select audio device
-env_command="build/cannonball-se -list-audio-devices"
+env_command="build/cannonball-dx -list-audio-devices"
 run_step "List audio devices" bash -c "$env_command"
-read -rp "Enter the number of the audio device to use for CannonBall [0]: " audio_device
+read -rp "Enter the number of the audio device to use for CannonBall DX [0]: " audio_device
 audio_device=${audio_device:-0}
 run_step "Configure audio device" bash -c 'sed -i "s|<playback_device>.*</playback_device>|<playback_device>'"$audio_device"'</playback_device>|" config.xml'
 
@@ -112,21 +112,21 @@ read -rp "Would you like to view the man page now? [y/N] " view_man
 STEP_ORDER+=("View man page prompt")
 if [[ "$view_man" =~ ^[Yy] ]]; then
   STATUS["View man page prompt"]="Displayed"
-  man -l docs/cannonball-se.6
+  man -l docs/cannonball-dx.6
 else
   STATUS["View man page prompt"]="Skipped"
-  echo "You can view it later with: man -l docs/cannonball-se.6"
+  echo "You can view it later with: man -l docs/cannonball-dx.6"
 fi
 echo "****************************************************************************************"
-echo "IMPORTANT: You must reboot before running CannonBall-SE, and remember to copy in the"
-echo "           ROMS. After rebooting, start CannonBall-SE from this directory using:"
+echo "IMPORTANT: You must reboot before running CannonBall DX, and remember to copy in the"
+echo "           ROMS. After rebooting, start CannonBall DX from this directory using:"
 echo ""
-echo "           build/cannonball-se"
+echo "           build/cannonball-dx"
 echo ""
 echo "           If you have no audio, run 'alsa-mixer' and check the <Master> volume is not"
 echo "           at zero. Also check the SDL device order hasn't changed using:"
 echo ""
-echo "           build/cannonball-se -list-audio-devices"
+echo "           build/cannonball-dx -list-audio-devices"
 echo ""
 echo "****************************************************************************************"
 echo ""
