@@ -72,19 +72,19 @@ protected:
 
     struct menu_pair
     {
-        int cursor;
+        int16_t cursor;
         std::vector<std::string>* menu;
     };
 
     std::vector<menu_pair> menu_stack;
 
-    // Menu Selected
-    std::vector<std::string>* menu_selected;
-
-    // Is a text menu (i.e. no mini-car shown)
+    // Stores whether this is a textual menu (i.e. no options that can be chosen)
     bool is_text_menu;
 
-    // Menu Entries
+    // Used to control the horizon pan effect
+    uint16_t horizon_pos;
+
+    std::vector<std::string>* menu_selected;
     std::vector<std::string> menu_main;
     std::vector<std::string> menu_gamemodes;
     std::vector<std::string> menu_cont;
@@ -92,6 +92,13 @@ protected:
     std::vector<std::string> menu_about;
     std::vector<std::string> menu_settings;
     std::vector<std::string> menu_video;
+    // JJP - CRT Emulation related menus
+    std::vector<std::string> menu_crt_shader1;
+    std::vector<std::string> menu_crt_shader2;
+    std::vector<std::string> menu_crt_shape_settings;
+    std::vector<std::string> menu_crt_mask_settings;
+    std::vector<std::string> menu_blargg_filter;
+    // JJP - end of insert
     std::vector<std::string> menu_sound;
     std::vector<std::string> menu_controls;
     std::vector<std::string> menu_controls_gp;
@@ -99,43 +106,28 @@ protected:
     std::vector<std::string> menu_enhancements;
     std::vector<std::string> menu_handling;
     std::vector<std::string> menu_musictest;
+    std::vector<std::string> menu_s_exsettings;     // smartypi specific
+    std::vector<std::string> menu_s_tests;          // smartypi specific
+    std::vector<std::string> menu_s_dips;           // smartypi specific
+    std::vector<std::string> menu_s_enhance;        // smartypi specific
 
-    // Cabinet-specific Menus
-    std::vector<std::string> menu_s_dips;
-    std::vector<std::string> menu_s_exsettings;
-    std::vector<std::string> menu_s_tests;
-    std::vector<std::string> menu_s_enhance;
-
-    // CRT shader menus
-    std::vector<std::string> menu_crt_shader1;
-    std::vector<std::string> menu_crt_shape_settings;
-    std::vector<std::string> menu_crt_mask_settings;
-    std::vector<std::string> menu_crt_shader2;
-    std::vector<std::string> menu_blargg_filter;
-
-    // Text strings used during controls redefinition
     std::vector<std::string> text_redefine;
 
-    // Main Menu Functions
     void populate_for_pc();
-    void populate_for_cabinet();
     virtual void populate_controls();
-
+    void populate_for_cabinet();
     void tick_ui();
     void draw_menu_options();
-    void draw_text(std::string s);
+    void draw_text(std::string);
     void tick_menu();
     virtual bool select_pressed();
-
-    void set_menu(std::vector<std::string>* menu);
+    void set_menu(std::vector<std::string>*);
     void menu_back();
     void refresh_menu();
     void set_menu_text(std::string s1, std::string s2);
-
     void redefine_keyboard();
     virtual void redefine_joystick();
-
-    void display_message(std::string s);
+    void display_message(std::string);
     bool check_jap_roms();
     void start_game(int mode, int settings = 0);
 };
@@ -157,8 +149,7 @@ public:
         if (!menu_about.empty())
             menu_about[0] = std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION;
 
-        // Keep the inherited CannonBall-SE credit, but identify the DX fork
-        // and current maintainer directly above it.
+        // Keep the inherited CannonBall-SE credit and add the DX fork credit above it.
         if (menu_about.size() >= 6)
             menu_about.insert(menu_about.begin() + 5, "DX BUILD COPYRIGHT 2026 ENDPRODUKT");
 
