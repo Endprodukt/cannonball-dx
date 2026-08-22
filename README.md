@@ -21,8 +21,9 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Gamepad rumble support** with enable and strength controls on supported controllers
 - **Direct View 1 / View 2 / View 3 controls** alongside the original single-button view cycling
 - **21:9 ultrawide support** in addition to the original 4:3 presentation and existing widescreen modes
+- **Enhanced Attract Mode** with automatic camera presentation changes and cabinet lamp effects
 - **Game-mode selection from the Music Select screen** - Original, Continuous or Time Trial via the VIEW controls
-- **Ferrari colour selection from the Music Select screen** using the shifter, with the original mini-car sprite as a preview
+- **Expanded Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver, with a persistent default colour and per-run Music Select choice
 - **Continuous Mode traffic follows the normal OutRun difficulty and stage scaling**
 - **Arcade lamp outputs** for START, BRAKE and VIEW lamps via **MAME network output**, **Windows MAMEOutput / MAMEHooker** and the existing **SmartyPi** output path
 
@@ -142,8 +143,11 @@ FF_TARGET_VIDPID=0x046d:0xc24f
 - **Low / High Gear:** `G` / `H`
 - **Steer:** Left / Right arrows
 - **Change View:** `V`
+- **Default Car Colour in Attract Mode:** `F10`
 - **Menu:** `M`
 - **Quit:** `Esc`
+
+While the car is driving in Attract Mode, press **F10** to cycle the Ferrari colour. The selected colour is saved as the new default and is restored on future starts.
 
 Controls can be remapped in the in-game menu.
 
@@ -158,7 +162,7 @@ The Music Select screen can now also be used to prepare the next run:
 - **LOW / HIGH gear** changes Ferrari colour
 - **START** confirms the selection
 
-The Ferrari starts red for every new selection and remains red in attract/demo mode.
+Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**. The Music Select colour applies **only to the next race** and does not replace the saved default. After the run, Attract Mode returns to the default colour selected with **F10**.
 
 Custom music files can still be placed in `./res/` using:
 
