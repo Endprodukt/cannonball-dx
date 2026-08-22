@@ -165,26 +165,14 @@ namespace
         if (!music_selection)
         {
             music_color_initialized = false;
-
-            // Car-colour selection belongs to the player's next run only.
-            // Attract/demo mode must always use the canonical red Ferrari,
-            // regardless of the colour chosen for the previous game.
-            if (cannonball::state == cannonball::STATE_GAME &&
-                (outrun.game_state == GS_INIT ||
-                 outrun.game_state == GS_ATTRACT))
-            {
-                config.engine.car_pal = 0;
-                oferrari.ferrari_pal = OFerrari::PAL_RED;
-            }
-
             return;
         }
 
         if (!music_color_initialized)
         {
-            // Every new arcade Music Select starts from the canonical red
-            // Ferrari. Shifter changes are deliberately per-run choices.
-            config.engine.car_pal = 0;
+            // Start from the persisted Ferrari colour. F10 in attract mode
+            // updates this default, while the shifter can still make a
+            // temporary per-run choice on the Music Select screen.
             music_color_initialized = true;
         }
     }
@@ -247,8 +235,7 @@ namespace
 
         // Reuse the small Ferrari that normally drives across the course map.
         // The map entry supplies its native size/anchor properties, while the
-        // palette is deliberately replaced by the same five Ferrari palettes
-        // used by the full-size in-game car.
+        // palette follows the same eight Ferrari colours as the full-size car.
         const int preview_index = (OSprites::SPRITE_ENTRIES - 0x10) + 5;
         oentry* preview = &osprites.jump_table[preview_index];
         preview->init(preview_index);
@@ -276,10 +263,13 @@ namespace
             OFerrari::PAL_YELLOW,
             OFerrari::PAL_GREEN,
             OFerrari::PAL_CYAN,
+            OFerrari::PAL_BLACK,
+            OFerrari::PAL_WHITE,
+            OFerrari::PAL_SILVER,
         };
 
         int color = config.engine.car_pal;
-        if (color < 0 || color >= 5)
+        if (color < 0 || color >= 8)
             color = 0;
 
         preview->pal_src = CAR_PALETTES[color];
@@ -308,9 +298,8 @@ void OOutputs::writeDigitalToConsole()
     // this method is already called every engine tick by main.cpp.
     sync_continuous_traffic_to_difficulty();
 
-    // New runs always begin from the red Ferrari, then allow a temporary colour
-    // choice with the shifter for that run. Attract mode is also forced back to
-    // red here so a previous player colour never leaks into the demo sequence.
+    // Keep the persisted default Ferrari colour when Music Select opens.
+    // The player can still override it for the next run with the shifter.
     sync_music_car_color(music_selection);
 
     // Draw the car-colour instruction and queue the small map Ferrari preview.
