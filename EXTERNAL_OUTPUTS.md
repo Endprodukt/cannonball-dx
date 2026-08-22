@@ -1,11 +1,11 @@
 # External Outputs
 
-CannonBall-SE can expose lamp states to arcade-output software using two MAME-compatible transports at the same time:
+CannonBall DX can expose lamp states to arcade-output software using two MAME-compatible transports at the same time:
 
 - **Network output** on TCP port **8000** (MAME network protocol)
 - **Windows output messages** (`MAMEOutput*`), for tools such as MAMEHooker
 
-The machine name reported by both transports is **`cannonball`**. This intentionally keeps CannonBall-SE separate from MAME's `outrun` machine and allows a dedicated `cannonball.ini`.
+The machine name reported by both transports is **`cannonball`**. This intentionally keeps CannonBall DX separate from MAME's `outrun` machine and allows a dedicated `cannonball.ini`.
 
 The existing SmartyPi output path is independent and remains unchanged.
 
