@@ -15,16 +15,17 @@
 	<window>
 		<scale>1</scale>
 	</window>
-	<!-- The following settings can be fully configured in-game -->
+	<!-- First-run video profile: original 4:3 aspect with all processing disabled. -->
 	<widescreen>0</widescreen>
 	<fps_counter>0</fps_counter>
 	<vsync>0</vsync>
 	<x_offset>0</x_offset>
 	<y_offset>0</y_offset>
+	<pixel_scaler>0</pixel_scaler>
 	<shader_mode>0</shader_mode>
 	<shadow_mask>0</shadow_mask>
-	<maskDim>75</maskDim>
-	<maskBoost>125</maskBoost>
+	<maskDim>100</maskDim>
+	<maskBoost>100</maskBoost>
 	<scanlines>0</scanlines>
 	<crt_shape>0</crt_shape>
 	<vignette>0</vignette>
@@ -35,13 +36,13 @@
 	<desaturate_edges>0</desaturate_edges>
 	<brightboost>0</brightboost>
 	<blargg>0</blargg>
-	<saturation>30</saturation>
+	<saturation>0</saturation>
 	<contrast>0</contrast>
 	<brightness>0</brightness>
 	<sharpness>0</sharpness>
 	<resolution>0</resolution>
 	<gamma>0</gamma>
-	<hue>-2</hue>
+	<hue>0</hue>
 </video>
 <!-- 
     Sound Settings
@@ -72,10 +73,14 @@
     Controls Settings
 -->
 <controls>
-	<!-- Gears: 
-        0 = Manual   (Click to shift, for normal play)
-        1 = Manual   (Hold to shift, for cabinet play)
-        2 = Automatic 
+	<!-- First-run Xbox 360 / SDL GameController profile. The marker is converted
+	     to normal persistent per-device bindings after SDL has initialized. -->
+	<default_gamepad>1</default_gamepad>
+	<!-- Gears:
+        0 = Manual toggle
+        1 = Manual hold
+        2 = Manual separate Low / High buttons
+        3 = Automatic
     -->
 	<gear>2</gear>
 	<!-- Keyboard Button Configuration. Easiest to configure with inbuilt menu. -->
@@ -94,16 +99,18 @@
 		<gear2>104</gear2>
 		<view>118</view>
 	</keyconfig>
-	<!-- Gamepad / Joystick Button Configuration. Easiest to configure with inbuilt menu. -->
+	<!-- SDL GameController button numbers (Xbox layout):
+         RB/LB are digital pedal fallbacks, A=Low, X=High, Y=View,
+         B=Coin, Start=Start and Back=Menu. -->
 	<padconfig>
-		<acc>1</acc>
-		<brake>0</brake>
-		<gear>22</gear>
+		<acc>10</acc>
+		<brake>9</brake>
+		<gear>0</gear>
 		<start>6</start>
-		<coin>4</coin>
-		<menu>5</menu>
-		<gear1>9</gear1>
-		<gear2>10</gear2>
+		<coin>1</coin>
+		<menu>4</menu>
+		<gear1>0</gear1>
+		<gear2>2</gear2>
 		<view>3</view>
 		<up>11</up>
 		<down>12</down>
@@ -120,14 +127,11 @@
          2 = Wheel Only
     -->
 	<analog enabled="1">
-		<!-- Select axis for analog controls 
-             You can place the accelerator and the brake on the same axis if your controller
-             has a split axis setup. This is best avoided though.
-          -->
+		<!-- Standard SDL GameController axes: Left X steering, RT gas, LT brake. -->
 		<axis>
 			<wheel>0</wheel>
-			<accel invert="1">2</accel>
-			<brake invert="1">1</brake>
+			<accel invert="0">5</accel>
+			<brake invert="0">4</brake>
 		</axis>
 		<!-- Analog Wheel Settings -->
 		<wheel>
