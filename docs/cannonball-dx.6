@@ -1,0 +1,79 @@
+.\" Manpage for CannonBall DX
+.TH "cannonball-dx" "6" "August 2026" "CannonBall DX 1.41" "CannonBall DX Configuration Help"
+.SH NAME
+cannonball-dx \- arcade- and racing-wheel-focused OutRun engine fork
+.SH OVERVIEW
+\fBCannonBall DX\fP is based on James Pearce's CannonBall-SE, which itself is based on Chris White's CannonBall OutRun engine.
+CannonBall DX adds modern multi-device controls, expanded steering-wheel force feedback, 21:9 ultrawide support, arcade cabinet outputs, enhanced attract-mode behaviour and other cabinet-focused improvements while preserving the upstream work and credits.
+.SH OPTIONS
+Command line options:
+.RS
+.IP \(bu 2
+-h                  : Displays command-line options and the man page link, then quits
+.IP \(bu 2
+-list-audio-devices : Lists available playback devices, then quits
+.IP \(bu 2
+-cfgfile            : Set the location and name of config.xml
+.IP \(bu 2
+-file               : LayOut Editor track data to load
+.IP \(bu 2
+-30 or -60          : Force 30 or 60fps operation
+.IP \(bu 2
+-t [1-4]            : Override hardware thread detection and use the specified number of threads
+.IP \(bu 2
+-x                  : Disable single-core Raspberry Pi board detection
+.IP \(bu 2
+-1                  : Use single-core mode
+.IP \(bu 2
+-perftest           : Run the engine as fast as possible for performance testing
+.RE
+.SH GETTING STARTED
+The following assumes that the repository was cloned as ~/cannonball-dx.
+.PP
+CannonBall DX requires the original OutRun revision B ROM set. Copy the required ROM files into ~/cannonball-dx/roms.
+.PP
+To start the game:
+.PP
+cd ~/cannonball-dx
+.PP
+build/cannonball-dx
+.SH CONTROLS
+Controls can be configured in Menu -> Settings -> Controls. CannonBall DX supports independent Keyboard, Gamepad and Wheel bindings and allows steering, pedals, shifters and buttons to come from different physical devices.
+.PP
+Default keyboard controls include Start=S, Coin=C, Accelerate=A, Brake=Z, Low/High Gear=G/H, Steering=Left/Right arrows, Change View=V, Menu=M and Quit=Escape.
+.SH STEERING WHEELS
+CannonBall DX extends the existing CannonBall steering-wheel force-feedback system. On Windows the expanded DirectInput path provides driving, cornering, road/off-road, crash, shift and selector feedback on supported wheels. Linux retains the existing evdev-based force-feedback path.
+.SH VIDEO
+CannonBall DX supports the original 4:3 presentation, widescreen modes and 21:9 ultrawide output. It retains the CRT, NTSC and analogue-display processing inherited from CannonBall-SE and adds selectable pixel-scaling enhancements.
+.SH CUSTOM MUSIC
+Custom .WAV, .MP3 or .YM tracks can be placed in the res directory using the form:
+.PP
+[01-99]_Track_Display_Name.[wav|mp3|ym]
+.PP
+Indexes 01-03 replace the built-in tracks; indexes 04 and higher add tracks to the radio selector.
+.SH ARCADE OUTPUTS
+CannonBall DX exposes START, BRAKE and VIEW lamp states through supported external output paths including MAME network output, Windows MAMEOutput/MAMEHooker and SmartyPi.
+.SH ROMS
+Users are expected to own licensed copies of the original arcade ROMs required for the program to function. Use of ROM images may be restricted by local law. The end user assumes responsibility for their use.
+.SH UPSTREAM
+CannonBall DX builds on:
+.RS
+.IP \(bu 2
+CannonBall by Chris White: <github.com/djyt/cannonball>
+.IP \(bu 2
+CannonBall-SE by James Pearce: <github.com/J1mbo/cannonball-se>
+.RE
+.SH BUGS
+Please report CannonBall DX issues at <github.com/Endprodukt/cannonball-dx/issues> after the repository rename is complete.
+.SH AUTHORS
+CannonBall DX fork and additional enhancements: Endprodukt, developed with assistance from ChatGPT by OpenAI using GPT-5.6 Sol.
+.PP
+CannonBall-SE: James Pearce <github.com/J1mbo>
+.PP
+Original CannonBall engine: Chris White <github.com/djyt/cannonball>
+.SH COPYRIGHT
+Original CannonBall and CannonBall-SE copyright and third-party notices remain in force. CannonBall-SE enhancements are Copyright (c) 2020-2025 James Pearce. See the repository license and third-party notice files for full terms.
+.PP
+\fBOutRun is a trademark of SEGA Corporation. This project is not affiliated with SEGA.\fP
+.SH LICENSE
+See the license and third-party notice files distributed with the source tree. Your use of this software signifies acceptance of the applicable terms.
