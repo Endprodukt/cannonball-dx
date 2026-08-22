@@ -8,7 +8,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
-![CannonBall DX Start Line](screenshots/CannonBall-SE-Startline.jpg)
+![CannonBall DX Start Line](screenshots/CannonBall-DX-Startline.jpg)
 
 ---
 
@@ -75,8 +75,8 @@ You are expected to legally own the original ROMs; usage may be restricted by lo
 ## Quick Start - Linux
 
 ```bash
-git clone https://github.com/Endprodukt/cannonball-se.git
-cd cannonball-se
+git clone https://github.com/Endprodukt/cannonball-dx.git
+cd cannonball-dx
 chmod +x install.sh
 ./install.sh
 ```
@@ -84,10 +84,8 @@ chmod +x install.sh
 Then copy the OutRun revision B ROMs into `./roms/` and run:
 
 ```bash
-build/cannonball-se
+build/cannonball-dx
 ```
-
-The repository and executable currently retain the existing `cannonball-se` technical names for compatibility.
 
 ---
 
@@ -233,5 +231,5 @@ Upstream projects:
 
 ## See Also
 
-- Man page: `docs/cannonball-se.6`
+- Man page: `docs/cannonball-dx.6`
 - Windows compiling guide: `docs/Compiling-On-Windows.txt`
