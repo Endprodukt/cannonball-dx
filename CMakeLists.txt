@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------------------
-# Consolidated CannonBall-SE CMake File
+# CannonBall DX CMake File
 #
-# For CannonBall-SE - https://github.com/J1mbo/cannonball
-# Copyright (c) James Pearce, 2025
+# CannonBall DX is based on CannonBall-SE by James Pearce
+# CannonBall-SE revisions Copyright (c) James Pearce, 2025
 #
 # CannonBall is Copyright (c) Chris White, see: https://github.com/djyt/cannonball
 #
@@ -10,7 +10,7 @@
 # ----------------------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.20)
-project(cannonball-se)
+project(cannonball-dx)
 include(GNUInstallDirs)
 include(FetchContent)
 
@@ -72,10 +72,10 @@ option(PIXEL_ACCURACY "Enable pixel-accurate sprite rendering" ON)
 option(WITH_MP3 "Enable MP3 playback via mpg123" ON)
 
 # --- Option to install man page ---
-option(INSTALL_MANPAGE "Install cannonball-se man page" ON)
+option(INSTALL_MANPAGE "Install cannonball-dx man page" ON)
 
 # --- Source directory base ---
-set(main_base cannonball-se)
+set(main_base cannonball-dx)
 set(main_cpp_base src/main)
 
 # -----------------------------------------------------------------------------
@@ -312,26 +312,26 @@ SOURCE_GROUP(src\\engine FILES ${src_engine})
 SOURCE_GROUP(src\\engine\\data FILES ${src_engine_data})
 SOURCE_GROUP(src\\engine\\audio FILES ${src_engine_audio})
 
-add_executable(cannonball-se ${SRCS})
+add_executable(cannonball-dx ${SRCS})
 
 if(WIN32)
-    target_compile_features(cannonball-se PRIVATE cxx_std_23)
-    target_compile_definitions(cannonball-se PRIVATE
+    target_compile_features(cannonball-dx PRIVATE cxx_std_23)
+    target_compile_definitions(cannonball-dx PRIVATE
         MPG123_NO_LARGENAME      # stop header from mapping foo -> foo_64
         MPG123_NO_64BIT_API
     )
 endif()
 
 if(MSVC)
-    set_property(TARGET cannonball-se
+    set_property(TARGET cannonball-dx
         PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endif()
 
 if(PIXEL_ACCURACY)
-    target_compile_definitions(cannonball-se PRIVATE PIXEL_ACCURACY=1)
+    target_compile_definitions(cannonball-dx PRIVATE PIXEL_ACCURACY=1)
 else()
-    target_compile_definitions(cannonball-se PRIVATE PIXEL_ACCURACY=0)
+    target_compile_definitions(cannonball-dx PRIVATE PIXEL_ACCURACY=0)
 endif()
 
 # --- Dependencies: SDL2 (robust handling), TinyXML2, EGL/GLESv2 -------------------
@@ -382,7 +382,7 @@ endif()
 # EGL / OpenGLES2 via pkg-config (Linux, Android, etc)
 # ——————————————————————————————————————
 # headers used like #include "sdl2/foo.hpp" live under src/main
-target_include_directories(cannonball-se PRIVATE
+target_include_directories(cannonball-dx PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/main"
   "${CB_SCALER_GEN_DIR}/xbrz"
   "${CB_SCALER_GEN_DIR}/hqx"
@@ -394,7 +394,7 @@ if(NOT WIN32)
   pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
   pkg_check_modules(GLESv2 REQUIRED IMPORTED_TARGET glesv2)
   # If you link with pkg-config libs, do it here:
-  target_link_libraries(cannonball-se PRIVATE
+  target_link_libraries(cannonball-dx PRIVATE
     PkgConfig::EGL
     PkgConfig::GLESv2
   )
@@ -402,7 +402,7 @@ else()
   # Windows: prefer ANGLE from vcpkg
   find_package(unofficial-angle CONFIG QUIET)
   if(TARGET unofficial::angle::libEGL AND TARGET unofficial::angle::libGLESv2)
-    target_link_libraries(cannonball-se PRIVATE
+    target_link_libraries(cannonball-dx PRIVATE
       unofficial::angle::libEGL
       unofficial::angle::libGLESv2
     )
@@ -412,12 +412,12 @@ endif()
 
 # Links
 if(_SDL2_TARGETS)
-    target_link_libraries(cannonball-se PRIVATE ${_SDL2_TARGETS})
+    target_link_libraries(cannonball-dx PRIVATE ${_SDL2_TARGETS})
 elseif(_SDL2_LINK_TARGET)
-    target_link_libraries(cannonball-se PRIVATE ${_SDL2_LINK_TARGET})
+    target_link_libraries(cannonball-dx PRIVATE ${_SDL2_LINK_TARGET})
 endif()
 
-target_link_libraries(cannonball-se PRIVATE
+target_link_libraries(cannonball-dx PRIVATE
   ${_TINYXML2_TARGET}
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libEGL>
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libGLESv2>
@@ -429,12 +429,12 @@ target_link_libraries(cannonball-se PRIVATE
 if(UNIX AND NOT APPLE)
     find_library(UDEV_LIBRARY udev)
     if(UDEV_LIBRARY)
-        target_link_libraries(cannonball-se PRIVATE ${UDEV_LIBRARY})
+        target_link_libraries(cannonball-dx PRIVATE ${UDEV_LIBRARY})
     else()
         message(WARNING "libudev not found. Joystick hotplugging may not work.")
     endif()
     # --- Also add debug trace info
-    target_link_options(cannonball-se PRIVATE -rdynamic)
+    target_link_options(cannonball-dx PRIVATE -rdynamic)
 endif()
 
 # --- Optional MPG123/MP3 support ---
@@ -443,9 +443,9 @@ if(WITH_MP3)
     find_library(MPG123_LIBRARY NAMES mpg123 libmpg123)
     if(MPG123_INCLUDE_DIR AND MPG123_LIBRARY)
         message(STATUS "mpg123 found, enabling MP3 playback.")
-        target_compile_definitions(cannonball-se PRIVATE WITH_MP3)
-        target_include_directories(cannonball-se PRIVATE ${MPG123_INCLUDE_DIR})
-        target_link_libraries(cannonball-se PRIVATE ${MPG123_LIBRARY})
+        target_compile_definitions(cannonball-dx PRIVATE WITH_MP3)
+        target_include_directories(cannonball-dx PRIVATE ${MPG123_INCLUDE_DIR})
+        target_link_libraries(cannonball-dx PRIVATE ${MPG123_LIBRARY})
     else()
         message(WARNING "mpg123 not found, building without MP3 playback. Set WITH_MP3=OFF to suppress this warning.")
     endif()
@@ -455,18 +455,18 @@ endif()
 
 # Windows-specific: DirectX and Windows multimedia (if needed)
 if(WIN32)
-    target_link_libraries(cannonball-se PRIVATE dinput8 dxguid winmm)
+    target_link_libraries(cannonball-dx PRIVATE dinput8 dxguid winmm)
 endif()
 
 # Recommended warnings for GCC/Clang
 if(MSVC)
-    target_compile_options(cannonball-se PRIVATE /W4)
+    target_compile_options(cannonball-dx PRIVATE /W4)
 else()
-    target_compile_options(cannonball-se PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(cannonball-dx PRIVATE -Wall -Wextra -Wpedantic)
 
     # Optimize Release builds aggressively (-Ofast) on GCC/Clang
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(cannonball-se PRIVATE $<$<CONFIG:Release>:-Ofast>)
+        target_compile_options(cannonball-dx PRIVATE $<$<CONFIG:Release>:-Ofast>)
     endif()
 endif()
 
@@ -477,17 +477,17 @@ endif()
 # WITH_MARCH_NATIVE=ON enable SSE4.1 on capable hosts through -march=native.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # Compile-time flags (Debug only)
-  target_compile_options(cannonball-se PRIVATE
+  target_compile_options(cannonball-dx PRIVATE
     $<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer -ftrapv>
   )
 
   # Link-time flags (Debug only) — needed for sanitizers
-  target_link_options(cannonball-se PRIVATE
+  target_link_options(cannonball-dx PRIVATE
     $<$<CONFIG:Debug>:-fsanitize=address,undefined>
   )
 
   # Preprocessor defines (Debug only)
-  target_compile_definitions(cannonball-se PRIVATE
+  target_compile_definitions(cannonball-dx PRIVATE
     $<$<CONFIG:Debug>:_FORTIFY_SOURCE=2>
   )
 endif()
@@ -498,9 +498,9 @@ endif()
 if(QUIET_BUILD)
     if(MSVC)
         # Drop to /W3 and silence a few common noise warnings (narrowing, signed/unsigned, deprecations)
-        target_compile_options(cannonball-se PRIVATE /W3 /wd4244 /wd4267 /wd4018 /wd4996)
+        target_compile_options(cannonball-dx PRIVATE /W3 /wd4244 /wd4267 /wd4018 /wd4996)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(cannonball-se PRIVATE
+        target_compile_options(cannonball-dx PRIVATE
             -Wno-unused-parameter
             -Wno-unused-variable
             -Wno-missing-field-initializers
@@ -510,7 +510,7 @@ if(QUIET_BUILD)
             -Wno-format-security)
         if(SUPER_QUIET)
             # Nuke all warnings for user-friendly Release-like configs
-            target_compile_options(cannonball-se PRIVATE
+            target_compile_options(cannonball-dx PRIVATE
             $<$<CONFIG:Release>:-w>
             $<$<CONFIG:RelWithDebInfo>:-w>
             $<$<CONFIG:MinSizeRel>:-w>)
@@ -522,7 +522,7 @@ endif()
 # Add -march=native for GCC/Clang, only in Release builds
 if(WITH_MARCH_NATIVE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
-    target_compile_options(cannonball-se PRIVATE
+    target_compile_options(cannonball-dx PRIVATE
       $<$<COMPILE_LANGUAGE:C>:-march=native>
       $<$<COMPILE_LANGUAGE:CXX>:-march=native>)
   endif()
@@ -530,7 +530,7 @@ endif()
 
 option(WITH_RVV "Enable RISC-V Vector (RVV) SIMD (requires -march=..._v)" OFF)
 if(WITH_RVV AND CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
-    target_compile_options(cannonball-se PRIVATE -march=rv64gcv)
+    target_compile_options(cannonball-dx PRIVATE -march=rv64gcv)
 endif()
 
 
@@ -538,9 +538,9 @@ endif()
 if(ENABLE_PROFILING)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         # Symbols + frame pointers for accurate stacks in perf/flamegraphs
-        target_compile_options(cannonball-se PRIVATE -g -fno-omit-frame-pointer)
+        target_compile_options(cannonball-dx PRIVATE -g -fno-omit-frame-pointer)
         # Avoid LTO which can hide symbols / confuse profilers
-        set_property(TARGET cannonball-se PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
+        set_property(TARGET cannonball-dx PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
     endif()
 
     if(PROFILE_WITH_PERF)
@@ -550,20 +550,20 @@ if(ENABLE_PROFILING)
 
     if(PROFILE_WITH_GPROF)
         message(STATUS "Profiling: gprof via -pg enabled")
-        target_compile_options(cannonball-se PRIVATE -pg)
-        target_link_options(cannonball-se PRIVATE -pg)
+        target_compile_options(cannonball-dx PRIVATE -pg)
+        target_link_options(cannonball-dx PRIVATE -pg)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             include(CheckPIESupported)
             check_pie_supported(LANGUAGES C CXX)
             if(NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
-                target_link_options(cannonball-se PRIVATE -no-pie)
+                target_link_options(cannonball-dx PRIVATE -no-pie)
             endif()
         endif()
     endif()
 
     if(PROFILE_WITH_CALLGRIND)
         message(STATUS "Profiling: callgrind-friendly inlining reduction enabled")
-        target_compile_options(cannonball-se PRIVATE -fno-inline-functions -fno-inline-small-functions)
+        target_compile_options(cannonball-dx PRIVATE -fno-inline-functions -fno-inline-small-functions)
     endif()
 
     if(PROFILE_WITH_GPERFTOOLS)
@@ -593,19 +593,19 @@ if(ENABLE_PROFILING)
             message(FATAL_ERROR "gperftools not found. Install libgoogle-perftools-dev (Ubuntu/WSL) then reconfigure.")
         endif()
 
-        target_include_directories(cannonball-se PRIVATE ${GPERFTOOLS_INCLUDE_DIR})
-        target_link_libraries(cannonball-se PRIVATE ${GPERFTOOLS_PROFILER_LIB} pthread)
+        target_include_directories(cannonball-dx PRIVATE ${GPERFTOOLS_INCLUDE_DIR})
+        target_link_libraries(cannonball-dx PRIVATE ${GPERFTOOLS_PROFILER_LIB} pthread)
 
         # Helpful define (optional): lets you #ifdef around ProfilerStart/Stop
-        target_compile_definitions(cannonball-se PRIVATE HAS_GPERFTOOLS=1)
+        target_compile_definitions(cannonball-dx PRIVATE HAS_GPERFTOOLS=1)
 
         # Make -DPROFILE_WITH_GPERFTOOLS available to your code
-        target_compile_definitions(cannonball-se PRIVATE PROFILE_WITH_GPERFTOOLS=1)
+        target_compile_definitions(cannonball-dx PRIVATE PROFILE_WITH_GPERFTOOLS=1)
         # Notes:
         # - Do NOT combine with -pg (gprof).
         # - You start/stop profiling in code with ProfilerStart/Stop.
         # - At runtime you can tune sampling with CPUPROFILE_FREQUENCY, e.g.:
-        #     CPUPROFILE_FREQUENCY=1000 ./cannonball-se
+        #     CPUPROFILE_FREQUENCY=1000 ./cannonball-dx
     endif()
 
 endif()
@@ -613,13 +613,13 @@ endif()
 # OpenMP: Try to enable, but don't require everywhere
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(cannonball-se PRIVATE OpenMP::OpenMP_CXX)
+    target_link_libraries(cannonball-dx PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
 # Copy out DLLs on Windows
 if(WIN32)
-    add_custom_command(TARGET cannonball-se POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:cannonball-se> $<TARGET_FILE_DIR:cannonball-se>
+    add_custom_command(TARGET cannonball-dx POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:cannonball-dx> $<TARGET_FILE_DIR:cannonball-dx>
         COMMAND_EXPAND_LISTS
     )
 endif()
@@ -633,10 +633,10 @@ configure_file(res/gamecontrollerdb.txt ${CMAKE_CURRENT_BINARY_DIR}/gamecontroll
 # Install: man page & licenses
 # -----------------------------
 
-# Install the cannonball-se(6) man page if present
+# Install the cannonball-dx(6) man page if present
 set(_MAN_CANDIDATES
-  "${CMAKE_SOURCE_DIR}/docs/cannonball-se.6"
-  "${CMAKE_SOURCE_DIR}/cannonball-se.6")
+  "${CMAKE_SOURCE_DIR}/docs/cannonball-dx.6"
+  "${CMAKE_SOURCE_DIR}/cannonball-dx.6")
 foreach(_cand IN LISTS _MAN_CANDIDATES)
   if(EXISTS "${_cand}")
     set(MANPAGE_SOURCE "${_cand}")
