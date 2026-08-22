@@ -31,7 +31,9 @@ public:
     {
         render(pixels, static_cast<uint8_t>(priority));
 
-        if (config.video.widescreen != 2 || oroad.stage_lookup_off != 0x12)
+        // Two right turns keep the stage offset at the lowest entry in each
+        // stage block: Stage 3 rightmost route is 0x10 (not 0x12).
+        if (config.video.widescreen != 2 || oroad.stage_lookup_off != 0x10)
             return;
 
         const int scale = config.video.hires ? 2 : 1;
