@@ -3,8 +3,8 @@
 IDI_ICON1 ICON DISCARDABLE "cannonball.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,41,0,0
- PRODUCTVERSION 1,41,0,0
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -20,11 +20,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "CannonBall DX\0"
-            VALUE "FileVersion", "1.41\0"
+            VALUE "FileVersion", "1\0"
             VALUE "InternalName", "cannonball-dx\0"
             VALUE "OriginalFilename", "cannonball-dx.exe\0"
             VALUE "ProductName", "CannonBall DX\0"
-            VALUE "ProductVersion", "1.41\0"
+            VALUE "ProductVersion", "1\0"
         END
     END
     BLOCK "VarFileInfo"
