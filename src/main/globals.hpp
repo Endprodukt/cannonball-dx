@@ -2,7 +2,7 @@
 
 #include "stdint.hpp"
 
-#define CANNONBALL_DX_VERSION "1.41"
+#define CANNONBALL_DX_VERSION "1"
 
 // Legacy compatibility for inherited CannonBall-SE source that still refers
 // to the previous version macro internally. Active branding uses DX.
