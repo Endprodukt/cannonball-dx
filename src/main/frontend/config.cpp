@@ -418,7 +418,46 @@ namespace
 
 void Config::load()
 {
+    const bool first_run = !std::filesystem::exists(data.cfg_file);
+
     load_base();
+
+    // Do not inherit historical CannonBall-SE CRT/filter defaults on first run.
+    // This deliberately overrides both the hard-coded config_base fallbacks and
+    // an outdated res/config.xml that may still be present in a build folder.
+    if (first_run)
+    {
+        video.widescreen = 0;
+        video.shader_mode = 0;
+        video.shadow_mask = 0;
+        video.maskDim = 100;
+        video.maskBoost = 100;
+        video.scanlines = 0;
+        video.crt_shape = 0;
+        video.vignette = 0;
+        video.noise = 0;
+        video.warpX = 0;
+        video.warpY = 0;
+        video.desaturate = 0;
+        video.desaturate_edges = 0;
+        video.brightboost = 0;
+        video.blargg = 0;
+        video.saturation = 0;
+        video.contrast = 0;
+        video.brightness = 0;
+        video.sharpness = 0;
+        video.resolution = 0;
+        video.gamma = 0;
+        video.hue = 0;
+
+        sound.playback_device = -1;
+
+        // Mark the standard Xbox/SDL profile even if an old resource config
+        // was loaded. It will be materialized to the physical pad after SDL
+        // has initialized and the config is next saved.
+        cfg.put_int("controls.default_gamepad", 1);
+        apply_default_gamepad_legacy_bindings(controls);
+    }
 
     // engine.car_pal remains the live/runtime Ferrari colour. Keep a separate
     // persistent default so Music Select can change the race colour without
@@ -428,6 +467,9 @@ void Config::load()
 
     int scaler_mode = cfg.get_int("video.pixel_scaler", pixel_scaler::OFF);
     int scaler_last = cfg.get_int("video.pixel_scaler_last", pixel_scaler::XBRZ_4X);
+
+    if (first_run)
+        scaler_mode = pixel_scaler::OFF;
 
     if (!pixel_scaler::valid(scaler_mode))
         scaler_mode = pixel_scaler::OFF;
@@ -486,6 +528,11 @@ void Config::load()
 
         disable_migrated_legacy_bindings(controls);
     }
+
+    // load_base() may already have created config.xml using its historical
+    // defaults. Rewrite it now with the canonical first-run profile above.
+    if (first_run)
+        save();
 }
 
 bool Config::save()
