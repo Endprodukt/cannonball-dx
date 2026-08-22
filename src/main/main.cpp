@@ -604,7 +604,7 @@ void prepare_thread() {
 void pin_thread_to_core(std::thread& t, int core_id) {
 #ifdef _WIN32
         std::cerr << "Error setting affinity for thread to core: "
-                  << "CannonBall-SE does not support thread pinning on Windows" << "\n";
+                  << "CannonBall DX does not support thread pinning on Windows" << "\n";
     return;
 #else
     cpu_set_t cpuset;
@@ -654,7 +654,7 @@ static void main_loop() {
     if (threads > 3) threads = 3;
 #else
     // On Linux, we can use up to 4 threads
-    if (threads > 4) threads = 4; // max used by cannonball-se
+    if (threads > 4) threads = 4; // max used by CannonBall DX
 #endif
 
     int using_threading = (threads > 1);
@@ -953,7 +953,7 @@ static bool parse_command_line(int argc, char* argv[]) {
                          "-x                   : Disable single-core RaspberryPi board detection\n" <<
                          "-1                   : Use single-core mode\n" <<
                          "-perftest            : Assess max frame rate possible on this platform\n\n" <<
-                         "CannonBall-SE man page is in the res folder. Open it with 'man -l docs/cannonball-se.6'" << std::endl;
+                         "CannonBall DX man page is in the docs folder. Open it with 'man -l docs/cannonball-dx.6'" << std::endl;
             _Exit(0);
         }
     }
@@ -968,9 +968,9 @@ int main(int argc, char* argv[]) {
 #ifdef __linux__
     install_segv_handler();
 #endif
-    std::cout << "CannonBall-SE " << CANNONBALL_SE_VERSION << "\n";
+    std::cout << "CannonBall DX " << CANNONBALL_DX_VERSION << "\n";
     std::cout << "  An enhanced build of the SEGA Outrun engine by Chris White (https://github.com/djyt/cannonball)\n";
-    std::cout << "  CannonBall-SE is Copyright (c) 2025, James Pearce (https://github.com/J1mbo/cannonball)\n";
+    std::cout << "  Based on CannonBall-SE, Copyright (c) 2025, James Pearce (https://github.com/J1mbo/cannonball)\n";
     std::cout << std::endl;
 
     // Parse command line arguments (config file location, LayOut data)
@@ -1032,11 +1032,11 @@ int main(int argc, char* argv[]) {
     SDL_SetHint(SDL_HINT_QTWAYLAND_WINDOW_FLAGS,
             "StaysOnTop BypassWindowManager");
     if (const char* drv = std::getenv("SDL_VIDEODRIVER"); drv && std::strcmp(drv, "wayland") != 0) {
-        std::cout << "\nCannonball requires wayland video driver for 60fps operation under desktop environment. Start cannonball like:" << std::endl;
-        std::cout << "$ SDL_VIDEODRIVER=""wayland"" build/cannonball" << std::endl;
+        std::cout << "\nCannonBall DX requires wayland video driver for 60fps operation under desktop environment. Start CannonBall DX like:" << std::endl;
+        std::cout << "$ SDL_VIDEODRIVER=""wayland"" build/cannonball-dx" << std::endl;
     }
 #endif
-    SDL_SetHint(SDL_HINT_APP_NAME, "Cannonball");
+    SDL_SetHint(SDL_HINT_APP_NAME, "CannonBall DX");
     //SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "1");
     if (SDL_Init(   SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER |
                     SDL_INIT_HAPTIC | SDL_INIT_EVENTS) == -1) {
