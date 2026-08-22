@@ -58,7 +58,7 @@ inline ExternalOutputSettings& external_output_settings()
 
 // Enhanced-attract showcase wrapper. The normal Enhanced Attract drive is
 // reused directly: no demo level, speed override, traffic override, road reset
-// or engine pause is used. Each camera is announced first, then applied while
+// or engine pause is used. Camera, view name and lamp change together while
 // the live attract drive continues uninterrupted.
 class ExternalOutputsWithAttractShowcase : public ExternalOutputs
 {
@@ -85,7 +85,7 @@ public:
         if (showcase_active)
         {
             // The dedicated VR lamps always follow the camera that is actually
-            // on screen, including during the two-second announcement period.
+            // on screen. View, label and lamp switch in the same update tick.
             view_lamp = 0;
             view1_lamp = 0;
             view2_lamp = 0;
@@ -125,10 +125,9 @@ public:
     }
 
 private:
-    // Each view is announced for two seconds while the previous live camera
-    // continues to drive, then demonstrated for six seconds after the switch.
-    static constexpr uint32_t ANNOUNCE_TIME_TICKS = 60; // 2 seconds at 30 Hz.
-    static constexpr uint32_t VIEW_TIME_TICKS = 180;    // 6 seconds at 30 Hz.
+    // Each showcased camera is active for six seconds. There is deliberately no
+    // announcement lead-in: camera, name and lamp all change together.
+    static constexpr uint32_t VIEW_TIME_TICKS = 180; // 6 seconds at 30 Hz.
 
     // Enhanced Attract starts each driving section at BCD 0x80 (80 seconds).
     // Trigger the in-section presentation at the real halfway point: 40 seconds
@@ -141,7 +140,6 @@ private:
     static constexpr uint32_t POST_LOGO_DELAY_TICKS = 135; // 4.5 seconds at 30 Hz.
 
     bool showcase_active = false;
-    bool showcase_announcing = false;
     bool start_old = false;
 
     // Every real GS_ATTRACT driving section gets one midpoint showcase. After a
@@ -159,7 +157,6 @@ private:
     int previous_game_state = -1;
     int showcase_phase = -1;
     uint8_t phase_view = ORoad::VIEW_ORIGINAL;
-    uint8_t announcement_hold_view = ORoad::VIEW_ORIGINAL;
     uint32_t phase_due_tick = 0;
     Outrun::AttractRuntimeState attract_cycle_state{};
     bool attract_cycle_saved = false;
@@ -224,10 +221,7 @@ private:
         draw_double_row_centered(2, "TRY THREE DIFFERENT VIEWS", prompt_pal);
         draw_double_row_centered(4, "WITH THE VR BUTTONS!", prompt_pal);
 
-        // During the two-second lead-in the upcoming view name is held solid so
-        // the player reads the explanation before the camera actually changes.
-        // Once the view is active, the name returns to the arcade-style blink.
-        if (showcase_announcing || (cannonball::frame & 0x10))
+        if (cannonball::frame & 0x10)
             draw_double_row_centered(7, phase_view_name(), 0x8AA0);
         else
             clear_double_row(7);
@@ -277,17 +271,10 @@ private:
 
         showcase_phase = phase;
         phase_view = VIEWS[phase];
-        announcement_hold_view = oroad.get_view_mode();
-        showcase_announcing = true;
-        phase_due_tick = outrun.tick_counter + ANNOUNCE_TIME_TICKS;
-    }
 
-    void apply_announced_view()
-    {
-        showcase_announcing = false;
-
-        // Camera change only. Vehicle speed, AI, traffic, road position and all
-        // other Enhanced Attract logic continue exactly as they normally would.
+        // Apply the camera immediately. The text below already uses phase_view
+        // and the output wrapper reads oroad.get_view_mode(), so name, camera
+        // and dedicated lamp all change together on this same showcase tick.
         oroad.set_view_mode(phase_view, true);
         phase_due_tick = outrun.tick_counter + VIEW_TIME_TICKS;
     }
@@ -303,8 +290,6 @@ private:
 
     void finish_showcase()
     {
-        showcase_announcing = false;
-
         // Re-sync the normal automatic view timer to the view on screen so the
         // next automatic attract change starts a fresh, predictable cycle.
         if (attract_cycle_saved)
@@ -323,7 +308,6 @@ private:
     void abort_showcase()
     {
         showcase_active = false;
-        showcase_announcing = false;
         showcase_phase = -1;
         attract_cycle_saved = false;
         video.clear_text_ram();
@@ -409,35 +393,19 @@ private:
                 // input as soon as the showcase ends.
                 sync_view_button_states();
 
-                if (showcase_announcing)
+                // Keep the announced view authoritative against the normal
+                // automatic Enhanced Attract cycle and ignored player inputs.
+                if (oroad.get_view_mode() != phase_view)
+                    oroad.set_view_mode(phase_view, true);
+
+                draw_showcase_text();
+
+                if (tick_due(phase_due_tick))
                 {
-                    // Keep the currently displayed camera fixed during the
-                    // two-second announcement. Automatic attract changes and
-                    // player view-button changes are both ignored here.
-                    if (oroad.get_view_mode() != announcement_hold_view)
-                        oroad.set_view_mode(announcement_hold_view, true);
-
-                    draw_showcase_text();
-
-                    if (tick_due(phase_due_tick))
-                        apply_announced_view();
-                }
-                else
-                {
-                    // During the six-second demonstration the announced view
-                    // owns the camera. All VIEW1/2/3/VIEWPOINT input is ignored.
-                    if (oroad.get_view_mode() != phase_view)
-                        oroad.set_view_mode(phase_view, true);
-
-                    draw_showcase_text();
-
-                    if (tick_due(phase_due_tick))
-                    {
-                        if (showcase_phase < 2)
-                            begin_view_phase(showcase_phase + 1);
-                        else
-                            finish_showcase();
-                    }
+                    if (showcase_phase < 2)
+                        begin_view_phase(showcase_phase + 1);
+                    else
+                        finish_showcase();
                 }
             }
         }
