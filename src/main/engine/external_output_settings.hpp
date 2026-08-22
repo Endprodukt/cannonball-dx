@@ -221,7 +221,9 @@ private:
         draw_double_row_centered(2, "TRY THREE DIFFERENT VIEWS", prompt_pal);
         draw_double_row_centered(4, "WITH THE VR BUTTONS!", prompt_pal);
 
-        if (cannonball::frame & 0x10)
+        // Use the exact same fast BIT_3 cadence as the active showcase lamp so
+        // the label and physical button light blink visibly in lockstep.
+        if (cannonball::frame & 0x08)
             draw_double_row_centered(7, phase_view_name(), 0x8AA0);
         else
             clear_double_row(7);
