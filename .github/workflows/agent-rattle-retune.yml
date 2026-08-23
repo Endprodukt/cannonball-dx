@@ -1,9 +1,11 @@
 name: Retune rough-surface FFB
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/rough-surface-crash-ffb
+      - master
+    types:
+      - synchronize
 
 permissions:
   contents: write
