@@ -30,6 +30,7 @@ public:
     void check_start_base();
     void play_music(int index = -1);
     void cycle_music();
+    void cycle_music_base();
 
     // Called by the existing post-output FFB hook in main.cpp. The actual
     // music selection is handled inside OMusic; this call refreshes the
