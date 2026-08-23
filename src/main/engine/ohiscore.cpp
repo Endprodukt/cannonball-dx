@@ -7,7 +7,17 @@
     preserved implementation.
 ***************************************************************************/
 
+// Pre-include the preserved implementation's dependencies before temporarily
+// renaming OHiScore methods. This keeps generic tokens such as init/tick away
+// from unrelated declarations in those headers.
+#include "main.hpp"
+#include "engine/ohud.hpp"
+#include "engine/oinputs.hpp"
+#include "engine/ostats.hpp"
+#include "engine/outils.hpp"
 #include "engine/ohiscore.hpp"
+#include <iostream>
+
 #include "engine/endless_hiscore.hpp"
 
 #define init init_base
