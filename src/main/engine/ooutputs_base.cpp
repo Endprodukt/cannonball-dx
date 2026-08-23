@@ -28,6 +28,7 @@
 #include "engine/oferrari.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/olevelobjs.hpp"
 #include "engine/ooutputs.hpp"
 #include "directx/ffeedback.hpp"
 
@@ -74,18 +75,15 @@ namespace
 
     static bool rough_surface_rattle_active()
     {
-        // The visibly loose road surfaces on the original route are Stage 3A
-        // (Desert) and Stage 5C (Desolation / Stone Hill). Apply the texture
-        // only while all wheels are on the road; skid, crash and off-road FFB
-        // take priority immediately when those states become active.
+        // Contact is supplied by the scenery code itself. No stage-wide
+        // fallback: clean asphalt must always remain clean.
         return
             outrun.game_state == GS_INGAME &&
             !ocrash.crash_counter &&
             !ocrash.skid_counter &&
             !outrun.SkiddingOnRoad() &&
             oferrari.wheel_state == OFerrari::WHEELS_ON &&
-            (oroad.stage_lookup_off == 0x10 ||
-             oroad.stage_lookup_off == 0x22);
+            olevelobjs.rough_surface_contact;
     }
 
     static void apply_surface_rattle()
@@ -93,53 +91,45 @@ namespace
         const uint16_t car_inc =
             oinitengine.car_increment >> 16;
 
-        // At very low speed there should be no artificial buzz.
-        if (car_inc < 0x28)
+        if (car_inc < 0x50)
         {
             forcefeedback::stop();
             return;
         }
 
-        // Keep the loose-surface texture well below the normal master FFB.
+        // Very restrained texture. Alternating constant force feels much
+        // stronger on a wheel than the number suggests, so run close to the
+        // DirectInput floor and let speed change cadence more than amplitude.
         int rattle_gain =
-            (config.controls.ffb_strength * 35 + 50) / 100;
+            (config.controls.ffb_strength * 12 + 50) / 100;
 
         if (rattle_gain < 10)
             rattle_gain = 10;
         else if (rattle_gain > 100)
             rattle_gain = 100;
 
-        // Larger force numbers are softer in the DirectInput backend. Increase
-        // amplitude with speed, but keep it far below off-road/crash forces.
-        int force;
-        if (car_inc < 0x78)
-            force = 6;
-        else if (car_inc < 0xC8)
-            force = 5;
-        else
-            force = 4;
+        const int force = car_inc < 0xD0 ? 6 : 5;
 
-        // Use an irregular but balanced left/right pattern rather than a clean
-        // sine wave. At lower speed each step lasts two game ticks; at higher
-        // speed the pattern advances every tick so the texture tightens up.
         const int phase =
-            car_inc < 0x90
+            car_inc < 0xA0
             ? static_cast<int>((outrun.tick_counter >> 1) & 7)
             : static_cast<int>(outrun.tick_counter & 7);
 
-        static const uint8_t DIRECTIONS[8] =
+        // Balanced irregular texture with two blank beats. The gaps stop the
+        // effect feeling like a steering oscillation or a clean sine wave.
+        static const int8_t PATTERN[8] =
         {
-            0x07, 0x09, 0x07, 0x07,
-            0x09, 0x07, 0x09, 0x09,
+            -1, 1, 0, -1, 1, 0, 1, -1
         };
 
-        // Two softer beats break up the mechanical regularity without creating
-        // a net steering pull to either side.
-        if ((phase == 3 || phase == 7) && force < 7)
-            force++;
+        if (PATTERN[phase] == 0)
+        {
+            forcefeedback::stop();
+            return;
+        }
 
         forcefeedback::set_gain(rattle_gain);
-        forcefeedback::set(DIRECTIONS[phase], force);
+        forcefeedback::set(PATTERN[phase] < 0 ? 0x07 : 0x09, force);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 

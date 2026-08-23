@@ -284,6 +284,10 @@ void OLevelObjs::setup_sprite_routine(oentry* sprite)
 
 void OLevelObjs::do_sprite_routine()
 {
+    // Rebuild this from the scenery actually underneath the car every frame.
+    // This deliberately avoids treating an entire stage as a loose surface.
+    rough_surface_contact = false;
+
     for (uint8_t i = 0; i < osprites.no_sprites; i++)
     {
         oentry* sprite = &osprites.jump_table[i];
@@ -731,6 +735,35 @@ void OLevelObjs::sprite_minitree(oentry* sprite)
     if (road_x >= (160 + config.s16_x_off) || road_x < -(160 + config.s16_x_off)) return;
     sprite->x = road_x;
 
+    // Sand (routine 10) and stone (routine 11) are visual strips rather than
+    // normal collision objects. Reuse the ROM's horizontal sprite bounds only
+    // when the strip has reached the car plane. This makes FFB follow the
+    // visible loose material instead of the stage ID. Routine 14 is an ending
+    // sequence sand sprite and is intentionally excluded.
+    if ((sprite->function_holder == 10 || sprite->function_holder == 11) &&
+        z16 >= 0x1B0)
+    {
+        uint32_t offset_addr = SPRITE_X_OFFS + sprite->type;
+        int16_t x1;
+        int16_t x2;
+
+        if (sprite->control & OSprites::HFLIP)
+        {
+            x2 = (int16_t) roms.rom0.read16(&offset_addr);
+            x1 = (int16_t) roms.rom0.read16(&offset_addr);
+            x2 = -x2;
+            x1 = -x1;
+        }
+        else
+        {
+            x1 = (int16_t) roms.rom0.read16(&offset_addr);
+            x2 = (int16_t) roms.rom0.read16(&offset_addr);
+        }
+
+        if (!(sprite->x + x1 > 0 || sprite->x + x2 < 0))
+            rough_surface_contact = true;
+    }
+
     // 44fc
     int32_t road_y = -(oroad.road_y[oroad.road_p0 + z16] >> 4) + 223;
     sprite->y = road_y; // Set Sprite Y (Screen/Camera)
@@ -767,6 +800,12 @@ void OLevelObjs::sprite_debris(oentry* sprite)
     const uint8_t zoom = 2;
     if (spray_counter != 0 || (sprite->z >> 16) < 0x1B0)
     {
+        // spray_type 0x0C is the existing engine signal for actually passing
+        // through the Desert debris patch. Keep the contact only for that
+        // short built-in spray window, never for the whole stage.
+        if (spray_counter != 0 && spray_type == 0x0C)
+            rough_surface_contact = true;
+
         set_spr_zoom_priority(sprite, zoom);
         return;
     }
@@ -798,7 +837,8 @@ void OLevelObjs::sprite_debris(oentry* sprite)
         return;
     }
 
-    // Passing through spray!
+    // Passing through the actual debris patch.
+    rough_surface_contact = true;
     spray_counter = SPRAY_RESET;
     spray_type = 0xC;
     set_spr_zoom_priority(sprite, zoom);
