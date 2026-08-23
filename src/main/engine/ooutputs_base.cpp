@@ -750,7 +750,6 @@ void OOutputs::tick(int16_t input_motor)
                     do_vibrate_mini();
             }
             break;
-        }
 
         // GamePad: Basic Rumble
         case MODE_RUMBLE:
