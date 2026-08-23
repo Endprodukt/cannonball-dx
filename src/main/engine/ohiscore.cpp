@@ -32,6 +32,8 @@ EndlessHiScore endless_hiscore;
 
 namespace
 {
+    bool endless_score_audio_started = false;
+
     bool endless_gameover_score_screen()
     {
         return outrun.endless_mode &&
@@ -49,6 +51,7 @@ void OHiScore::init()
         return;
     }
 
+    endless_score_audio_started = false;
     endless_hiscore.capture_result(
         outrun.endless_stage,
         ostats.score);
@@ -59,6 +62,17 @@ void OHiScore::tick()
 {
     if (endless_gameover_score_screen())
     {
+        // GS_INIT_BEST2 queues FM_RESET and clears WAV playback immediately
+        // after init(). Start Last Wave on the first real BEST2 tick instead,
+        // after that stock reset has completed, so the Endless score screen
+        // gets the intended OutRun high-score music and sea ambience.
+        if (!endless_score_audio_started && outrun.game_state == GS_BEST2)
+        {
+            osoundint.queue_sound(sound::PCM_WAVE);
+            osoundint.queue_sound(sound::MUSIC_LASTWAVE);
+            endless_score_audio_started = true;
+        }
+
         endless_hiscore.tick_screen();
         return;
     }
@@ -81,6 +95,7 @@ int OHiScore::score_position()
         outrun.endless_mode = false;
         outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
         outrun.freeze_timer = config.engine.freeze_timer;
+        endless_score_audio_started = false;
         return -1;
     }
 
