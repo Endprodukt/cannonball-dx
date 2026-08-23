@@ -88,7 +88,12 @@ public:
         initial_selected = 0;
         letter_selected = 0;
         steering_repeat = 0;
-        accel_old = false;
+
+        // A player may still have the accelerator held when GAME OVER hands
+        // control to the score screen. Seed the edge detector from that live
+        // state so the held pedal cannot immediately enter an unwanted 'A'.
+        accel_old =
+            oinputs.input_acc >= 0x60 || input.is_pressed(Input::ACCEL);
 
         if (result_captured)
         {
