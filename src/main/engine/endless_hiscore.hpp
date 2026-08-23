@@ -314,10 +314,44 @@ private:
             hundredths);
     }
 
+    static void draw_time(uint16_t x, uint16_t y, const char* text, uint16_t col)
+    {
+        uint32_t dst = ohud.translate(x, y);
+
+        while (*text)
+        {
+            uint16_t tile = static_cast<uint8_t>(*text++);
+
+            // The System 16 text font does not use ASCII indexes for the two
+            // OutRun time separators. Use the same tile numbers as the stock
+            // lap/high-score renderer so they do not appear as stray symbols.
+            if (tile == '\'')
+                tile = 0x5E;
+            else if (tile == '"')
+                tile = 0x5F;
+            else if (tile == '.')
+                tile = 0x5B;
+
+            video.write_text16(&dst, (col << 8) | tile);
+        }
+    }
+
     void render()
     {
+        // Fixed column starts keep values aligned independently of how many
+        // digits a stage/distance value happens to have.
+        const uint16_t X_RANK = 1;
+        const uint16_t X_NAME = 4;
+        const uint16_t X_STAGES = 9;
+        const uint16_t X_DISTANCE = 20;
+        const uint16_t X_TIME = 31;
+
         ohud.blit_text_new(11, 1, "ENDLESS OUTRUNNERS", OHud::GREEN);
-        ohud.blit_text_new(2, 4, "# NAME  STAGES    DISTANCE      TIME", OHud::GREY);
+        ohud.blit_text_new(X_RANK, 4, "#", OHud::GREY);
+        ohud.blit_text_new(X_NAME, 4, "NAME", OHud::GREY);
+        ohud.blit_text_new(X_STAGES, 4, "STAGES", OHud::GREY);
+        ohud.blit_text_new(X_DISTANCE, 4, "DISTANCE", OHud::GREY);
+        ohud.blit_text_new(X_TIME + 2, 4, "TIME", OHud::GREY);
 
         for (int row = 0; row < 7; row++)
         {
@@ -325,38 +359,54 @@ private:
             const Entry& entry = scores[pos];
             const int y = 6 + (row * 2);
 
-            // Keep unused rows visually quiet until the table fills up.
+            // Always clear the visible row first. This also removes longer
+            // previous values when a live initials entry changes the contents.
+            ohud.blit_text_new(0, y, "                                        ", OHud::GREY);
+
             if (entry.stages == 0 &&
                 entry.distance_tenths == 0 &&
                 entry.time_ticks == 0 &&
                 entry.score == 0)
             {
-                ohud.blit_text_new(0, y, "                                        ", OHud::GREY);
                 continue;
             }
 
-            char time_text[16];
-            format_time(entry.time_ticks, time_text, sizeof(time_text));
+            const uint16_t col =
+                pos == score_pos ? OHud::GREEN : OHud::GREY;
 
-            char line[64];
-            std::snprintf(
-                line,
-                sizeof(line),
-                "%2d %c%c%c %u STAGES %u.%u KM %s",
-                pos + 1,
+            char rank_text[4];
+            std::snprintf(rank_text, sizeof(rank_text), "%d", pos + 1);
+            ohud.blit_text_new(X_RANK, y, rank_text, col);
+
+            char initials[4] =
+            {
                 entry.initial1,
                 entry.initial2,
                 entry.initial3,
-                static_cast<unsigned>(entry.stages),
-                static_cast<unsigned>(entry.distance_tenths / 10),
-                static_cast<unsigned>(entry.distance_tenths % 10),
-                time_text);
+                0
+            };
+            ohud.blit_text_new(X_NAME, y, initials, col);
 
-            ohud.blit_text_new(
-                0,
-                y,
-                line,
-                pos == score_pos ? OHud::GREEN : OHud::GREY);
+            char stage_text[16];
+            std::snprintf(
+                stage_text,
+                sizeof(stage_text),
+                "%u STAGES",
+                static_cast<unsigned>(entry.stages));
+            ohud.blit_text_new(X_STAGES, y, stage_text, col);
+
+            char distance_text[16];
+            std::snprintf(
+                distance_text,
+                sizeof(distance_text),
+                "%u.%u KM",
+                static_cast<unsigned>(entry.distance_tenths / 10),
+                static_cast<unsigned>(entry.distance_tenths % 10));
+            ohud.blit_text_new(X_DISTANCE, y, distance_text, col);
+
+            char time_text[16];
+            format_time(entry.time_ticks, time_text, sizeof(time_text));
+            draw_time(X_TIME, y, time_text, col);
         }
 
         if (new_entry && !initials_done)
@@ -371,7 +421,10 @@ private:
                 0
             };
             ohud.blit_text_new(6 + letter_selected, 23, selected, OHud::GREEN);
-            ohud.blit_text_new(7, 26, "STEER LETTER  ACCEL SELECT", OHud::GREY);
+
+            // Row 26 is used by the stock FREE PLAY / credits presentation.
+            // Keep the Endless help one row above it so both remain readable.
+            ohud.blit_text_new(7, 25, "STEER LETTER  ACCEL SELECT", OHud::GREY);
         }
         else if (new_entry)
         {
