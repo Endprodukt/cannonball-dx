@@ -409,7 +409,7 @@ void Outrun::main_switch()
             omusic.play_music();
 
             if (!freeze_timer)
-                ostats.time_counter = ostats.TIME[config.engine.dip_time * 40]; // Set time to begin level with
+                ostats.time_counter = endless_mode ? 0x80 : ostats.TIME[config.engine.dip_time * 40];
             else
                 ostats.time_counter = 0x30;
 
@@ -515,7 +515,15 @@ void Outrun::main_switch()
             else if (cannonball_mode == MODE_CONT)
             {
                 if (decrement_timers())
-                    init_best_outrunners();
+                {
+                    // Dedicated Endless score persistence is intentionally a
+                    // separate follow-up. Until then, do not feed an Endless
+                    // result into the existing Continuous high-score table.
+                    if (endless_mode)
+                        game_state = GS_REINIT;
+                    else
+                        init_best_outrunners();
+                }
             }
             else if (cannonball_mode == MODE_TTRIAL)
             {
