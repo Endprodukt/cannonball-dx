@@ -44,11 +44,12 @@
 
 // The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
 // every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
-// screen: suppress physical START and synthesize a press after the five-second
-// Results countdown managed by TimeTrialRecords.
+// screen: suppress physical START, clear the legacy blinking PRESS START row,
+// redraw our Results page, and synthesize a press after five seconds.
 #define is_pressed(ARG) \
-    is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
-    time_trial_records.synthetic_input(ARG)
+    (is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG)) || \
+    (time_trial_records.suppress_physical_input(ARG) && \
+     (video.clear_text_ram(), time_trial_records.synthetic_input(ARG)))
 
 // STATE_INIT_MENU occurs only in the preserved Time Trial GAME OVER exit. When
 // the synthetic START fires, remain in the game runtime and enter the existing
