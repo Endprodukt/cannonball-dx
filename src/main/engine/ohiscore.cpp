@@ -13,6 +13,7 @@
 #include "main.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
 #include "engine/ohiscore.hpp"
@@ -41,6 +42,22 @@ namespace
                (outrun.game_state == GS_INIT_BEST2 ||
                 outrun.game_state == GS_BEST2);
     }
+
+    void stabilize_endless_score_background()
+    {
+        // Endless can finish on any of the fifteen road profiles. Reusing that
+        // live road state makes the Best OutRunners sunset/horizon sit at a
+        // different height depending on the final random stage. Reset only the
+        // road renderer to its flat Stage 1 baseline, then lock the dedicated
+        // high-score horizon used by the stock EndGame setup.
+        oroad.init();
+        oroad.set_view_mode(ORoad::VIEW_ORIGINAL, true);
+        oroad.horizon_base = 0x154;
+        oroad.horizon_set = 1;
+        oroad.road_pos = 0;
+        oroad.road_pos_change = 0;
+        oroad.tilemap_h_target = 0;
+    }
 }
 
 void OHiScore::init()
@@ -55,6 +72,8 @@ void OHiScore::init()
     endless_hiscore.capture_result(
         outrun.endless_stage,
         ostats.score);
+
+    stabilize_endless_score_background();
     endless_hiscore.init_screen();
 }
 
