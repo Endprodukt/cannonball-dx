@@ -97,25 +97,25 @@ namespace
             return;
         }
 
-        // Keep the peak deliberately soft, but make each hit very short.
-        // Single-tick impulses separated by silence feel more like individual
-        // stones under the tyres and less like a continuous steering shake.
-        const int rattle_gain = 10;
+        // Lower the individual peak further, while increasing cadence.
+        // The result should feel like finer, quicker grit rather than a harder
+        // shake: more frequent single-tick taps, each one noticeably weaker.
+        const int rattle_gain = 7;
         const int force = 6;
 
         const int phase =
-            static_cast<int>(outrun.tick_counter & 7);
+            static_cast<int>(outrun.tick_counter & 15);
 
-        // One-tick, irregular impulses with generous gaps. Speed changes how
-        // many impulses are allowed through, not their peak strength.
-        static const int8_t PATTERN_SLOW[8] =
+        static const int8_t PATTERN_SLOW[16] =
         {
-            -1, 0, 0, 0, 0, 1, 0, 0
+            -1, 0, 1, 0, 0, -1, 0, 1,
+             0, 0, -1, 0, 1, 0, 0, -1
         };
 
-        static const int8_t PATTERN_FAST[8] =
+        static const int8_t PATTERN_FAST[16] =
         {
-            -1, 0, 0, 1, 0, 0, -1, 0
+            -1, 0, 1, 0, -1, 0, 1, 0,
+            -1, 0, 1, 0, -1, 0, 1, 0
         };
 
         const int8_t* pattern =
