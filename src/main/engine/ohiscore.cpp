@@ -72,7 +72,17 @@ int OHiScore::score_position()
     // reports a valid entry. Endless persists its own XML table, so suppress
     // that legacy save and keep hiscores_continuous.xml untouched.
     if (endless_gameover_score_screen())
+    {
+        endless_hiscore.save_if_needed();
+
+        // GS_BEST2 immediately performs the full engine reset after this call.
+        // Return the runtime to the normal Original attract state first so an
+        // Endless MODE_CONT flag cannot leak into the demo/audio sequence.
+        outrun.endless_mode = false;
+        outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
+        outrun.freeze_timer = config.engine.freeze_timer;
         return -1;
+    }
 
     return score_position_base();
 }
