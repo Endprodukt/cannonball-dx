@@ -247,13 +247,15 @@ private:
             entry.score = Utils::from_hex_string(
                 data.get_string(tag + ".score", "0"));
 
-            const std::string i1 = data.get_string(tag + ".initial1", ".");
-            const std::string i2 = data.get_string(tag + ".initial2", ".");
-            const std::string i3 = data.get_string(tag + ".initial3", ".");
+            // Endless owns its own file format. '_' denotes an unused initial,
+            // leaving '.' available as a real arcade-style initial.
+            const std::string i1 = data.get_string(tag + ".initial1", "_");
+            const std::string i2 = data.get_string(tag + ".initial2", "_");
+            const std::string i3 = data.get_string(tag + ".initial3", "_");
 
-            entry.initial1 = i1.empty() || i1[0] == '.' ? ' ' : i1[0];
-            entry.initial2 = i2.empty() || i2[0] == '.' ? ' ' : i2[0];
-            entry.initial3 = i3.empty() || i3[0] == '.' ? ' ' : i3[0];
+            entry.initial1 = i1.empty() || i1[0] == '_' ? ' ' : i1[0];
+            entry.initial2 = i2.empty() || i2[0] == '_' ? ' ' : i2[0];
+            entry.initial3 = i3.empty() || i3[0] == '_' ? ' ' : i3[0];
         }
     }
 
@@ -271,11 +273,11 @@ private:
             data.put_int(tag + ".time_ticks", entry.time_ticks);
             data.put_string(tag + ".score", Utils::to_hex_string(entry.score));
             data.put_string(tag + ".initial1",
-                entry.initial1 == ' ' ? "." : std::string(1, entry.initial1));
+                entry.initial1 == ' ' ? "_" : std::string(1, entry.initial1));
             data.put_string(tag + ".initial2",
-                entry.initial2 == ' ' ? "." : std::string(1, entry.initial2));
+                entry.initial2 == ' ' ? "_" : std::string(1, entry.initial2));
             data.put_string(tag + ".initial3",
-                entry.initial3 == ' ' ? "." : std::string(1, entry.initial3));
+                entry.initial3 == ' ' ? "_" : std::string(1, entry.initial3));
         }
 
         xml_parser::write_xml(filename(), data);
