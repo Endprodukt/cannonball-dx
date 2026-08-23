@@ -78,6 +78,20 @@ void OInitEngine::init(int8_t level)
     road_width_merge       = 0;
     route_updated          = 0;
 
+    // Endless always begins on the normal first stage and at Easy traffic.
+    // The history contains the current stage so the first random transition
+    // cannot immediately select stage 1 again.
+    outrun.endless_stage = 0;
+    endless_recent_count = 0;
+    if (outrun.endless_mode)
+    {
+        endless_recent_levels[0] = 0;
+        endless_recent_levels[1] = 0xFF;
+        endless_recent_levels[2] = 0xFF;
+        endless_recent_count = 1;
+        outrun.custom_traffic = 2;
+    }
+
 	init_road_seg_master();
 
     // Road Renderer: Setup correct stage address 
@@ -106,6 +120,116 @@ void OInitEngine::init(int8_t level)
     }
 
     osoundint.reset();
+}
+
+uint8_t OInitEngine::select_endless_level()
+{
+    // Prefer a random level that has not appeared in the last three stages.
+    // The fallback scan guarantees progress even if random repeatedly hits a
+    // blocked entry.
+    for (int attempt = 0; attempt < 32; attempt++)
+    {
+        const uint8_t candidate = CONTINUOUS_LEVELS[outils::random() % 15];
+        bool blocked = false;
+
+        for (uint8_t i = 0; i < endless_recent_count; i++)
+        {
+            if (endless_recent_levels[i] == candidate)
+            {
+                blocked = true;
+                break;
+            }
+        }
+
+        if (!blocked)
+        {
+            if (endless_recent_count < 3)
+                endless_recent_count++;
+
+            for (int i = endless_recent_count - 1; i > 0; i--)
+                endless_recent_levels[i] = endless_recent_levels[i - 1];
+
+            endless_recent_levels[0] = candidate;
+            return candidate;
+        }
+    }
+
+    for (int i = 0; i < 15; i++)
+    {
+        const uint8_t candidate = CONTINUOUS_LEVELS[i];
+        bool blocked = false;
+
+        for (uint8_t j = 0; j < endless_recent_count; j++)
+        {
+            if (endless_recent_levels[j] == candidate)
+            {
+                blocked = true;
+                break;
+            }
+        }
+
+        if (!blocked)
+        {
+            if (endless_recent_count < 3)
+                endless_recent_count++;
+
+            for (int j = endless_recent_count - 1; j > 0; j--)
+                endless_recent_levels[j] = endless_recent_levels[j - 1];
+
+            endless_recent_levels[0] = candidate;
+            return candidate;
+        }
+    }
+
+    return 0;
+}
+
+void OInitEngine::advance_endless_stage()
+{
+    oroad.road_pos         = 0;
+    oroad.tilemap_h_target = 0;
+
+    ++outrun.endless_stage;
+
+    // Reuse the existing fifteen timing slots cyclically. Clear the slot before
+    // it becomes the current stage again so an Endless run can continue without
+    // writing past the original Continuous arrays.
+    ostats.cur_stage = static_cast<int8_t>(outrun.endless_stage % 15);
+    ostats.stage_counters[ostats.cur_stage] = 0;
+    ostats.stage_times[ostats.cur_stage][0] = 0;
+    ostats.stage_times[ostats.cur_stage][1] = 0;
+    ostats.stage_times[ostats.cur_stage][2] = 0;
+
+    // Start at Easy density and add one on-screen traffic slot every three
+    // stages until the engine maximum of eight is reached.
+    uint16_t traffic = 2 + (outrun.endless_stage / 3);
+    if (traffic > 8)
+        traffic = 8;
+    outrun.custom_traffic = static_cast<uint8_t>(traffic);
+
+    oroad.stage_lookup_off = select_endless_level();
+    init_road_seg_master();
+    osprites.clear_palette_data();
+
+    // Init next tilemap
+    otiles.set_vertical_swap();
+
+    // Reload smoke data
+    osmoke.setup_smoke_sprite(true);
+
+    // Fade toward the newly selected stage using the existing OutRun palette
+    // transition machinery.
+    end_stage_props |= BIT_1;
+    end_stage_props |= BIT_2;
+    opalette.pal_manip_ctrl = 1;
+    opalette.setup_sky_change();
+
+    checkpoint_marker = -1;
+
+    // Keep the Continuous behaviour of occasionally changing the radio track,
+    // but continue doing so for arbitrarily long runs.
+    if (outrun.endless_stage && (outrun.endless_stage % 5) == 0)
+        omusic.cycle_music();
 }
 
 // Source: 0x8402
@@ -385,9 +509,7 @@ void OInitEngine::check_road_split()
             init_split5();
             break;
 
-        // Stage 7: Once the road curve ends, calls init_split7 which swaps the roads - left becomes
-        //          right and vice-versa. This is because we join a new road, which merges the same
-        //          way that we left the last level.
+        // Stage 7: Once the road curve ends, calls init_split7 which updates rd_split_state to 7.
         case 7:
             init_split6();
             break;
@@ -510,43 +632,53 @@ void OInitEngine::check_stage()
     }
     else if (outrun.cannonball_mode == Outrun::MODE_CONT)
     {
-        oroad.road_pos         = 0;
-        oroad.tilemap_h_target = 0;
-        
-        if ((ostats.cur_stage + 1) == 15)
+        if (outrun.endless_mode)
         {
             if (outrun.game_state == GS_INGAME)
-                init_bonus(outils::random() % 5);
+                advance_endless_stage();
             else
                 reload_stage1();
         }
         else
         {
-            oroad.stage_lookup_off = CONTINUOUS_LEVELS[++ostats.cur_stage];
-            init_road_seg_master();
-            osprites.clear_palette_data();
-
-            // Init next tilemap
-            otiles.set_vertical_swap(); // Tell tilemap to v-scroll off/on
-
-            // Reload smoke data
-            osmoke.setup_smoke_sprite(true);
-
-            // Update palette
-            oinitengine.end_stage_props |= BIT_1; // Don't bump stage offset when fetching next palette
-            oinitengine.end_stage_props |= BIT_2;
-            opalette.pal_manip_ctrl = 1;
-            opalette.setup_sky_change();
+            oroad.road_pos         = 0;
+            oroad.tilemap_h_target = 0;
             
-            // Denote Checkpoint Passed
-            checkpoint_marker = -1;
-
-            // Cycle Music every 5 stages
-            if (outrun.game_state == GS_INGAME)
+            if ((ostats.cur_stage + 1) == 15)
             {
-                if (ostats.cur_stage == 5 || ostats.cur_stage == 10)
-                    omusic.cycle_music();
-            }              
+                if (outrun.game_state == GS_INGAME)
+                    init_bonus(outils::random() % 5);
+                else
+                    reload_stage1();
+            }
+            else
+            {
+                oroad.stage_lookup_off = CONTINUOUS_LEVELS[++ostats.cur_stage];
+                init_road_seg_master();
+                osprites.clear_palette_data();
+
+                // Init next tilemap
+                otiles.set_vertical_swap(); // Tell tilemap to v-scroll off/on
+
+                // Reload smoke data
+                osmoke.setup_smoke_sprite(true);
+
+                // Update palette
+                oinitengine.end_stage_props |= BIT_1; // Don't bump stage offset when fetching next palette
+                oinitengine.end_stage_props |= BIT_2;
+                opalette.pal_manip_ctrl = 1;
+                opalette.setup_sky_change();
+                
+                // Denote Checkpoint Passed
+                checkpoint_marker = -1;
+
+                // Cycle Music every 5 stages
+                if (outrun.game_state == GS_INGAME)
+                {
+                    if (ostats.cur_stage == 5 || ostats.cur_stage == 10)
+                        omusic.cycle_music();
+                }              
+            }
         }
     }
 
@@ -898,6 +1030,7 @@ void OInitEngine::set_granular_position()
         granular_rem -= 0x40;
         result++;
     }
+
     oroad.pos_fine += result;
 }
 

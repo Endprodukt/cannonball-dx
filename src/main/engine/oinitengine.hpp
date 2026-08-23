@@ -28,7 +28,7 @@ public:
     int16_t ingame_counter;
 
     // Road Split State
-    // 0 = No Road Split
+    // 0 = No road split. Check current road position with ROAD_END.
     // 1 = Init Road Split
     // 2 = Road Split
     // 3 = Beginning of split. User must choose.
@@ -146,6 +146,14 @@ private:
     // 0 = Route Info Not Updated
     // 1 = Route Info Updated
     int8_t route_updated;
+
+    // Endless keeps the three most recently selected level offsets out of the
+    // random pool, preventing immediate repeats while still using only the
+    // original fifteen OutRun stages.
+    uint8_t endless_recent_levels[3];
+    uint8_t endless_recent_count;
+    uint8_t select_endless_level();
+    void advance_endless_stage();
     
     void setup_stage1();
     void check_road_split();
