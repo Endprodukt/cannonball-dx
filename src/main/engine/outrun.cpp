@@ -44,23 +44,20 @@
 
 // The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
 // every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
-// screen: suppress physical START, clear the legacy blinking PRESS START row,
-// redraw our Results page, and synthesize a press after five seconds.
-//
-// The replacement deliberately begins with the original method token: the
-// source contains `input.is_pressed(...)`, so a leading parenthesis here would
-// incorrectly expand to `input.(...)`.
+// screen: suppress physical START, clear the old PRESS START row, redraw the
+// Results page and synthesize a press after five seconds. When that happens we
+// move to GS_INIT_BEST2 before the preserved assignment executes.
 #define is_pressed(ARG) \
     is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
     (time_trial_records.suppress_physical_input(ARG) && \
-     (video.clear_text_ram(), time_trial_records.synthetic_input(ARG)))
+     (video.clear_text_ram(), time_trial_records.synthetic_input(ARG)) && \
+     (time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2, true))
 
-// STATE_INIT_MENU occurs only in the preserved Time Trial GAME OVER exit. The
-// original `if` has no braces, so this replacement must remain one expression
-// statement. Comma operators perform all three actions only when the synthetic
-// START condition is true.
-#define STATE_INIT_MENU \
-    STATE_GAME, time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2
+// The old Time Trial branch assigns STATE_INIT_MENU after its START check.
+// At this point our synthetic-input hook above has already selected
+// GS_INIT_BEST2, so keep the outer CannonBall state in-game. This removes the
+// frontend-menu route completely rather than trying to undo it afterwards.
+#define STATE_INIT_MENU STATE_GAME
 
 #include "outrun_base.cpp"
 
