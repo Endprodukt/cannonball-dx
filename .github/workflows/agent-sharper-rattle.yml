@@ -1,4 +1,4 @@
-name: Tune sharper surface rattle
+name: Fix surface-rattle branch syntax
 
 on:
   push:
@@ -17,72 +17,23 @@ jobs:
         with:
           ref: agent/rough-surface-crash-ffb
           fetch-depth: 0
-      - name: Tune surface rattle
+      - name: Fix syntax
         shell: python
         run: |
           from pathlib import Path
           p = Path('src/main/engine/ooutputs_base.cpp')
           s = p.read_text()
-          old = '''        // Very restrained texture. Alternating constant force feels much
-        // stronger on a wheel than the number suggests, so run close to the
-        // DirectInput floor and let speed change cadence more than amplitude.
-        int rattle_gain =
-            (config.controls.ffb_strength * 12 + 50) / 100;
-
-        if (rattle_gain < 10)
-            rattle_gain = 10;
-        else if (rattle_gain > 100)
-            rattle_gain = 100;
-
-        const int force = car_inc < 0xD0 ? 6 : 5;
-
-        const int phase =
-            car_inc < 0xA0
-            ? static_cast<int>((outrun.tick_counter >> 1) & 7)
-            : static_cast<int>(outrun.tick_counter & 7);
-
-        // Balanced irregular texture with two blank beats. The gaps stop the
-        // effect feeling like a steering oscillation or a clean sine wave.
-        static const int8_t PATTERN[8] =
-        {
-            -1, 1, 0, -1, 1, 0, 1, -1
-        };
-'''
-          new = '''        // Keep the peak deliberately soft, but make each hit very short.
-        // Single-tick impulses separated by silence feel more like individual
-        // stones under the tyres and less like a continuous steering shake.
-        const int rattle_gain = 10;
-        const int force = 6;
-
-        const int phase =
-            static_cast<int>(outrun.tick_counter & 7);
-
-        // One-tick, irregular impulses with generous gaps. Speed changes how
-        // many impulses are allowed through, not their peak strength.
-        static const int8_t PATTERN_SLOW[8] =
-        {
-            -1, 0, 0, 0, 0, 1, 0, 0
-        };
-
-        static const int8_t PATTERN_FAST[8] =
-        {
-            -1, 0, 0, 1, 0, 0, -1, 0
-        };
-
-        const int8_t* pattern =
-            car_inc < 0xB0 ? PATTERN_SLOW : PATTERN_FAST;
-'''
+          old = '''            break;\n        }\n\n        // GamePad: Basic Rumble\n'''
+          new = '''            break;\n\n        // GamePad: Basic Rumble\n'''
           if old not in s:
-              raise SystemExit('target block not found')
-          s = s.replace(old, new, 1)
-          s = s.replace('''        if (PATTERN[phase] == 0)\n        {\n            forcefeedback::stop();\n            return;\n        }\n\n        forcefeedback::set_gain(rattle_gain);\n        forcefeedback::set(PATTERN[phase] < 0 ? 0x07 : 0x09, force);\n''', '''        if (pattern[phase] == 0)\n        {\n            forcefeedback::stop();\n            return;\n        }\n\n        forcefeedback::set_gain(rattle_gain);\n        forcefeedback::set(pattern[phase] < 0 ? 0x07 : 0x09, force);\n''', 1)
-          p.write_text(s)
-      - name: Commit patch
+              raise SystemExit('syntax target not found')
+          p.write_text(s.replace(old, new, 1))
+      - name: Commit fix
         shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add src/main/engine/ooutputs_base.cpp
           git diff --cached --quiet && exit 0
-          git commit -m "Make rough-surface FFB subtler and sharper"
+          git commit -m "Fix FFB output switch syntax"
           git push
