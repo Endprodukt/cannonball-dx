@@ -912,7 +912,7 @@ void OOutputs::diag_right(int16_t input_motor, uint8_t hw_motor_limit)
     }
     else
     {
-        ohud.blit_text_new(col2, 11, "FAIL 2");
+        ohud.blit_text_new(col2, 11, "FAIL 2", 0x80);
         motor_enabled = false;
         motor_state   = STATE_DONE;
         return;
@@ -992,14 +992,17 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
             calibrate_left(input_motor, hw_motor_limit);
             break;
 
+        // Calibrate Right Limit
         case STATE_RIGHT:
             calibrate_right(input_motor, hw_motor_limit);
             break;
 
+        // Return to Centre
         case STATE_CENTRE:
             calibrate_centre(input_motor, hw_motor_limit);
             break;
 
+        // Clear Screen & Exit Calibration
         case STATE_DONE:
             calibrate_done();
             break;
