@@ -481,16 +481,18 @@ private:
 
     void render_records()
     {
-        const uint16_t X_COURSE = 0;
+        // Match the fixed-column approach used by the Endless table. Long
+        // course names and changing digit counts can never move another field.
+        const uint16_t X_COURSE = 1;
         const uint16_t X_NAME = 17;
-        const uint16_t X_TIME = 21;
-        const uint16_t X_OVT = 31;
-        const uint16_t X_CR = 36;
+        const uint16_t X_TIME = 22;
+        const uint16_t X_OVT = 32;
+        const uint16_t X_CR = 37;
 
         ohud.blit_text_new(10, 1, "TIME TRIAL RECORDS", OHud::GREEN);
         ohud.blit_text_new(X_COURSE, 3, "COURSE", OHud::GREY);
         ohud.blit_text_new(X_NAME, 3, "NAME", OHud::GREY);
-        ohud.blit_text_new(X_TIME + 1, 3, "TIME", OHud::GREY);
+        ohud.blit_text_new(X_TIME + 2, 3, "TIME", OHud::GREY);
         ohud.blit_text_new(X_OVT, 3, "OVT", OHud::GREY);
         ohud.blit_text_new(X_CR, 3, "CR", OHud::GREY);
 
@@ -501,11 +503,15 @@ private:
             const uint16_t colour =
                 i == current_track ? OHud::GREEN : OHud::GREY;
 
+            // Clear the entire 40-column row first, exactly like the Endless
+            // table. This prevents stale or longer previous values from making
+            // the columns appear to drift.
             ohud.blit_text_new(
-                X_COURSE,
+                0,
                 y,
-                "                ",
-                colour);
+                "                                        ",
+                OHud::GREY);
+
             ohud.blit_text_new(X_COURSE, y, track_name(i), colour);
 
             if (!record.total_counter)
