@@ -247,6 +247,7 @@ void OStats::init_next_level()
         outrun.endless_mode &&
         outrun.cannonball_mode == Outrun::MODE_CONT &&
         outrun.game_state == GS_INGAME &&
+        extend_play_timer == 0 &&
         oinitengine.checkpoint_marker &&
         !outrun.freeze_timer;
 
