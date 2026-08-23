@@ -17,6 +17,22 @@
 
 OStats ostats;
 
+namespace
+{
+    uint8_t endless_checkpoint_time(uint16_t stage)
+    {
+        // Endless starts more generously than Continuous and becomes steadily
+        // tighter after every three stages. Once traffic has reached its eight
+        // car ceiling, the shrinking checkpoint award continues increasing the
+        // challenge. Never award less than 30 seconds.
+        int seconds = 60 - static_cast<int>(stage / 3) * 2;
+        if (seconds < 30)
+            seconds = 30;
+
+        return static_cast<uint8_t>(((seconds / 10) << 4) | (seconds % 10));
+    }
+}
+
 // Original buggy millisecond lookup table (Used when 64 frames = 1 second)
 // Conversion table from 0 to 64 -> Millisecond value
 const static uint8_t LAP_MS_64[] = 
@@ -209,23 +225,35 @@ void OStats::init_next_level()
             if (outrun.cannonball_mode == outrun.MODE_ORIGINAL)
                 time_counter = outils::bcd_add(time_counter, TIME[time_lookup]);
             else if (outrun.cannonball_mode == outrun.MODE_CONT)
-                time_counter = outils::bcd_add(time_counter, 0x55);
+            {
+                const uint8_t time_extend = outrun.endless_mode ?
+                    endless_checkpoint_time(outrun.endless_stage) : 0x55;
+                time_counter = outils::bcd_add(time_counter, time_extend);
+            }
 
             if (time_counter > 0x99) time_counter = 0x99;
         }
+
+        int previous_stage = cur_stage - 1;
+        if (outrun.endless_mode && previous_stage < 0)
+            previous_stage = 14;
 
         // Draw last laptime
         // Note there is a bug in the original code here, where the current ms value is displayed, instead of the ms value from the last lap time
         ohud.blit_text1(TEXT1_LAPTIME1);
         ohud.blit_text1(TEXT1_LAPTIME2);
-        ohud.draw_lap_timer(0x110554, stage_times[cur_stage-1], config.engine.fix_bugs ? lap_ms[stage_times[cur_stage-1][2]] : ms_value);
+        ohud.draw_lap_timer(0x110554, stage_times[previous_stage], config.engine.fix_bugs ? lap_ms[stage_times[previous_stage][2]] : ms_value);
 
         otraffic.set_max_traffic();
         osoundint.queue_sound(sound::YM_CHECKPOINT);
         osoundint.queue_sound(sound::VOICE_CHECKPOINT);
         
-        // Update Stage Number on HUD
-        ohud.draw_stage_number(0x110d76, cur_stage+1);
+        // Update Stage Number on HUD. Endless can continue indefinitely, but
+        // the original two-digit HUD naturally tops out at 99.
+        uint16_t stage_number = outrun.endless_mode ? outrun.endless_stage + 1 : cur_stage + 1;
+        if (stage_number > 99)
+            stage_number = 99;
+        ohud.draw_stage_number(0x110d76, static_cast<uint8_t>(stage_number));
         // No need to redraw the stage info as that was a bug in the original game
     }
 }
