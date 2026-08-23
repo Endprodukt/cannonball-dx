@@ -1,0 +1,50 @@
+name: Retune rough-surface FFB
+
+on:
+  push:
+    branches:
+      - agent/rough-surface-crash-ffb
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rough-surface-crash-ffb
+          fetch-depth: 0
+
+      - name: Make surface impulses faster and weaker
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('src/main/engine/ooutputs_base.cpp')
+          s = p.read_text()
+          old = '''        // Keep the peak deliberately soft, but make each hit very short.\n        // Single-tick impulses separated by silence feel more like individual\n        // stones under the tyres and less like a continuous steering shake.\n        const int rattle_gain = 10;\n        const int force = 6;\n\n        const int phase =\n            static_cast<int>(outrun.tick_counter & 7);\n\n        // One-tick, irregular impulses with generous gaps. Speed changes how\n        // many impulses are allowed through, not their peak strength.\n        static const int8_t PATTERN_SLOW[8] =\n        {\n            -1, 0, 0, 0, 0, 1, 0, 0\n        };\n\n        static const int8_t PATTERN_FAST[8] =\n        {\n            -1, 0, 0, 1, 0, 0, -1, 0\n        };\n\n        const int8_t* pattern =\n            car_inc < 0xB0 ? PATTERN_SLOW : PATTERN_FAST;\n'''
+          new = '''        // Lower the individual peak further, while increasing cadence.\n        // The result should feel like finer, quicker grit rather than a harder\n        // shake: more frequent single-tick taps, each one noticeably weaker.\n        const int rattle_gain = 7;\n        const int force = 6;\n\n        const int phase =\n            static_cast<int>(outrun.tick_counter & 15);\n\n        static const int8_t PATTERN_SLOW[16] =\n        {\n            -1, 0, 1, 0, 0, -1, 0, 1,\n             0, 0, -1, 0, 1, 0, 0, -1\n        };\n\n        static const int8_t PATTERN_FAST[16] =\n        {\n            -1, 0, 1, 0, -1, 0, 1, 0,\n            -1, 0, 1, 0, -1, 0, 1, 0\n        };\n\n        const int8_t* pattern =\n            car_inc < 0xB0 ? PATTERN_SLOW : PATTERN_FAST;\n'''
+          if old not in s:
+              raise SystemExit('surface rattle block not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/main/directx/ffeedback.cpp')
+          s = p.read_text()
+          old = '''    void set_gain(int percent)\n    {\n        if (percent < 10)\n            percent = 10;\n        else if (percent > 100)\n            percent = 100;\n\n        g_gain_percent = percent;\n    }\n'''
+          new = '''    void set_gain(int percent)\n    {\n        // Allow very low effect-specific gains. Existing gameplay callers use\n        // 10% or more; the lower range is useful for fine surface textures.\n        if (percent < 1)\n            percent = 1;\n        else if (percent > 100)\n            percent = 100;\n\n        g_gain_percent = percent;\n    }\n'''
+          if old not in s:
+              raise SystemExit('set_gain block not found')
+          p.write_text(s.replace(old, new, 1))
+
+      - name: Commit tuning
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main/engine/ooutputs_base.cpp src/main/directx/ffeedback.cpp
+          git diff --cached --quiet && exit 0
+          git commit -m "Make rough-surface FFB faster and weaker"
+          git push
