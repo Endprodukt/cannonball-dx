@@ -100,7 +100,7 @@ namespace
         // Lower the individual peak further, while increasing cadence.
         // The result should feel like finer, quicker grit rather than a harder
         // shake: more frequent single-tick taps, each one noticeably weaker.
-        const int rattle_gain = 7;
+        const int rattle_gain = 5;
         const int force = 6;
 
         const int phase =
