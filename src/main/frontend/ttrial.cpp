@@ -6,6 +6,8 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <string>
+
 #include "sdl2/input.hpp"
 
 #include "frontend/ttrial.hpp"
