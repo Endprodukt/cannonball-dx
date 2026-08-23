@@ -48,9 +48,9 @@ public:
 
     void tick_run(uint16_t speed_kph)
     {
-        // The first GS_INGAME tick is also the safest run boundary: it avoids
-        // counting the start countdown and automatically resets after a prior
-        // Endless result without needing another hook in the core engine.
+        // OStats::do_timers() is driven by the emulated vertical interrupt at
+        // 60 Hz (30-fps mode calls vint twice). The first GS_INGAME sample is
+        // therefore also a clean run boundary that excludes the start countdown.
         if (!run_active)
             begin_run();
 
@@ -62,11 +62,12 @@ public:
     {
         pending.stages = completed_stages;
 
-        // Game logic advances at 30 Hz. Summing displayed KPH and dividing by
-        // 10800 yields tenths of a kilometre:
-        //   KPH * (1/30 h/3600) * 10 = KPH / 10800.
-        pending.distance_tenths =
-            static_cast<uint32_t>(speed_tick_sum / 10800ULL);
+        // Sum the exact KPH value already used by the in-game speedometer.
+        // At 60 samples/second, division by 21600 converts the accumulated
+        // KPH samples to tenths of a kilometre:
+        //   KPH * (1/60 h/3600) * 10 = KPH / 21600.
+        pending.distance_tenths = static_cast<uint32_t>(
+            (speed_tick_sum + 10800ULL) / 21600ULL);
         pending.time_ticks = run_ticks;
         pending.score = score;
         pending.initial1 = ' ';
@@ -81,6 +82,7 @@ public:
         load();
 
         score_pos = -1;
+        display_start = 0;
         new_entry = false;
         initials_done = false;
         initial_selected = 0;
@@ -107,6 +109,12 @@ public:
 
             scores[score_pos] = pending;
             new_entry = true;
+
+            display_start = score_pos - 3;
+            if (display_start < 0)
+                display_start = 0;
+            else if (display_start > NO_SCORES - 7)
+                display_start = NO_SCORES - 7;
 
             // The preserved high-score state sets its own timer before calling
             // init(). Restore the configured entry time because the original
@@ -179,6 +187,7 @@ private:
     bool run_active = false;
 
     int score_pos = -1;
+    int display_start = 0;
     bool new_entry = false;
     bool initials_done = false;
     int initial_selected = 0;
@@ -281,7 +290,7 @@ private:
         }
 
         const uint64_t centiseconds =
-            (static_cast<uint64_t>(ticks) * 100ULL) / 30ULL;
+            (static_cast<uint64_t>(ticks) * 100ULL) / 60ULL;
         const uint32_t minutes =
             static_cast<uint32_t>(centiseconds / 6000ULL);
         const uint32_t seconds =
@@ -305,7 +314,7 @@ private:
 
         for (int row = 0; row < 7; row++)
         {
-            const int pos = row;
+            const int pos = display_start + row;
             const Entry& entry = scores[pos];
             const int y = 6 + (row * 2);
 
@@ -326,7 +335,7 @@ private:
             std::snprintf(
                 line,
                 sizeof(line),
-                "%d %c%c%c %u STAGES %u.%u KM %s",
+                "%2d %c%c%c %u STAGES %u.%u KM %s",
                 pos + 1,
                 entry.initial1,
                 entry.initial2,
