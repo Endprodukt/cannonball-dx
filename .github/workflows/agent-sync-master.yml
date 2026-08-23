@@ -1,0 +1,27 @@
+name: Sync current master into surface-rattle branch
+
+on:
+  push:
+    branches:
+      - agent/rough-surface-crash-ffb
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rough-surface-crash-ffb
+          fetch-depth: 0
+      - name: Merge master
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin master
+          git merge --no-edit origin/master
+          git push
