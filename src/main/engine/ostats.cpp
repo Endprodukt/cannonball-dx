@@ -2,13 +2,19 @@
     In-Game Statistics - CannonBall DX Endless wrapper.
 
     The preserved OStats implementation remains in ostats_base.cpp. Endless
-    adds one lightweight sample per 30 Hz game-logic tick before delegating to
-    the original timer/lap handling.
+    adds one lightweight sample per 60 Hz vertical-interrupt timer tick before
+    delegating to the original timer/lap handling.
 ***************************************************************************/
 
+// Load all preserved dependencies before renaming do_timers so the temporary
+// macro cannot touch declarations in another header.
+#include "engine/ohud.hpp"
+#include "engine/omusic.hpp"
+#include "engine/outils.hpp"
 #include "engine/ostats.hpp"
-#include "engine/endless_hiscore.hpp"
+#include "engine/otraffic.hpp"
 #include "engine/oinitengine.hpp"
+#include "engine/endless_hiscore.hpp"
 
 #define do_timers do_timers_base
 #include "ostats_base.cpp"
