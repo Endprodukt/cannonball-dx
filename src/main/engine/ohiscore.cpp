@@ -12,7 +12,7 @@
 // from unrelated declarations in those headers.
 #include "main.hpp"
 #include "engine/ohud.hpp"
-#include "engine/oininputs.hpp"
+#include "engine/oinputs.hpp"
 #include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
