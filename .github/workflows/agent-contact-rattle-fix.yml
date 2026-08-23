@@ -1,0 +1,76 @@
+name: Apply contact-based surface rattle fix
+
+on:
+  push:
+    branches:
+      - agent/rough-surface-crash-ffb
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rough-surface-crash-ffb
+          fetch-depth: 0
+
+      - name: Patch contact detection and FFB strength
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/main/engine/olevelobjs.hpp',
+              '''        uint16_t spray_type;\n\n\t    //\tCollision With Sprite Has Ocurred''',
+              '''        uint16_t spray_type;\n\n        // True only while the car overlaps an actual sand/stone/debris surface.\n        // Used by wheel FFB; reset and rebuilt from scenery every sprite tick.\n        bool rough_surface_contact;\n\n\t    //\tCollision With Sprite Has Ocurred''')
+
+          replace_once(
+              'src/main/engine/olevelobjs.cpp',
+              '''void OLevelObjs::do_sprite_routine()\n{\n    for (uint8_t i = 0; i < osprites.no_sprites; i++)''',
+              '''void OLevelObjs::do_sprite_routine()\n{\n    // Rebuild this from the scenery actually underneath the car every frame.\n    // This deliberately avoids treating an entire stage as a loose surface.\n    rough_surface_contact = false;\n\n    for (uint8_t i = 0; i < osprites.no_sprites; i++)''')
+
+          replace_once(
+              'src/main/engine/olevelobjs.cpp',
+              '''void OLevelObjs::sprite_debris(oentry* sprite)\n{\n    const uint8_t zoom = 2;\n    if (spray_counter != 0 || (sprite->z >> 16) < 0x1B0)\n    {\n        set_spr_zoom_priority(sprite, zoom);\n        return;\n    }''',
+              '''void OLevelObjs::sprite_debris(oentry* sprite)\n{\n    const uint8_t zoom = 2;\n    if (spray_counter != 0 || (sprite->z >> 16) < 0x1B0)\n    {\n        // spray_type 0x0C is the existing engine signal for actually passing\n        // through the Desert debris patch. Keep the contact only for that\n        // short built-in spray window, never for the whole stage.\n        if (spray_counter != 0 && spray_type == 0x0C)\n            rough_surface_contact = true;\n\n        set_spr_zoom_priority(sprite, zoom);\n        return;\n    }''')
+
+          replace_once(
+              'src/main/engine/olevelobjs.cpp',
+              '''    // Passing through spray!\n    spray_counter = SPRAY_RESET;\n    spray_type = 0xC;\n    set_spr_zoom_priority(sprite, zoom);''',
+              '''    // Passing through the actual debris patch.\n    rough_surface_contact = true;\n    spray_counter = SPRAY_RESET;\n    spray_type = 0xC;\n    set_spr_zoom_priority(sprite, zoom);''')
+
+          replace_once(
+              'src/main/engine/olevelobjs.cpp',
+              '''    if (road_x >= (160 + config.s16_x_off) || road_x < -(160 + config.s16_x_off)) return;\n    sprite->x = road_x;\n\n    // 44fc''',
+              '''    if (road_x >= (160 + config.s16_x_off) || road_x < -(160 + config.s16_x_off)) return;\n    sprite->x = road_x;\n\n    // Sand (routine 10) and stone (routine 11) are visual strips rather than\n    // normal collision objects. Reuse the ROM's horizontal sprite bounds only\n    // when the strip has reached the car plane. This makes FFB follow the\n    // visible loose material instead of the stage ID. Routine 14 is an ending\n    // sequence sand sprite and is intentionally excluded.\n    if ((sprite->function_holder == 10 || sprite->function_holder == 11) &&\n        z16 >= 0x1B0)\n    {\n        uint32_t offset_addr = SPRITE_X_OFFS + sprite->type;\n        int16_t x1;\n        int16_t x2;\n\n        if (sprite->control & OSprites::HFLIP)\n        {\n            x2 = (int16_t) roms.rom0.read16(&offset_addr);\n            x1 = (int16_t) roms.rom0.read16(&offset_addr);\n            x2 = -x2;\n            x1 = -x1;\n        }\n        else\n        {\n            x1 = (int16_t) roms.rom0.read16(&offset_addr);\n            x2 = (int16_t) roms.rom0.read16(&offset_addr);\n        }\n\n        if (!(sprite->x + x1 > 0 || sprite->x + x2 < 0))\n            rough_surface_contact = true;\n    }\n\n    // 44fc''')
+
+          replace_once(
+              'src/main/engine/ooutputs_base.cpp',
+              '''#include "engine/oinputs.hpp"\n#include "engine/ooutputs.hpp"''',
+              '''#include "engine/oinputs.hpp"\n#include "engine/olevelobjs.hpp"\n#include "engine/ooutputs.hpp"''')
+
+          old_block = '''    static bool rough_surface_rattle_active()\n    {\n        // The visibly loose road surfaces on the original route are Stage 3A\n        // (Desert) and Stage 5C (Desolation / Stone Hill). Apply the texture\n        // only while all wheels are on the road; skid, crash and off-road FFB\n        // take priority immediately when those states become active.\n        return\n            outrun.game_state == GS_INGAME &&\n            !ocrash.crash_counter &&\n            !ocrash.skid_counter &&\n            !outrun.SkiddingOnRoad() &&\n            oferrari.wheel_state == OFerrari::WHEELS_ON &&\n            (oroad.stage_lookup_off == 0x10 ||\n             oroad.stage_lookup_off == 0x22);\n    }\n\n    static void apply_surface_rattle()\n    {\n        const uint16_t car_inc =\n            oinitengine.car_increment >> 16;\n\n        // At very low speed there should be no artificial buzz.\n        if (car_inc < 0x28)\n        {\n            forcefeedback::stop();\n            return;\n        }\n\n        // Keep the loose-surface texture well below the normal master FFB.\n        int rattle_gain =\n            (config.controls.ffb_strength * 35 + 50) / 100;\n\n        if (rattle_gain < 10)\n            rattle_gain = 10;\n        else if (rattle_gain > 100)\n            rattle_gain = 100;\n\n        // Larger force numbers are softer in the DirectInput backend. Increase\n        // amplitude with speed, but keep it far below off-road/crash forces.\n        int force;\n        if (car_inc < 0x78)\n            force = 6;\n        else if (car_inc < 0xC8)\n            force = 5;\n        else\n            force = 4;\n\n        // Use an irregular but balanced left/right pattern rather than a clean\n        // sine wave. At lower speed each step lasts two game ticks; at higher\n        // speed the pattern advances every tick so the texture tightens up.\n        const int phase =\n            car_inc < 0x90\n            ? static_cast<int>((outrun.tick_counter >> 1) & 7)\n            : static_cast<int>(outrun.tick_counter & 7);\n\n        static const uint8_t DIRECTIONS[8] =\n        {\n            0x07, 0x09, 0x07, 0x07,\n            0x09, 0x07, 0x09, 0x09,\n        };\n\n        // Two softer beats break up the mechanical regularity without creating\n        // a net steering pull to either side.\n        if ((phase == 3 || phase == 7) && force < 7)\n            force++;\n\n        forcefeedback::set_gain(rattle_gain);\n        forcefeedback::set(DIRECTIONS[phase], force);\n        forcefeedback::set_gain(config.controls.ffb_strength);\n    }'''
+
+          new_block = '''    static bool rough_surface_rattle_active()\n    {\n        // Contact is supplied by the scenery code itself. No stage-wide\n        // fallback: clean asphalt must always remain clean.\n        return\n            outrun.game_state == GS_INGAME &&\n            !ocrash.crash_counter &&\n            !ocrash.skid_counter &&\n            !outrun.SkiddingOnRoad() &&\n            oferrari.wheel_state == OFerrari::WHEELS_ON &&\n            olevelobjs.rough_surface_contact;\n    }\n\n    static void apply_surface_rattle()\n    {\n        const uint16_t car_inc =\n            oinitengine.car_increment >> 16;\n\n        if (car_inc < 0x50)\n        {\n            forcefeedback::stop();\n            return;\n        }\n\n        // Very restrained texture. Alternating constant force feels much\n        // stronger on a wheel than the number suggests, so run close to the\n        // DirectInput floor and let speed change cadence more than amplitude.\n        int rattle_gain =\n            (config.controls.ffb_strength * 12 + 50) / 100;\n\n        if (rattle_gain < 10)\n            rattle_gain = 10;\n        else if (rattle_gain > 100)\n            rattle_gain = 100;\n\n        const int force = car_inc < 0xD0 ? 6 : 5;\n\n        const int phase =\n            car_inc < 0xA0\n            ? static_cast<int>((outrun.tick_counter >> 1) & 7)\n            : static_cast<int>(outrun.tick_counter & 7);\n\n        // Balanced irregular texture with two blank beats. The gaps stop the\n        // effect feeling like a steering oscillation or a clean sine wave.\n        static const int8_t PATTERN[8] =\n        {\n            -1, 1, 0, -1, 1, 0, 1, -1\n        };\n\n        if (PATTERN[phase] == 0)\n        {\n            forcefeedback::stop();\n            return;\n        }\n\n        forcefeedback::set_gain(rattle_gain);\n        forcefeedback::set(PATTERN[phase] < 0 ? 0x07 : 0x09, force);\n        forcefeedback::set_gain(config.controls.ffb_strength);\n    }'''
+
+          replace_once('src/main/engine/ooutputs_base.cpp', old_block, new_block)
+
+      - name: Commit result
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main/engine/olevelobjs.hpp src/main/engine/olevelobjs.cpp src/main/engine/ooutputs_base.cpp
+          git commit -m "Trigger rough-surface FFB only on actual contact"
+          git push
