@@ -160,6 +160,16 @@ namespace
         ohud.blit_text_new(static_cast<uint16_t>(x), y, text, colour);
     }
 
+    void clear_endless_laptime()
+    {
+        // The stock checkpoint routine briefly draws the previous LAP TIME.
+        // Endless has its own stage-change presentation, so keep that legacy
+        // overlay out of the way. The stock clear records also remove the
+        // timer digits, avoiding the small orphaned LAP tile seen in testing.
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR1);
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR2);
+    }
+
     void draw_endless_banner()
     {
         if (endless_banner_ticks <= 0)
@@ -238,7 +248,15 @@ void OStats::do_timers()
     do_timers_base();
 
     if (endless_ingame)
+    {
+        // Remove the original LAP TIME checkpoint overlay every frame while
+        // Endless owns the transition presentation. Original/Continuous keep
+        // their stock behaviour because this branch is Endless-only.
+        if (extend_play_timer)
+            clear_endless_laptime();
+
         draw_endless_banner();
+    }
 }
 
 void OStats::init_next_level()
