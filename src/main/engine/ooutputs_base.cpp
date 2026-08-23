@@ -97,39 +97,38 @@ namespace
             return;
         }
 
-        // Very restrained texture. Alternating constant force feels much
-        // stronger on a wheel than the number suggests, so run close to the
-        // DirectInput floor and let speed change cadence more than amplitude.
-        int rattle_gain =
-            (config.controls.ffb_strength * 12 + 50) / 100;
-
-        if (rattle_gain < 10)
-            rattle_gain = 10;
-        else if (rattle_gain > 100)
-            rattle_gain = 100;
-
-        const int force = car_inc < 0xD0 ? 6 : 5;
+        // Keep the peak deliberately soft, but make each hit very short.
+        // Single-tick impulses separated by silence feel more like individual
+        // stones under the tyres and less like a continuous steering shake.
+        const int rattle_gain = 10;
+        const int force = 6;
 
         const int phase =
-            car_inc < 0xA0
-            ? static_cast<int>((outrun.tick_counter >> 1) & 7)
-            : static_cast<int>(outrun.tick_counter & 7);
+            static_cast<int>(outrun.tick_counter & 7);
 
-        // Balanced irregular texture with two blank beats. The gaps stop the
-        // effect feeling like a steering oscillation or a clean sine wave.
-        static const int8_t PATTERN[8] =
+        // One-tick, irregular impulses with generous gaps. Speed changes how
+        // many impulses are allowed through, not their peak strength.
+        static const int8_t PATTERN_SLOW[8] =
         {
-            -1, 1, 0, -1, 1, 0, 1, -1
+            -1, 0, 0, 0, 0, 1, 0, 0
         };
 
-        if (PATTERN[phase] == 0)
+        static const int8_t PATTERN_FAST[8] =
+        {
+            -1, 0, 0, 1, 0, 0, -1, 0
+        };
+
+        const int8_t* pattern =
+            car_inc < 0xB0 ? PATTERN_SLOW : PATTERN_FAST;
+
+        if (pattern[phase] == 0)
         {
             forcefeedback::stop();
             return;
         }
 
         forcefeedback::set_gain(rattle_gain);
-        forcefeedback::set(PATTERN[phase] < 0 ? 0x07 : 0x09, force);
+        forcefeedback::set(pattern[phase] < 0 ? 0x07 : 0x09, force);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 
@@ -751,6 +750,7 @@ void OOutputs::tick(int16_t input_motor)
                     do_vibrate_mini();
             }
             break;
+        }
 
         // GamePad: Basic Rumble
         case MODE_RUMBLE:
