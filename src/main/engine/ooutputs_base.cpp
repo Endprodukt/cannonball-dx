@@ -59,14 +59,87 @@ namespace
 
     static void set_crash_yank(int direction, int force)
     {
+        // Keep the accident violent, but trim the repeated lateral yanks so
+        // spins and flips do not overpower the initial impact itself.
         int boosted_gain =
-            (config.controls.ffb_strength * 130 + 50) / 100;
+            (config.controls.ffb_strength * 115 + 50) / 100;
 
         if (boosted_gain > 100)
             boosted_gain = 100;
 
         forcefeedback::set_gain(boosted_gain);
         forcefeedback::set(direction, force);
+        forcefeedback::set_gain(config.controls.ffb_strength);
+    }
+
+    static bool rough_surface_rattle_active()
+    {
+        // The visibly loose road surfaces on the original route are Stage 3A
+        // (Desert) and Stage 5C (Desolation / Stone Hill). Apply the texture
+        // only while all wheels are on the road; skid, crash and off-road FFB
+        // take priority immediately when those states become active.
+        return
+            outrun.game_state == GS_INGAME &&
+            !ocrash.crash_counter &&
+            !ocrash.skid_counter &&
+            !outrun.SkiddingOnRoad() &&
+            oferrari.wheel_state == OFerrari::WHEELS_ON &&
+            (oroad.stage_lookup_off == 0x10 ||
+             oroad.stage_lookup_off == 0x22);
+    }
+
+    static void apply_surface_rattle()
+    {
+        const uint16_t car_inc =
+            oinitengine.car_increment >> 16;
+
+        // At very low speed there should be no artificial buzz.
+        if (car_inc < 0x28)
+        {
+            forcefeedback::stop();
+            return;
+        }
+
+        // Keep the loose-surface texture well below the normal master FFB.
+        int rattle_gain =
+            (config.controls.ffb_strength * 35 + 50) / 100;
+
+        if (rattle_gain < 10)
+            rattle_gain = 10;
+        else if (rattle_gain > 100)
+            rattle_gain = 100;
+
+        // Larger force numbers are softer in the DirectInput backend. Increase
+        // amplitude with speed, but keep it far below off-road/crash forces.
+        int force;
+        if (car_inc < 0x78)
+            force = 6;
+        else if (car_inc < 0xC8)
+            force = 5;
+        else
+            force = 4;
+
+        // Use an irregular but balanced left/right pattern rather than a clean
+        // sine wave. At lower speed each step lasts two game ticks; at higher
+        // speed the pattern advances every tick so the texture tightens up.
+        const int phase =
+            car_inc < 0x90
+            ? static_cast<int>((outrun.tick_counter >> 1) & 7)
+            : static_cast<int>(outrun.tick_counter & 7);
+
+        static const uint8_t DIRECTIONS[8] =
+        {
+            0x07, 0x09, 0x07, 0x07,
+            0x09, 0x07, 0x09, 0x09,
+        };
+
+        // Two softer beats break up the mechanical regularity without creating
+        // a net steering pull to either side.
+        if ((phase == 3 || phase == 7) && force < 7)
+            force++;
+
+        forcefeedback::set_gain(rattle_gain);
+        forcefeedback::set(DIRECTIONS[phase], force);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 
@@ -657,6 +730,15 @@ void OOutputs::tick(int16_t input_motor)
                 skid_ffb_active = false;
                 apply_crash_ffb_force();
             }
+            else if (rough_surface_rattle_active())
+            {
+                // Keep normal centering/cornering spring physics underneath the
+                // loose-surface texture. Constant-force off-road handling takes
+                // over immediately if a wheel leaves the road.
+                hw_motor_control = MOTOR_OFF;
+                skid_ffb_active = false;
+                apply_surface_rattle();
+            }
             else
             {
                 do_motors(mode, input_motor);   // Use X-Position of wheel instead of motor position
@@ -830,7 +912,7 @@ void OOutputs::diag_right(int16_t input_motor, uint8_t hw_motor_limit)
     }
     else
     {
-        ohud.blit_text_new(col2, 11, "FAIL 2", 0x80);
+        ohud.blit_text_new(col2, 11, "FAIL 2");
         motor_enabled = false;
         motor_state   = STATE_DONE;
         return;
@@ -910,17 +992,14 @@ bool OOutputs::calibrate_motor(int16_t input_motor, uint8_t hw_motor_limit)
             calibrate_left(input_motor, hw_motor_limit);
             break;
 
-        // Calibrate Right Limit
         case STATE_RIGHT:
             calibrate_right(input_motor, hw_motor_limit);
             break;
 
-        // Return to Centre
         case STATE_CENTRE:
             calibrate_centre(input_motor, hw_motor_limit);
             break;
 
-        // Clear Screen & Exit Calibration
         case STATE_DONE:
             calibrate_done();
             break;
