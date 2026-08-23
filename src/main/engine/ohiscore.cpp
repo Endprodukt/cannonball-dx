@@ -4,7 +4,7 @@
     The original score implementation is preserved in ohiscore_base.cpp.
     Endless substitutes only the game-end init/tick calls; attract-mode score
     display and Original/Continuous score handling continue to use the exact
-    preserved implementation.
+    preserved implementation, with a shared stable high-score background.
 ***************************************************************************/
 
 // Pre-include the preserved implementation's dependencies before temporarily
@@ -43,13 +43,14 @@ namespace
                 outrun.game_state == GS_BEST2);
     }
 
-    void stabilize_endless_score_background()
+    void stabilize_score_background()
     {
-        // Endless can finish on any of the fifteen road profiles. Reusing that
-        // live road state makes the Best OutRunners sunset/horizon sit at a
-        // different height depending on the final random stage. Reset only the
-        // road renderer to its flat Stage 1 baseline, then lock the dedicated
-        // high-score horizon used by the stock EndGame setup.
+        // High-score screens can be entered after many different road profiles
+        // (and Endless can finish on any of the fifteen stages). Reusing the
+        // live road state makes the sunset/horizon sit at different heights.
+        // Use the same flat Stage 1 road baseline and stock Best OutRunners
+        // horizon for every high-score presentation: attract, Original,
+        // Continuous and Endless.
         oroad.init();
         oroad.set_view_mode(ORoad::VIEW_ORIGINAL, true);
         oroad.horizon_base = 0x154;
@@ -62,6 +63,11 @@ namespace
 
 void OHiScore::init()
 {
+    // Keep the attractive, correctly positioned Best OutRunners sunset
+    // consistent on every score screen instead of inheriting the previous
+    // stage's road/horizon state.
+    stabilize_score_background();
+
     if (!endless_gameover_score_screen())
     {
         init_base();
@@ -73,7 +79,6 @@ void OHiScore::init()
         outrun.endless_stage,
         ostats.score);
 
-    stabilize_endless_score_background();
     endless_hiscore.init_screen();
 }
 
