@@ -28,6 +28,7 @@
 #include "engine/oferrari.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/olevelobjs.hpp"
 #include "engine/ooutputs.hpp"
 #include "directx/ffeedback.hpp"
 
@@ -59,14 +60,75 @@ namespace
 
     static void set_crash_yank(int direction, int force)
     {
+        // Keep the accident violent, but trim the repeated lateral yanks so
+        // spins and flips do not overpower the initial impact itself.
         int boosted_gain =
-            (config.controls.ffb_strength * 130 + 50) / 100;
+            (config.controls.ffb_strength * 115 + 50) / 100;
 
         if (boosted_gain > 100)
             boosted_gain = 100;
 
         forcefeedback::set_gain(boosted_gain);
         forcefeedback::set(direction, force);
+        forcefeedback::set_gain(config.controls.ffb_strength);
+    }
+
+    static bool rough_surface_rattle_active()
+    {
+        // Contact is supplied by the scenery code itself. No stage-wide
+        // fallback: clean asphalt must always remain clean.
+        return
+            outrun.game_state == GS_INGAME &&
+            !ocrash.crash_counter &&
+            !ocrash.skid_counter &&
+            !outrun.SkiddingOnRoad() &&
+            oferrari.wheel_state == OFerrari::WHEELS_ON &&
+            olevelobjs.rough_surface_contact;
+    }
+
+    static void apply_surface_rattle()
+    {
+        const uint16_t car_inc =
+            oinitengine.car_increment >> 16;
+
+        if (car_inc < 0x50)
+        {
+            forcefeedback::stop();
+            return;
+        }
+
+        // Lower the individual peak further, while increasing cadence.
+        // The result should feel like finer, quicker grit rather than a harder
+        // shake: more frequent single-tick taps, each one noticeably weaker.
+        const int rattle_gain = 5;
+        const int force = 6;
+
+        const int phase =
+            static_cast<int>(outrun.tick_counter & 15);
+
+        static const int8_t PATTERN_SLOW[16] =
+        {
+            -1, 0, 1, 0, 0, -1, 0, 1,
+             0, 0, -1, 0, 1, 0, 0, -1
+        };
+
+        static const int8_t PATTERN_FAST[16] =
+        {
+            -1, 0, 1, 0, -1, 0, 1, 0,
+            -1, 0, 1, 0, -1, 0, 1, 0
+        };
+
+        const int8_t* pattern =
+            car_inc < 0xB0 ? PATTERN_SLOW : PATTERN_FAST;
+
+        if (pattern[phase] == 0)
+        {
+            forcefeedback::stop();
+            return;
+        }
+
+        forcefeedback::set_gain(rattle_gain);
+        forcefeedback::set(pattern[phase] < 0 ? 0x07 : 0x09, force);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 
@@ -656,6 +718,15 @@ void OOutputs::tick(int16_t input_motor)
                 hw_motor_control = MOTOR_OFF;
                 skid_ffb_active = false;
                 apply_crash_ffb_force();
+            }
+            else if (rough_surface_rattle_active())
+            {
+                // Keep normal centering/cornering spring physics underneath the
+                // loose-surface texture. Constant-force off-road handling takes
+                // over immediately if a wheel leaves the road.
+                hw_motor_control = MOTOR_OFF;
+                skid_ffb_active = false;
+                apply_surface_rattle();
             }
             else
             {

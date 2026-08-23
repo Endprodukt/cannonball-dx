@@ -32,6 +32,10 @@ class OLevelObjs
         // 10 = Smoke
         uint16_t spray_type;
 
+        // True only while the car overlaps an actual sand/stone/debris surface.
+        // Used by wheel FFB; reset and rebuilt from scenery every sprite tick.
+        bool rough_surface_contact;
+
 	    //	Collision With Sprite Has Ocurred
 	    //
 	    // 0 = No Collision

@@ -225,8 +225,10 @@ namespace forcefeedback
 
     void set_gain(int percent)
     {
-        if (percent < 10)
-            percent = 10;
+        // Allow very low effect-specific gains. Existing gameplay callers use
+        // 10% or more; the lower range is useful for fine surface textures.
+        if (percent < 1)
+            percent = 1;
         else if (percent > 100)
             percent = 100;
 
