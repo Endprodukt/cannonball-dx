@@ -43,7 +43,8 @@ public:
     int get_music_position() const { return cursor_pos; }
 
     // Selected game mode while the music screen is active. External cabinet
-    // outputs use this to blink only the matching VIEW 1/2/3 lamp.
+    // outputs use this to blink only the matching VIEW 1/2/3 lamp. Endless is
+    // intentionally reported as Continuous because both live on VIEW2.
     int get_game_mode() const { return game_mode_selected; }
 
     // The Time Trial course selector can be cancelled back to the frontend.
@@ -82,6 +83,11 @@ private:
     // Game mode chosen on the music-selection screen. VIEW cycles this value;
     // VIEW1/2/3 select Original/Continuous/Time Trial directly.
     int game_mode_selected;
+
+    // VIEW2 has a second state: Continuous -> Endless. Internally Endless
+    // keeps MODE_CONT so the existing Continuous engine path can be extended
+    // without creating a fourth cabinet-view output.
+    bool endless_selected = false;
 
     // Gear/shifter state used to turn LOW/HIGH movement into previous/next
     // Ferrari colour selection without affecting the in-race gear logic.
