@@ -201,6 +201,11 @@ public:
     // Max traffic level for custom modes 
     uint8_t custom_traffic;
 
+    // Endless is implemented as a Continuous sub-mode so all existing
+    // Continuous rendering, scoring and cabinet paths remain compatible.
+    bool endless_mode = false;
+    uint16_t endless_stage = 0; // Zero-based current Endless stage number
+
     // Time trial data
     time_trial_t ttrial;
 
