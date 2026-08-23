@@ -9,7 +9,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -44,10 +43,17 @@ public:
         run_ticks = 0;
         speed_tick_sum = 0;
         result_captured = false;
+        run_active = true;
     }
 
     void tick_run(uint16_t speed_kph)
     {
+        // The first GS_INGAME tick is also the safest run boundary: it avoids
+        // counting the start countdown and automatically resets after a prior
+        // Endless result without needing another hook in the core engine.
+        if (!run_active)
+            begin_run();
+
         ++run_ticks;
         speed_tick_sum += speed_kph;
     }
@@ -67,6 +73,7 @@ public:
         pending.initial2 = ' ';
         pending.initial3 = ' ';
         result_captured = true;
+        run_active = false;
     }
 
     void init_screen()
@@ -101,6 +108,17 @@ public:
             scores[score_pos] = pending;
             new_entry = true;
 
+            // The preserved high-score state sets its own timer before calling
+            // init(). Restore the configured entry time because the original
+            // OHiScore routine is deliberately bypassed for Endless.
+            ostats.time_counter = config.engine.hiscore_timer;
+            ostats.frame_counter = ostats.frame_reset;
+
+            // Persist the result immediately with blank initials. Subsequent
+            // letter presses update the same file, so a timeout cannot lose a
+            // valid Endless record.
+            save();
+
             osoundint.queue_sound(sound::PCM_WAVE);
             osoundint.queue_sound(sound::MUSIC_LASTWAVE);
         }
@@ -108,7 +126,14 @@ public:
         {
             // Match the normal Best OutRunners behaviour for a non-record run.
             ostats.time_counter = 5;
+            ostats.frame_counter = ostats.frame_reset;
         }
+
+        // The standard table is tile-based. Clear that tile page once so the
+        // dedicated text-based Endless rows are not drawn over old score data.
+        uint32_t tile_addr = 0x10E000;
+        for (int i = 0; i <= 0x3FF; i++)
+            video.write_tile32(&tile_addr, 0x200020);
 
         video.clear_text_ram();
         video.enabled = true;
@@ -151,6 +176,7 @@ private:
     uint32_t run_ticks = 0;
     uint64_t speed_tick_sum = 0;
     bool result_captured = false;
+    bool run_active = false;
 
     int score_pos = -1;
     bool new_entry = false;
@@ -274,8 +300,8 @@ private:
 
     void render()
     {
-        ohud.blit_text_new(10, 1, "ENDLESS OUTRUNNERS", OHud::GREEN);
-        ohud.blit_text_new(3, 4, "# NAME   STAGES   DISTANCE     TIME", OHud::GREY);
+        ohud.blit_text_new(11, 1, "ENDLESS OUTRUNNERS", OHud::GREEN);
+        ohud.blit_text_new(2, 4, "# NAME  STAGES    DISTANCE      TIME", OHud::GREY);
 
         for (int row = 0; row < 7; row++)
         {
@@ -289,7 +315,7 @@ private:
                 entry.time_ticks == 0 &&
                 entry.score == 0)
             {
-                ohud.blit_text_new(2, y, "                                      ", OHud::GREY);
+                ohud.blit_text_new(0, y, "                                        ", OHud::GREY);
                 continue;
             }
 
@@ -300,7 +326,7 @@ private:
             std::snprintf(
                 line,
                 sizeof(line),
-                "%d  %c%c%c   %u STAGES   %u.%u KM   %s",
+                "%d %c%c%c %u STAGES %u.%u KM %s",
                 pos + 1,
                 entry.initial1,
                 entry.initial2,
@@ -311,7 +337,7 @@ private:
                 time_text);
 
             ohud.blit_text_new(
-                1,
+                0,
                 y,
                 line,
                 pos == score_pos ? OHud::GREEN : OHud::GREY);
@@ -319,7 +345,7 @@ private:
 
         if (new_entry && !initials_done)
         {
-            ohud.blit_text_new(12, 21, "ENTER INITIALS", OHud::GREEN);
+            ohud.blit_text_new(13, 21, "ENTER INITIALS", OHud::GREEN);
             ohud.blit_text_new(6, 23, "ABCDEFGHIJKLMNOPQRSTUVWXYZ.", OHud::GREY);
 
             const char selected[2] =
@@ -333,7 +359,7 @@ private:
         }
         else if (new_entry)
         {
-            ohud.blit_text_new(13, 23, "NEW RECORD", OHud::GREEN);
+            ohud.blit_text_new(15, 23, "NEW RECORD", OHud::GREEN);
         }
     }
 
@@ -400,12 +426,14 @@ private:
         else
             entry.initial3 = letter;
 
-        if (++initial_selected >= 3)
+        ++initial_selected;
+        save();
+
+        if (initial_selected >= 3)
         {
             initials_done = true;
             ostats.frame_counter = ostats.frame_reset;
             ostats.time_counter = 2;
-            save();
         }
     }
 };
