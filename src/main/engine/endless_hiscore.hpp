@@ -428,7 +428,13 @@ private:
         }
         else if (new_entry)
         {
-            ohud.blit_text_new(15, 23, "NEW RECORD", OHud::GREEN);
+            // Clear every row owned by the initials editor before replacing it
+            // with the post-entry message. Otherwise the old alphabet remains
+            // in text RAM and visually collides with NEW RECORD.
+            ohud.blit_text_new(0, 21, "                                        ", OHud::GREY);
+            ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
+            ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
+            ohud.blit_text_new(15, 21, "NEW RECORD", OHud::GREEN);
         }
     }
 
