@@ -145,6 +145,19 @@ void OMusic::check_start()
     const bool starting_endless =
         start_pressed && old_selection == SELECT_ENDLESS;
 
+    // Endless is a survival mode, so the global Timer OFF option must never
+    // freeze its countdown. Restore the normal user setting for Original and
+    // Continuous, while Time Trial keeps its existing forced timer behaviour.
+    if (start_pressed)
+    {
+        if (old_selection == SELECT_ENDLESS)
+            outrun.freeze_timer = false;
+        else if (old_selection == SELECT_TIME_TRIAL)
+            outrun.freeze_timer = true;
+        else
+            outrun.freeze_timer = config.engine.freeze_timer;
+    }
+
     // Mirror only the direction detection from the preserved implementation.
     // check_start_base() still owns the actual colour handling, game start,
     // FFB cleanup and Time Trial handoff.
