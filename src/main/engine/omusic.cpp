@@ -25,7 +25,9 @@
 #define enable enable_base
 #define check_start check_start_base
 #define tick tick_base
+#define cycle_music cycle_music_base
 #include "omusic_palette_base.cpp"
+#undef cycle_music
 #undef tick
 #undef check_start
 #undef enable
@@ -33,6 +35,7 @@
 namespace
 {
     const int CAR_COLOR_COUNT = 8;
+    int last_endless_music_stage = -1;
 
     enum MusicModeSelection
     {
@@ -97,6 +100,10 @@ void OMusic::enable()
     // when returning to Music Select after an Endless run.
     endless_selected =
         outrun.cannonball_mode == Outrun::MODE_CONT && outrun.endless_mode;
+
+    // A new selector visit belongs to a new run, so allow its first scheduled
+    // Endless music transition to fire again.
+    last_endless_music_stage = -1;
 }
 
 void OMusic::check_start()
@@ -248,6 +255,26 @@ void OMusic::check_start()
         if (save_after_correction)
             config.save();
     }
+}
+
+void OMusic::cycle_music()
+{
+    if (outrun.endless_mode &&
+        outrun.cannonball_mode == Outrun::MODE_CONT)
+    {
+        const int stage = static_cast<int>(outrun.endless_stage);
+
+        // The old Endless prototype requested a cycle every five stages. The
+        // polished mode instead changes at stages 5, 9, 13... (after each four
+        // completed stages), always at a checkpoint. Ignore obsolete calls and
+        // suppress duplicate requests from the same transition.
+        if (stage <= 0 || (stage % 4) != 0 || stage == last_endless_music_stage)
+            return;
+
+        last_endless_music_stage = stage;
+    }
+
+    cycle_music_base();
 }
 
 void OMusic::tick()
