@@ -12,11 +12,14 @@
 // from unrelated declarations in those headers.
 #include "main.hpp"
 #include "engine/ohud.hpp"
-#include "engine/oinputs.hpp"
+#include "engine/oininputs.hpp"
 #include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
 #include "engine/ohiscore.hpp"
+#include "engine/oinitengine.hpp"
+#include "engine/opalette.hpp"
+#include "engine/otiles.hpp"
 #include <iostream>
 
 #include "engine/endless_hiscore.hpp"
@@ -55,11 +58,33 @@ namespace
 
     void stabilize_score_background()
     {
-        // High-score screens can be entered after many different road profiles.
-        // Reusing the live road state makes the sunset/horizon sit at different
-        // heights. Use the same flat Stage 1 baseline and stock Best OutRunners
-        // horizon for every score presentation, including Time Trial Records.
+        // A score screen can be entered from any stage, and Time Trial in
+        // particular normally leaves the selected course's tilemap and palette
+        // live. Rebuild the complete common Best OutRunners scene instead of
+        // inheriting any part of that course.
         oroad.init();
+        oroad.stage_lookup_off = 0;
+        oinitengine.init_road_seg_master();
+
+        otiles.init();
+        otiles.reset_tiles_pal();
+        otiles.setup_palette_hud();
+        otiles.setup_palette_tilemap();
+        otiles.update_tilemaps(0);
+        otiles.write_tilemap_hw();
+
+        opalette.setup_sky_palette();
+        opalette.setup_ground_color();
+        opalette.setup_road_centre();
+        opalette.setup_road_stripes();
+        opalette.setup_road_side();
+        opalette.setup_road_colour();
+
+        // These are the original dedicated Best OutRunners palette overrides:
+        // shaded red/sunset backdrop plus the black score-screen road.
+        ohiscore.setup_pal_best();
+        ohiscore.setup_road_best();
+
         oroad.set_view_mode(ORoad::VIEW_ORIGINAL, true);
         oroad.horizon_base = 0x154;
         oroad.horizon_set = 1;
