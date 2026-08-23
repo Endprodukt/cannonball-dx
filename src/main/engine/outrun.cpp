@@ -1,17 +1,16 @@
 /***************************************************************************
-    OutRun Engine Entry Point - CannonBall DX Endless wrapper.
+    OutRun Engine Entry Point - CannonBall DX wrappers.
 
     The current engine implementation is preserved in outrun_base.cpp.
-    Endless normally shares MODE_CONT, but its original prototype deliberately
-    skipped the Continuous score screen after GAME OVER. For the dedicated
-    Endless score table we want the normal GS_INIT_BEST2 / GS_BEST2 path,
-    because that path also performs the complete engine reset before returning
-    to attract mode.
+    Endless shares MODE_CONT but uses the normal GS_INIT_BEST2 / GS_BEST2
+    reset path for its dedicated score screen. Time Trial similarly redirects
+    its old PRESS START -> frontend-menu exit into an automatic Results ->
+    Course Records flow.
 ***************************************************************************/
 
 // Pre-include every dependency used by the preserved implementation before the
-// temporary member-name macro below. This guarantees the macro can affect only
-// Outrun method bodies, never declarations in another header.
+// temporary macros below. This guarantees the macros can affect only Outrun
+// method bodies, never declarations in another header.
 #include "main.hpp"
 #include "trackloader.hpp"
 #include "../utils.hpp"
@@ -34,6 +33,7 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/outils.hpp"
+#include "engine/time_trial_records.hpp"
 #include <iostream>
 
 // Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
@@ -41,5 +41,23 @@
 // prototype's direct GS_REINIT shortcut. Everywhere else this macro resolves
 // to the real member value, so all Endless gameplay behaviour remains intact.
 #define endless_mode ((game_state == GS_GAMEOVER) ? false : this->endless_mode)
+
+// The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
+// every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
+// screen: suppress physical START and synthesize a press after the five-second
+// Results countdown managed by TimeTrialRecords.
+#define is_pressed(ARG) \
+    is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
+    time_trial_records.synthetic_input(ARG)
+
+// STATE_INIT_MENU occurs only in the preserved Time Trial GAME OVER exit. When
+// the synthetic START fires, remain in the game runtime and enter the existing
+// GS_INIT_BEST2 / GS_BEST2 score path instead of returning to the frontend.
+#define STATE_INIT_MENU \
+    STATE_GAME; time_trial_records.begin_records_transition(); game_state = GS_INIT_BEST2
+
 #include "outrun_base.cpp"
+
+#undef STATE_INIT_MENU
+#undef is_pressed
 #undef endless_mode
