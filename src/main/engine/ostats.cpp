@@ -1,292 +1,286 @@
 /***************************************************************************
-    In-Game Statistics.
-    - Stage Timers
-    - Route Info
-    - Speed to Score Conversion
-    - Bonus Time Increment
-    
-    Copyright Chris White.
-    See license.txt for more details.
+    In-Game Statistics - CannonBall DX Endless wrapper.
+
+    The preserved OStats implementation remains in ostats_base.cpp. Endless
+    adds run-distance tracking, delayed difficulty progression, stage banners
+    and clean music changes on top of the original timer/lap handling.
 ***************************************************************************/
 
+#include <cstdio>
+#include <cstring>
+
+// Load all preserved dependencies before renaming methods so the temporary
+// macros cannot touch declarations in another header.
 #include "engine/ohud.hpp"
 #include "engine/omusic.hpp"
 #include "engine/outils.hpp"
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
+#include "engine/oinitengine.hpp"
+#include "engine/endless_hiscore.hpp"
 
-OStats ostats;
+#define do_timers do_timers_base
+#define init_next_level init_next_level_base
+#include "ostats_base.cpp"
+#undef init_next_level
+#undef do_timers
 
-// Original buggy millisecond lookup table (Used when 64 frames = 1 second)
-// Conversion table from 0 to 64 -> Millisecond value
-const static uint8_t LAP_MS_64[] = 
+extern EndlessHiScore endless_hiscore;
+
+namespace
 {
-    0x00, 0x01, 0x03, 0x04, 0x06, 0x07, 0x09, 0x10, 0x12, 0x14, 0x15, 0x17, 0x18, 0x20, 0x21, 0x23,
-    0x25, 0x26, 0x28, 0x29, 0x31, 0x32, 0x34, 0x35, 0x37, 0x39, 0x40, 0x42, 0x43, 0x45, 0x46, 0x48,
-    0x50, 0x51, 0x53, 0x54, 0x56, 0x57, 0x59, 0x60, 0x62, 0x64, 0x65, 0x67, 0x68, 0x70, 0x71, 0x73,
-    0x75, 0x76, 0x78, 0x79, 0x81, 0x82, 0x84, 0x85, 0x87, 0x89, 0x90, 0x92, 0x93, 0x95, 0x96, 0x98,
-};
+    const uint8_t ENDLESS_MAX_DIFFICULTY = 7;
 
-// Bug fixed millisecond lookup table  (Used when 60 frames = 1 second)
-// Conversion table from 0 to 60 -> Millisecond value
-const static uint8_t LAP_MS_60[] = 
-{
-    0x00, 0x01, 0x03, 0x05, 0x06, 0x08, 0x10, 0x11, 0x13, 0x15, 0x16, 0x18, 0x20, 0x21, 0x23, 0x25,
-    0x26, 0x28, 0x30, 0x31, 0x33, 0x35, 0x36, 0x38, 0x40, 0x41, 0x43, 0x45, 0x46, 0x48,
-    0x50, 0x51, 0x53, 0x55, 0x56, 0x58, 0x60, 0x61, 0x63, 0x65, 0x66, 0x68, 0x70, 0x71, 0x73, 0x75,
-    0x76, 0x78, 0x80, 0x81, 0x83, 0x85, 0x86, 0x88, 0x90, 0x91, 0x93, 0x95, 0x96, 0x98
-};
-
-OStats::OStats(void)
-{
-}
-
-OStats::~OStats(void)
-{
-}
-
-void OStats::init(bool ttrial)
-{
-    credits = ttrial ? 1 : 0;
-    // Choose correct lookup table if timing bugs fixed
-    lap_ms = config.engine.fix_timer ? LAP_MS_60 : LAP_MS_64;
-}
-
-void OStats::clear_stage_times()
-{
-    for (int i = 0; i < 15; i++)
+    enum DifficultyBanner
     {
-        stage_counters[i] = 0;
+        DIFF_BANNER_NONE = 0,
+        DIFF_BANNER_UP,
+        DIFF_BANNER_MAX,
+    };
 
-        for (int j = 0; j < 3; j++)
-            stage_times[i][j] = 0;
-    }
-}
+    int last_endless_stage = -1;
+    int last_endless_difficulty = -1;
+    int endless_banner_ticks = 0;
+    DifficultyBanner endless_difficulty_banner = DIFF_BANNER_NONE;
+    char endless_banner_text[40] = {0};
 
-void OStats::clear_route_info()
-{
-    route_info = 0;
-    routes[0] = routes[1] = routes[2] = routes[3] = 
-    routes[4] = routes[5] = routes[6] = routes[7] = 0;
-}
-
-// Increment Counters, Stage Timers & Print Stage Timers
-//
-// Source: 0x7F12
-void OStats::do_timers()
-{
-    if (outrun.game_state != GS_INGAME) return;
-
-    inc_lap_timer();
-
-    if (outrun.cannonball_mode == Outrun::MODE_ORIGINAL || outrun.cannonball_mode == Outrun::MODE_CONT)
+    uint8_t endless_difficulty_rank(uint16_t stage)
     {
-        // Each stage has a standard counter that just increments. Do this here.
-        stage_counters[cur_stage]++;
-        ohud.draw_lap_timer(0x11016C, stage_times[cur_stage], ms_value);
+        // Stages 1-5 stay at the introductory setting. The first increase is
+        // applied when entering Stage 6, then every three stages thereafter.
+        if (stage < 5)
+            return 0;
+
+        uint16_t rank = 1 + ((stage - 5) / 3);
+        if (rank > ENDLESS_MAX_DIFFICULTY)
+            rank = ENDLESS_MAX_DIFFICULTY;
+
+        return static_cast<uint8_t>(rank);
     }
 
-    else if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+    uint8_t endless_checkpoint_seconds(uint8_t rank)
     {
-        stage_counters[outrun.ttrial.current_lap]++;
-        ohud.draw_stage_number(ohud.translate(30, 2 + outrun.ttrial.current_lap), (outrun.ttrial.current_lap + 1), OHud::GREY);
-        ohud.draw_lap_timer(ohud.translate(32, 2 + outrun.ttrial.current_lap), stage_times[cur_stage], ms_value);
-    }
-}
-
-// Increment and store lap timer for each stage.
-//
-// Source: 0x7F4C
-void OStats::inc_lap_timer()
-{
-    // Add MS (Not actual milliseconds, as these are looked up from the table below)
-    if (++stage_times[cur_stage][2] >= (config.engine.fix_timer ? 0x3C : 0x40))
-    {
-        // Looped MS, so add a second
-        stage_times[cur_stage][2] = 0;
-        stage_times[cur_stage][1] = outils::bcd_add(stage_times[cur_stage][1], 1);
-
-        // Loop seconds, so add a minute
-        if (stage_times[cur_stage][1] == 0x60)
+        // Final rank is intentionally capped. Once MAX DIFFICULTY is reached
+        // neither traffic nor checkpoint time gets any harsher.
+        static const uint8_t SECONDS[] =
         {
-            stage_times[cur_stage][1] = 0;
-            stage_times[cur_stage][0] = outils::bcd_add(stage_times[cur_stage][0], 1);
+            60, 56, 52, 48, 44, 40, 36, 30
+        };
+
+        if (rank > ENDLESS_MAX_DIFFICULTY)
+            rank = ENDLESS_MAX_DIFFICULTY;
+
+        return SECONDS[rank];
+    }
+
+    uint8_t endless_traffic(uint8_t rank)
+    {
+        uint16_t traffic = 2 + rank;
+        if (traffic > 8)
+            traffic = 8;
+        return static_cast<uint8_t>(traffic);
+    }
+
+    uint8_t bcd_seconds(int seconds)
+    {
+        if (seconds < 0)
+            seconds = 0;
+        else if (seconds > 99)
+            seconds = 99;
+
+        return static_cast<uint8_t>(
+            ((seconds / 10) << 4) | (seconds % 10));
+    }
+
+    int decimal_seconds(uint8_t bcd)
+    {
+        return ((bcd >> 4) * 10) + (bcd & 0x0F);
+    }
+
+    const char* endless_stage_name(uint8_t level)
+    {
+        switch (level)
+        {
+            case 0x00: return "COCONUT BEACH";
+            case 0x09: return config.engine.jap ? "WHEAT FIELD" : "GATEWAY";
+            case 0x08: return config.engine.jap ? "CLOUDY MOUNTAIN" : "DEVILS CANYON";
+            case 0x12: return "DESERT";
+            case 0x11: return "ALPS";
+            case 0x10: return config.engine.jap ? "DEVILS CANYON" : "CLOUDY MOUNTAIN";
+            case 0x1B: return "WILDERNESS";
+            case 0x1A: return "OLD CAPITAL";
+            case 0x19: return config.engine.jap ? "GATEWAY" : "WHEAT FIELD";
+            case 0x18: return "SEASIDE TOWN";
+            case 0x24: return "VINEYARD";
+            case 0x23: return "DEATH VALLEY";
+            case 0x22: return "DESOLATION HILL";
+            case 0x21: return "AUTOBAHN";
+            case 0x20: return "LAKESIDE";
+            default:   return "UNKNOWN";
         }
     }
 
-    // Get MS Value
-    ms_value = lap_ms[stage_times[cur_stage][2]];
-}
-
-// Source: 0xBE4E
-void OStats::convert_speed_score(uint16_t speed)
-{
-    // 0x960 is the last value in this table to be actively used
-    static const uint16_t CONVERT[] = 
+    void begin_endless_banner(uint8_t difficulty)
     {
-        0x0,   0x10,  0x20,  0x30,  0x40,  0x50,  0x60,  0x80,  0x110, 0x150,
-        0x200, 0x260, 0x330, 0x410, 0x500, 0x600, 0x710, 0x830, 0x960, 0x1100,
-        0x1250,
-    };
+        const unsigned stage_number =
+            static_cast<unsigned>(outrun.endless_stage) + 1;
 
-    uint16_t score = CONVERT[(speed >> 4)];
-    update_score(score);
+        std::snprintf(
+            endless_banner_text,
+            sizeof(endless_banner_text),
+            "STAGE %u  %s",
+            stage_number,
+            endless_stage_name(static_cast<uint8_t>(oroad.stage_lookup_off)));
+
+        endless_difficulty_banner = DIFF_BANNER_NONE;
+
+        if (last_endless_difficulty >= 0 &&
+            difficulty > last_endless_difficulty)
+        {
+            endless_difficulty_banner =
+                difficulty == ENDLESS_MAX_DIFFICULTY ?
+                    DIFF_BANNER_MAX : DIFF_BANNER_UP;
+        }
+
+        last_endless_difficulty = difficulty;
+
+        // OStats::do_timers is driven at 60 Hz, so 120 ticks is about two
+        // seconds regardless of 30/60 fps rendering mode.
+        endless_banner_ticks = 120;
+    }
+
+    void draw_centered_small(uint8_t y, const char* text, uint16_t colour)
+    {
+        const int length = static_cast<int>(std::strlen(text));
+        int x = 20 - (length / 2);
+        if (x < 0)
+            x = 0;
+
+        ohud.blit_text_new(0, y, "                                        ", colour);
+        ohud.blit_text_new(static_cast<uint16_t>(x), y, text, colour);
+    }
+
+    void clear_endless_laptime()
+    {
+        // The stock checkpoint routine briefly draws the previous LAP TIME.
+        // Endless has its own stage-change presentation, so keep that legacy
+        // overlay out of the way. The stock clear records also remove the
+        // timer digits, avoiding the small orphaned LAP tile seen in testing.
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR1);
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR2);
+    }
+
+    void draw_endless_banner()
+    {
+        if (endless_banner_ticks <= 0)
+            return;
+
+        // Keep the stage identification compact at the top. Difficulty uses
+        // the larger two-row font lower on screen so the change is obvious.
+        draw_centered_small(4, endless_banner_text, OHud::GREEN);
+
+        if (endless_difficulty_banner == DIFF_BANNER_MAX)
+            ohud.blit_text_big(10, "MAX DIFFICULTY");
+        else if (endless_difficulty_banner == DIFF_BANNER_UP)
+            ohud.blit_text_big(10, "DIFFICULTY UP");
+        else
+            ohud.blit_text_big(10, "");
+
+        if (--endless_banner_ticks == 0)
+        {
+            draw_centered_small(4, "", OHud::GREEN);
+            ohud.blit_text_big(10, "");
+            endless_difficulty_banner = DIFF_BANNER_NONE;
+        }
+    }
+
+    void reset_endless_tracking()
+    {
+        last_endless_stage = -1;
+        last_endless_difficulty = -1;
+        endless_banner_ticks = 0;
+        endless_difficulty_banner = DIFF_BANNER_NONE;
+        endless_banner_text[0] = 0;
+    }
 }
 
-// Update In-Game Score. Adds Value To Overall Score.
-//
-// Source: 0x7340
-void OStats::update_score(uint32_t value)
+void OStats::do_timers()
 {
-    if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
-        return;
+    const bool endless_ingame =
+        outrun.endless_mode &&
+        outrun.cannonball_mode == Outrun::MODE_CONT &&
+        outrun.game_state == GS_INGAME;
 
-    score = outils::bcd_add(value, score);
+    if (endless_ingame)
+    {
+        endless_hiscore.tick_run(
+            static_cast<uint16_t>(oinitengine.car_increment >> 16));
 
-    if (score > 0x99999999)
-        score = 0x99999999;
+        const int stage = static_cast<int>(outrun.endless_stage);
+        if (stage != last_endless_stage)
+        {
+            const uint8_t difficulty =
+                endless_difficulty_rank(outrun.endless_stage);
 
-    ohud.draw_score_ingame(score);
+            // The legacy Endless core still derives traffic directly from the
+            // stage number. Override both the public setting and live spawn cap
+            // here so Stages 1-5 remain genuinely Easy before progression starts.
+            const uint8_t traffic = endless_traffic(difficulty);
+            outrun.custom_traffic = traffic;
+            otraffic.set_custom_max_traffic(traffic);
+
+            // Keep music changes at checkpoints so a song is never cut in the
+            // middle of a stage. Four stages is close to one full arcade song
+            // at normal Endless pace and prevents the selected track from
+            // repeatedly looping for long runs.
+            if (last_endless_stage >= 0 && stage > 0 && (stage % 4) == 0)
+                omusic.cycle_music();
+
+            last_endless_stage = stage;
+            begin_endless_banner(difficulty);
+        }
+    }
+    else if (last_endless_stage != -1 || endless_banner_ticks != 0)
+    {
+        reset_endless_tracking();
+    }
+
+    do_timers_base();
+
+    if (endless_ingame)
+    {
+        // Remove the original LAP TIME checkpoint overlay every frame while
+        // Endless owns the transition presentation. Original/Continuous keep
+        // their stock behaviour because this branch is Endless-only.
+        if (extend_play_timer)
+            clear_endless_laptime();
+
+        draw_endless_banner();
+    }
 }
-
-// Initialize Next Level
-//
-// In-Game Only:
-//
-// 1/ Show Extend Play Timer
-// 2/ Add correct time extend for time adjustment setting from dips
-// 3/ Setup next level with relevant number of enemies
-// 4/ Blit some info to the screen
-//
-// Source: 0x8FAC
 
 void OStats::init_next_level()
 {
-    if (extend_play_timer)
+    const bool endless_checkpoint =
+        outrun.endless_mode &&
+        outrun.cannonball_mode == Outrun::MODE_CONT &&
+        outrun.game_state == GS_INGAME &&
+        extend_play_timer == 0 &&
+        oinitengine.checkpoint_marker &&
+        !outrun.freeze_timer;
+
+    const uint8_t time_before = time_counter;
+
+    init_next_level_base();
+
+    if (endless_checkpoint)
     {
-        // End Extend Play: Clear Text From Screen
-        if (--extend_play_timer <= 0)
-        {
-            ohud.blit_text1(TEXT1_EXTEND_CLEAR1);
-            ohud.blit_text1(TEXT1_EXTEND_CLEAR2);
-            ohud.blit_text1(TEXT1_LAPTIME_CLEAR1);
-            ohud.blit_text1(TEXT1_LAPTIME_CLEAR2);
-        }
-        // Extend Play: Flash Text
-        else
-        {
-            int16_t do_blit = ((extend_play_timer - 1) ^ extend_play_timer) & BIT_3;
+        const uint8_t difficulty =
+            endless_difficulty_rank(outrun.endless_stage);
+        const int total_seconds =
+            decimal_seconds(time_before) +
+            endless_checkpoint_seconds(difficulty);
 
-            if (do_blit)
-            {
-                if (extend_play_timer & BIT_3)
-                {
-                    if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
-                        ohud.blit_text_new(15, 8, "BEST LAP!", OHud::PINK);
-                    else
-                    {
-                        ohud.blit_text1(TEXT1_EXTEND1);
-                        ohud.blit_text1(TEXT1_EXTEND2);
-                    }
-                }
-                else
-                {
-                    ohud.blit_text1(TEXT1_EXTEND_CLEAR1);
-                    ohud.blit_text1(TEXT1_EXTEND_CLEAR2);
-                }
-            }
-        }
-    }
-    else if (outrun.game_state == GS_INGAME && oinitengine.checkpoint_marker)
-    {
-        oinitengine.checkpoint_marker = 0;
-        extend_play_timer             = 0x80;
-        
-        // Calculate Time To Add
-        uint16_t time_lookup = (config.engine.dip_time * 40) + oroad.stage_lookup_off;
-        if (!outrun.freeze_timer)
-        {
-            if (outrun.cannonball_mode == outrun.MODE_ORIGINAL)
-                time_counter = outils::bcd_add(time_counter, TIME[time_lookup]);
-            else if (outrun.cannonball_mode == outrun.MODE_CONT)
-                time_counter = outils::bcd_add(time_counter, 0x55);
-
-            if (time_counter > 0x99) time_counter = 0x99;
-        }
-
-        // Draw last laptime
-        // Note there is a bug in the original code here, where the current ms value is displayed, instead of the ms value from the last lap time
-        ohud.blit_text1(TEXT1_LAPTIME1);
-        ohud.blit_text1(TEXT1_LAPTIME2);
-        ohud.draw_lap_timer(0x110554, stage_times[cur_stage-1], config.engine.fix_bugs ? lap_ms[stage_times[cur_stage-1][2]] : ms_value);
-
-        otraffic.set_max_traffic();
-        osoundint.queue_sound(sound::YM_CHECKPOINT);
-        osoundint.queue_sound(sound::VOICE_CHECKPOINT);
-        
-        // Update Stage Number on HUD
-        ohud.draw_stage_number(0x110d76, cur_stage+1);
-        // No need to redraw the stage info as that was a bug in the original game
+        time_counter = bcd_seconds(total_seconds);
     }
 }
-
-// Time Tables
-//
-// - Show how much time will be incremented to the counter at each stage
-// - Rightmost routes first
-// - Note there appears to be an error with the Stage 3a Normal entry
-//
-//         | Easy | Norm | Hard | VHar |
-//         '------'------'------'------'
-//Stage 1  |  80     75     72     70  |
-//         '---------------------------'
-//Stage 2a |  65     65     65     65  |
-//Stage 2b |  62     62     62     62  |
-//         '---------------------------'
-//Stage 3a |  57     55     57     57  |
-//Stage 3b |  62     60     60     60  |
-//Stage 3c |  60     60     59     58  |
-//         '---------------------------'
-//Stage 4a |  66     65     64     62  |
-//Stage 4b |  63     62     60     60  |
-//Stage 4c |  61     60     58     58  |
-//Stage 4d |  65     65     63     63  |
-//         '---------------------------'
-//Stage 5a |  58     56     54     54  |
-//Stage 5b |  55     56     54     54  |
-//Stage 5c |  56     56     54     54  |
-//Stage 5d |  58     56     54     54  |
-//Stage 5e |  56     56     56     56  |
-//         '---------------------------'
-
-
-const uint8_t OStats::TIME[] =
-{
-    // Easy
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x65, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x57, 0x62, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x66, 0x63, 0x61, 0x65, 0x00, 0x00, 0x00, 0x00, 
-    0x58, 0x55, 0x56, 0x58, 0x56, 0x00, 0x00, 0x00,
-
-    // Normal 
-    0x75, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x65, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x55, 0x60, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x65, 0x62, 0x60, 0x65, 0x00, 0x00, 0x00, 0x00,
-    0x56, 0x56, 0x56, 0x56, 0x56, 0x00, 0x00, 0x00, 
-
-    // Hard
-    0x72, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x65, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x57, 0x60, 0x59, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x64, 0x60, 0x58, 0x63, 0x00, 0x00, 0x00, 0x00,
-    0x54, 0x54, 0x54, 0x54, 0x56, 0x00, 0x00, 0x00, 
-
-    // Hardest
-    0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x65, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x57, 0x60, 0x58, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x62, 0x60, 0x58, 0x63, 0x00, 0x00, 0x00, 0x00, 
-    0x54, 0x54, 0x54, 0x54, 0x56, 0x00, 0x00, 0x00,
-};
