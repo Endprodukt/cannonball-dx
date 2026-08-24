@@ -191,14 +191,10 @@ namespace
         // Prominently identify the course currently selected on the map.
         ohud.blit_text_big(1, track_name(level_selected));
 
-        // The longest course name stops at column 27, leaving a clean status
-        // block in the top-right corner.
-        ohud.blit_text_new(
-            traffic_enabled ? 30 : 29,
-            1,
-            traffic_name(),
-            OHud::GREEN);
-        ohud.blit_text_new(7, 4, "STEER TRACK  VIEW TRAFFIC", OHud::GREY);
+        // Make the Traffic control explicit without involving VIEW2/VIEW3.
+        // The two-line block is right-aligned in the free top-right area.
+        ohud.blit_text_new(30, 3, "PRESS VIEW", OHud::GREY);
+        ohud.blit_text_new(26, 4, "TRAFFIC ON/OFF", OHud::GREEN);
 
         // Keep all Time Trial record information on one compact line below
         // the map. The top entry is always from the selected traffic class.
