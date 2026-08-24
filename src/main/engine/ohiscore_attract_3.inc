@@ -21,6 +21,17 @@
 
             std::string row(40, ' ');
 
+            // Always render all five visible Endless slots, even when a machine
+            // has fewer than five saved records. This keeps the presentation
+            // consistent with the other Best OutRunners pages and makes the
+            // fifth row visible instead of disappearing as an empty tile line.
+            put_field(
+                row,
+                0,
+                3,
+                Utils::to_string(row_index + 1),
+                FIELD_CENTER);
+
             if (stages || distance || ticks)
             {
                 const std::string initials = initials_text(
@@ -46,16 +57,17 @@
                 char time_text[16];
                 format_endless_time(ticks, time_text, sizeof(time_text));
 
-                put_field(
-                    row,
-                    0,
-                    3,
-                    Utils::to_string(row_index + 1),
-                    FIELD_CENTER);
                 put_field(row, 4, 5, initials, FIELD_CENTER);
                 put_field(row, 10, 7, stages_text, FIELD_CENTER);
                 put_field(row, 18, 11, distance_text, FIELD_CENTER);
                 put_field(row, 31, 9, time_text, FIELD_CENTER);
+            }
+            else
+            {
+                put_field(row, 4, 5, "---", FIELD_CENTER);
+                put_field(row, 10, 7, "-", FIELD_CENTER);
+                put_field(row, 18, 11, "--.- KM", FIELD_CENTER);
+                put_field(row, 31, 9, "--'--\"--", FIELD_CENTER);
             }
 
             write_attract_tile_row(row_index, row);
@@ -241,8 +253,8 @@
             return false;
 
         // Courses 11-15 are perfectly aligned with the original five-row grid.
-        // Leave that final view up for one second before advancing.
-        return ++attract_ttrial_hold_frames >= ticks_per_second;
+        // Leave that final view up for two seconds before advancing.
+        return ++attract_ttrial_hold_frames >= ticks_per_second * 2;
     }
 
     const char* attract_page_name(int page)
