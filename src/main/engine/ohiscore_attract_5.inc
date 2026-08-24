@@ -120,16 +120,54 @@
         return;
     }
 
+    // Time Trial owns its duration: reveal five rows, hold for two seconds,
+    // scroll all 15 courses inside the clipped five-row table, then hold the
+    // final five for one second. Only two Time Trial pages exist now.
+    if (attract_time_trial_page(attract_score_page))
+    {
+        bool page_done = false;
+        if (best_or_state >= 2)
+            page_done = tick_time_trial_scroll();
+
+        if (!page_done)
+        {
+            // Keep the stock BEST1 state alive while our scrolling page runs.
+            if (attract_timer_will_expire_this_tick())
+            {
+                ostats.time_counter = ATTRACT_TTRIAL_GUARD_SECONDS;
+                ostats.frame_counter = ostats.frame_reset;
+            }
+            return;
+        }
+
+        if (attract_score_page == ATTRACT_SCORE_TTRIAL_WITH)
+        {
+            configure_attract_page(*this, ATTRACT_SCORE_TTRIAL_WITHOUT);
+            ostats.time_counter = ATTRACT_TTRIAL_GUARD_SECONDS;
+            ostats.frame_counter = ostats.frame_reset;
+            return;
+        }
+
+        // Let the normal attract state machine continue immediately after the
+        // second scrolling Time Trial page.
+        restore_attract_runtime();
+        ostats.time_counter = 0;
+        ostats.frame_counter = 0;
+        return;
+    }
+
     if (!attract_timer_will_expire_this_tick())
         return;
 
     if (attract_score_page + 1 < ATTRACT_SCORE_PAGE_COUNT)
     {
-        configure_attract_page(
-            *this,
-            attract_score_page + 1);
+        const int next_page = attract_score_page + 1;
+        configure_attract_page(*this, next_page);
 
-        ostats.time_counter = ATTRACT_SCORE_SECONDS;
+        ostats.time_counter =
+            attract_time_trial_page(next_page) ?
+                ATTRACT_TTRIAL_GUARD_SECONDS :
+                ATTRACT_SCORE_SECONDS;
         ostats.frame_counter = ostats.frame_reset;
     }
     else
