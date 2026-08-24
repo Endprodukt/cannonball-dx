@@ -57,7 +57,8 @@ namespace
 
     const int ATTRACT_SCORE_SECONDS = 5;
     const int ATTRACT_VISIBLE_ROWS = 5;
-    const int ATTRACT_TTRIAL_GUARD_SECONDS = 15;
+    // OutRun countdown values are BCD, so fifteen seconds is 0x15.
+    const int ATTRACT_TTRIAL_GUARD_SECONDS = 0x15;
 
     // Logical System 16 pixels. A Time Trial row is two 8px text rows high.
     // Ten row advances take us from courses 1-5 to courses 11-15.
