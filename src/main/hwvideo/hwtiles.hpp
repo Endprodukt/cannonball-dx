@@ -31,8 +31,8 @@ public:
     void render_all_tiles(uint16_t*);
 
     // CannonBall DX: independent clipped text overlay used by the attract-mode
-    // Time Trial records. Keeping it outside normal text RAM lets fifteen rows
-    // scroll smoothly without moving headings, PUSH START or copyright text.
+    // Time Trial records. Coordinates and offsets are logical System 16 pixels,
+    // so the same scroll works in normal and internal hi-res rendering modes.
     static const int TEXT_SCROLL_MAX_ROWS = 15;
     static const int TEXT_SCROLL_COLUMNS = 40;
 
