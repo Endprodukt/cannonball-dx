@@ -11,6 +11,7 @@
 
 // Load all preserved dependencies before renaming methods so the temporary
 // macros cannot touch declarations in another header.
+#include "engine/audio/osoundint.hpp"
 #include "engine/ohud.hpp"
 #include "engine/omusic.hpp"
 #include "engine/outils.hpp"
@@ -31,6 +32,13 @@ namespace
 {
     const uint8_t ENDLESS_MAX_DIFFICULTY = 7;
 
+    // Five visible flashes, each on/off phase lasting roughly a quarter second
+    // at the 60 Hz OStats tick rate. Total presentation time is about 2.5 sec.
+    const int TTRIAL_LAP_HALF_PHASE_TICKS = 15;
+    const int TTRIAL_LAP_FLASHES = 5;
+    const int TTRIAL_LAP_TOTAL_TICKS =
+        TTRIAL_LAP_HALF_PHASE_TICKS * TTRIAL_LAP_FLASHES * 2;
+
     enum DifficultyBanner
     {
         DIFF_BANNER_NONE = 0,
@@ -43,6 +51,11 @@ namespace
     int endless_banner_ticks = 0;
     DifficultyBanner endless_difficulty_banner = DIFF_BANNER_NONE;
     char endless_banner_text[40] = {0};
+
+    int last_ttrial_lap = -1;
+    int ttrial_lap_banner_ticks = 0;
+    int ttrial_lap_banner_phase = -1;
+    uint8_t ttrial_lap_time[3] = {0, 0, 0};
 
     uint8_t endless_difficulty_rank(uint16_t stage)
     {
@@ -202,6 +215,114 @@ namespace
         endless_difficulty_banner = DIFF_BANNER_NONE;
         endless_banner_text[0] = 0;
     }
+
+    void clear_ttrial_lap_banner()
+    {
+        ohud.blit_text_big(8, "");
+
+        for (uint16_t x = 0; x < 40; x++)
+        {
+            video.write_text16(ohud.translate(x, 11), 0);
+            video.write_text16(ohud.translate(x, 12), 0);
+        }
+    }
+
+    void draw_ttrial_lap_banner()
+    {
+        // Two deliberately different large styles: the existing two-row
+        // headline font for LAP TIME and the bonus-screen large digit font for
+        // the actual time. Position is centred about one third down the screen.
+        ohud.blit_text_big(8, "LAP TIME");
+
+        for (uint16_t x = 0; x < 40; x++)
+        {
+            video.write_text16(ohud.translate(x, 11), 0);
+            video.write_text16(ohud.translate(x, 12), 0);
+        }
+
+        uint32_t addr = ohud.translate(16, 11);
+        const uint16_t APOSTROPHE = 0x835E;
+        const uint16_t QUOTE = 0x835F;
+
+        ohud.blit_large_digit(
+            &addr,
+            static_cast<uint8_t>((ttrial_lap_time[0] & 0x0F) << 1));
+        video.write_text16(&addr, APOSTROPHE);
+        ohud.blit_large_digit(
+            &addr,
+            static_cast<uint8_t>(((ttrial_lap_time[1] >> 4) & 0x0F) << 1));
+        ohud.blit_large_digit(
+            &addr,
+            static_cast<uint8_t>((ttrial_lap_time[1] & 0x0F) << 1));
+        video.write_text16(&addr, QUOTE);
+        ohud.blit_large_digit(
+            &addr,
+            static_cast<uint8_t>(((ttrial_lap_time[2] >> 4) & 0x0F) << 1));
+        ohud.blit_large_digit(
+            &addr,
+            static_cast<uint8_t>((ttrial_lap_time[2] & 0x0F) << 1));
+    }
+
+    void begin_ttrial_lap_banner(int completed_lap, const uint8_t* lap_ms)
+    {
+        if (completed_lap < 0 || completed_lap >= 5 || !lap_ms)
+            return;
+
+        const uint8_t* lap = outrun.ttrial.laptimes[completed_lap];
+        ttrial_lap_time[0] = lap[0];
+        ttrial_lap_time[1] = lap[1];
+        ttrial_lap_time[2] = lap_ms[lap[2]];
+        ttrial_lap_banner_ticks = TTRIAL_LAP_TOTAL_TICKS;
+        ttrial_lap_banner_phase = -1;
+
+        // check_stage() can still create the old small BEST LAP overlay on a
+        // record lap. The new centred banner replaces it for all completed laps.
+        ostats.extend_play_timer = 0;
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR1);
+        ohud.blit_text1(TEXT1_LAPTIME_CLEAR2);
+    }
+
+    void tick_ttrial_lap_banner()
+    {
+        if (ttrial_lap_banner_ticks <= 0)
+            return;
+
+        const int elapsed =
+            TTRIAL_LAP_TOTAL_TICKS - ttrial_lap_banner_ticks;
+        const int phase = elapsed / TTRIAL_LAP_HALF_PHASE_TICKS;
+        const bool visible = (phase & 1) == 0;
+
+        if (phase != ttrial_lap_banner_phase)
+        {
+            ttrial_lap_banner_phase = phase;
+            if (visible)
+                osoundint.queue_sound(sound::BEEP1);
+        }
+
+        if (visible)
+            draw_ttrial_lap_banner();
+        else
+            clear_ttrial_lap_banner();
+
+        if (--ttrial_lap_banner_ticks == 0)
+        {
+            clear_ttrial_lap_banner();
+            ttrial_lap_banner_phase = -1;
+        }
+    }
+
+    void reset_ttrial_lap_tracking()
+    {
+        if (ttrial_lap_banner_ticks > 0)
+            clear_ttrial_lap_banner();
+
+        last_ttrial_lap = -1;
+        ttrial_lap_banner_ticks = 0;
+        ttrial_lap_banner_phase = -1;
+        ttrial_lap_time[0] = 0;
+        ttrial_lap_time[1] = 0;
+        ttrial_lap_time[2] = 0;
+    }
 }
 
 void OStats::do_timers()
@@ -245,6 +366,27 @@ void OStats::do_timers()
         reset_endless_tracking();
     }
 
+    // check_stage() has already advanced current_lap by the time this wrapper
+    // runs. Detect that edge and capture the just-finished lap from laptimes[].
+    if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+    {
+        const int current_lap = static_cast<int>(outrun.ttrial.current_lap);
+
+        if (last_ttrial_lap < 0 || current_lap < last_ttrial_lap)
+        {
+            last_ttrial_lap = current_lap;
+        }
+        else if (current_lap > last_ttrial_lap)
+        {
+            begin_ttrial_lap_banner(current_lap - 1, lap_ms);
+            last_ttrial_lap = current_lap;
+        }
+    }
+    else if (last_ttrial_lap != -1 || ttrial_lap_banner_ticks != 0)
+    {
+        reset_ttrial_lap_tracking();
+    }
+
     do_timers_base();
 
     if (endless_ingame)
@@ -257,6 +399,11 @@ void OStats::do_timers()
 
         draw_endless_banner();
     }
+
+    // Draw after the preserved timer code so the lap notification always owns
+    // its temporary centre-screen area, including on the final lap as GOAL starts.
+    if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+        tick_ttrial_lap_banner();
 }
 
 void OStats::init_next_level()
