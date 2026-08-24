@@ -161,12 +161,15 @@ public:
                 ++it;
         }
 
-        // One shared switch controls the automatic timeout on both selection
-        // screens. Put it directly in Game Engine, immediately before the
-        // existing Enhancements/Car Setup submenus.
+        // One shared duration controls the automatic timeout on both selector
+        // screens. 30 seconds remains the default; 15 seconds and OFF are the
+        // two alternative Game Engine settings.
+        const int selection_seconds = config.selection_timer_seconds();
         const std::string selection_timer_entry =
-            std::string("SELECTION TIMERS ") +
-            (config.selection_timers_enabled() ? "ON" : "OFF");
+            std::string("SELECTION TIMER ") +
+            (selection_seconds == 0
+                ? "OFF"
+                : std::to_string(selection_seconds) + " SEC");
 
         for (auto it = menu_engine.begin(); it != menu_engine.end(); ++it)
         {
