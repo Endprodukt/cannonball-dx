@@ -225,25 +225,82 @@ namespace
             video.write_text16(ohud.translate(x, y), 0);
     }
 
-    void clear_ttrial_no_traffic_score()
+    void clear_text_span(uint16_t x, uint16_t y, uint16_t width)
+    {
+        for (uint16_t i = 0; i < width; ++i)
+            video.write_text16(ohud.translate(x + i, y), 0);
+    }
+
+    bool text_char_at(uint16_t x, uint16_t y, char expected)
+    {
+        return video.read_text8(ohud.translate(x, y) + 1) ==
+            static_cast<uint8_t>(expected);
+    }
+
+    void clean_ttrial_no_traffic_ui()
     {
         if (outrun.cannonball_mode != Outrun::MODE_TTRIAL ||
-            outrun.ttrial.traffic ||
-            outrun.game_state < GS_START1 ||
-            outrun.game_state > GS_BONUS)
+            outrun.ttrial.traffic)
         {
             return;
         }
 
-        // Time Trial itself does not use score for ranking. With Traffic OFF it
-        // has no useful overtaking context either, so remove both the SCORE logo
-        // and the zero score digits from the in-game HUD.
-        ohud.blit_text_new(2, 1, "        ", OHud::GREY);
-        ohud.blit_text_new(2, 2, "        ", OHud::GREY);
+        if (outrun.game_state >= GS_START1 &&
+            outrun.game_state <= GS_BONUS)
+        {
+            // Time Trial draws its SCORE label/value at x=2..10 rather than at
+            // the stock in-game score address. Clear that actual area so the
+            // last remaining zero disappears only in the Traffic OFF class.
+            clear_text_span(2, 1, 10);
+            clear_text_span(2, 2, 10);
+        }
 
-        uint32_t score_addr = 0x110150;
-        for (int i = 0; i < 8; i++)
-            video.write_text16(&score_addr, 0);
+        if (outrun.game_state == GS_GAMEOVER)
+        {
+            // The seven-second Time Trial Results page is drawn before this
+            // late pass. With no traffic there can be no overtakes or vehicle
+            // collisions, so leave only the meaningful CRASHES statistic.
+            clear_text_row(14);
+            clear_text_row(16);
+        }
+
+        if (outrun.game_state == GS_INIT_BEST2 ||
+            outrun.game_state == GS_BEST2)
+        {
+            // The no-traffic records renderer already omits OVT. Remove the
+            // remaining vehicle-collision field and use its freed header space
+            // to spell CRASHES out while keeping the existing crash values in
+            // their right-hand field. Detect the header row so the original
+            // initials timer/alphabet are never touched.
+            uint16_t header_y = 0;
+            uint16_t first_row_y = 0;
+            int visible_rows = 0;
+
+            if (text_char_at(29, 5, 'C') && text_char_at(30, 5, 'O'))
+            {
+                header_y = 5;
+                first_row_y = 7;
+                visible_rows = 15;
+            }
+            else if (text_char_at(29, 4, 'C') && text_char_at(30, 4, 'O'))
+            {
+                header_y = 4;
+                first_row_y = 5;
+                visible_rows = 20;
+            }
+
+            if (header_y)
+            {
+                clear_text_span(28, header_y, 12);
+                ohud.blit_text_new(33, header_y, "CRASHES", OHud::GREY);
+
+                for (int row = 0; row < visible_rows; ++row)
+                    clear_text_span(
+                        28,
+                        static_cast<uint16_t>(first_row_y + row),
+                        6);
+            }
+        }
     }
 
     void clear_ttrial_lap_banner()
@@ -483,9 +540,9 @@ void OStats::do_timers()
         draw_endless_banner();
     }
 
-    // Traffic OFF Time Trial is purely a lap-time challenge. Keep the normal
-    // score HUD out of the way while driving that class.
-    clear_ttrial_no_traffic_score();
+    // This intentionally runs after all normal Time Trial rendering (including
+    // the late records redraw) so Traffic OFF can remove only irrelevant UI.
+    clean_ttrial_no_traffic_ui();
 
     // Draw after the preserved timer code so the lap notification always owns
     // its temporary centre-screen area, including on the final lap as GOAL starts.
