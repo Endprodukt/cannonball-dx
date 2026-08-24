@@ -20,6 +20,7 @@
 #include "frontend/menu.hpp"
 #include "directx/ffeedback.hpp"
 
+#include <SDL.h>
 #include <cstring>
 
 #define enable enable_base
@@ -36,6 +37,7 @@ namespace
 {
     const int CAR_COLOR_COUNT = 8;
     int last_endless_music_stage = -1;
+    Uint32 music_select_deadline_ms = 0;
 
     enum MusicModeSelection
     {
@@ -52,6 +54,12 @@ namespace
         while (color >= CAR_COLOR_COUNT)
             color -= CAR_COLOR_COUNT;
         return color;
+    }
+
+    bool music_selection_timed_out()
+    {
+        return music_select_deadline_ms != 0 &&
+            static_cast<Sint32>(SDL_GetTicks() - music_select_deadline_ms) >= 0;
     }
 
     void draw_endless_mode_name()
@@ -94,16 +102,23 @@ void OMusic::enable()
             car_palette_state::get_default(config.engine.car_pal);
     }
 
+    music_select_deadline_ms = 0;
     enable_base();
 
-    // The preserved implementation initializes this from sound.music_timer.
-    // DX now owns one shared selector duration under Game Engine instead, so
-    // override it here with 15 or 30 seconds. OFF is held indefinitely in
-    // tick(), but starts from 30 simply to keep the counter in a valid state.
+    // Do not use Outrun's generic countdown to own Music Select. It jumps
+    // straight to GS_INIT_GAME and therefore bypasses the DX game-mode logic.
+    // Instead keep that legacy counter safely away from zero and use the same
+    // real-time deadline as the Time Trial course selector.
     if (!skip_music_tick)
     {
         const int selection_seconds = config.selection_timer_seconds();
-        ostats.time_counter = selection_seconds == 15 ? 0x15 : 0x30;
+        if (selection_seconds > 0)
+        {
+            music_select_deadline_ms =
+                SDL_GetTicks() + static_cast<Uint32>(selection_seconds) * 1000U;
+        }
+
+        ostats.time_counter = 0x30;
         ostats.frame_counter = ostats.frame_reset;
     }
 
@@ -168,6 +183,8 @@ void OMusic::check_start()
     // Continuous, while Time Trial keeps its existing forced timer behaviour.
     if (start_pressed)
     {
+        music_select_deadline_ms = 0;
+
         if (old_selection == SELECT_ENDLESS)
             outrun.freeze_timer = false;
         else if (old_selection == SELECT_TIME_TRIAL)
@@ -290,14 +307,81 @@ void OMusic::cycle_music()
 
 void OMusic::tick()
 {
+    // A timed Music Select must commit the highlighted game mode exactly like
+    // START. The old engine timeout could not do this because it only changed
+    // game_state. Handle the full DX selection here instead.
+    if (!skip_music_tick &&
+        outrun.game_state == GS_MUSIC &&
+        music_selection_timed_out())
+    {
+        music_select_deadline_ms = 0;
+        config.save();
+
+        if (game_mode_selected == Outrun::MODE_TTRIAL &&
+            outrun.cannonball_mode != Outrun::MODE_TTRIAL)
+        {
+            pending_music_selected = music_selected;
+            return_from_time_trial = true;
+            outrun.freeze_timer = true;
+            outrun.endless_mode = false;
+
+            cannonball::audio.clear_wav();
+            osoundint.queue_sound(sound::FM_RESET);
+            ologo.disable();
+            disable();
+
+            ostats.time_counter = 0x30;
+            ostats.frame_counter = ostats.frame_reset;
+
+            if (menu)
+            {
+                menu->start_time_trial_from_music();
+                return;
+            }
+
+            // Defensive fallback for builds without a frontend menu object.
+            return_from_time_trial = false;
+            game_mode_selected = Outrun::MODE_ORIGINAL;
+        }
+
+        outrun.cannonball_mode = game_mode_selected;
+        outrun.endless_mode =
+            game_mode_selected == Outrun::MODE_CONT && endless_selected;
+
+        if (outrun.endless_mode)
+        {
+            outrun.freeze_timer = false;
+            outrun.custom_traffic = 2;
+        }
+        else if (game_mode_selected == Outrun::MODE_TTRIAL)
+        {
+            outrun.freeze_timer = true;
+        }
+        else
+        {
+            outrun.freeze_timer = config.engine.freeze_timer;
+        }
+
+        if (game_mode_selected == Outrun::MODE_CONT && !outrun.endless_mode)
+            set_continuous_traffic_from_difficulty();
+
+        if (game_mode_selected != Outrun::MODE_TTRIAL)
+            config.load_scores(game_mode_selected == Outrun::MODE_ORIGINAL);
+
+        outrun.game_state = GS_INIT_GAME;
+        ologo.disable();
+        disable();
+
+        ostats.time_counter = 0x30;
+        ostats.frame_counter = ostats.frame_reset;
+        return;
+    }
+
     tick_base();
 
-    // The stock Music Select timeout is owned by Outrun::decrement_timers()
-    // immediately after this function returns. OFF keeps both counters at a
-    // safe starting value, making Music Select unlimited without affecting any
-    // race, attract or high-score timer behavior.
-    if (outrun.game_state == GS_MUSIC &&
-        config.selection_timer_seconds() == 0)
+    // Neutralise the legacy Music Select countdown on every frame. The real
+    // 15/30/OFF behaviour is exclusively owned by music_select_deadline_ms.
+    if (outrun.game_state == GS_MUSIC)
     {
         ostats.time_counter = 0x30;
         ostats.frame_counter = ostats.frame_reset;
