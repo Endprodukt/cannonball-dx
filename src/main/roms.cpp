@@ -84,7 +84,10 @@ bool Roms::load_revb_roms(bool fixed_rom)
     status += LOAD(pcm, ("opr-10191.68", 0x20000, 0x08000, 0x20a284ab, RomLoader::NORMAL, VERBOSE));
     status += LOAD(pcm, ("opr-10190.69", 0x30000, 0x08000, 0x7cab70e2, RomLoader::NORMAL, VERBOSE));
     status += LOAD(pcm, ("opr-10189.70", 0x40000, 0x08000, 0x01366b54, RomLoader::NORMAL, VERBOSE));
-    status += LOAD(pcm, ("opr-10188.71", 0x50000, 0x08000, 0xbad30ad9, RomLoader::NORMAL, VERBOSE));
+
+    // The final PCM ROM exists in three useful forms. load_pcm_rom() prefers
+    // Sega/M2's official corrected dump, retains CannonBall's historical
+    // patched ROM, and finally falls back to the original faulty arcade dump.
     status += load_pcm_rom(fixed_rom);
 
     // If status has been incremented, a rom has failed to load.
@@ -103,13 +106,13 @@ bool Roms::load_japanese_roms()
     // If incremented, a rom has failed to load.
     jap_rom_status = 0;
 
-    // Load Master CPU ROMs     
+    // Load Master CPU ROMs
     jap_rom_status += LOAD(j_rom0, ("epr-10380.133", 0x00000, 0x10000, 0xe339e87a, RomLoader::INTERLEAVE2, VERBOSE));
     jap_rom_status += LOAD(j_rom0, ("epr-10382.118", 0x00001, 0x10000, 0x65248dd5, RomLoader::INTERLEAVE2, VERBOSE));
     jap_rom_status += LOAD(j_rom0, ("epr-10381.132", 0x20000, 0x10000, 0xbe8c412b, RomLoader::INTERLEAVE2, VERBOSE));
     jap_rom_status += LOAD(j_rom0, ("epr-10383.117", 0x20001, 0x10000, 0xdcc586e7, RomLoader::INTERLEAVE2, VERBOSE));
 
-    // Load Slave CPU ROMs        
+    // Load Slave CPU ROMs
     jap_rom_status += LOAD(j_rom1, ("epr-10327.76", 0x00000, 0x10000, 0xda99d855, RomLoader::INTERLEAVE2, VERBOSE));
     jap_rom_status += LOAD(j_rom1, ("epr-10329.58", 0x00001, 0x10000, 0xfe0fa5e2, RomLoader::INTERLEAVE2, VERBOSE));
     jap_rom_status += LOAD(j_rom1, ("epr-10328.75", 0x20000, 0x10000, 0x3c0e9a7f, RomLoader::INTERLEAVE2, VERBOSE));
@@ -120,25 +123,31 @@ bool Roms::load_japanese_roms()
 
 int Roms::load_pcm_rom(bool fixed_rom)
 {
-    int status = 0;
+    int status = 1;
+
     if (fixed_rom)
     {
-        status = LOAD(pcm, ("opr-10188.71f", 0x50000, 0x08000, 0x37598616, RomLoader::NORMAL, false));
-        if (status == 1)
-            status = LOAD(pcm, ("opr-10188.71f", 0x50000, 0x08000, 0xC2DE09B2, RomLoader::NORMAL, VERBOSE));
+        // Prefer the official Sega/M2 corrected ROM used by current MAME
+        // enhanced sets. CRC matching means it may be named differently or
+        // live inside a merged ZIP archive.
+        status = LOAD(pcm, ("enhanced_203_opr-10188.71", 0x50000, 0x08000, 0xC2DE09B2, RomLoader::NORMAL, false));
 
-        // JJP - soft fail if we don't have the ROM with the fixed samples
-        if (status == 1) {
-            std::cerr << "WARNING: config.fix_samples is set, but patched ROM not found. RevB ROM will be used." << std::endl;
-            fixed_rom = false; // fall through to standard ROM load
+        // Backwards compatibility: CannonBall's historical bspatch output.
+        if (status == 1)
+            status = LOAD(pcm, ("opr-10188.71f", 0x50000, 0x08000, 0x37598616, RomLoader::NORMAL, false));
+
+        if (status == 1)
+        {
+            std::cerr << "WARNING: config.fix_samples is set, but no corrected PCM ROM was found. RevB ROM will be used." << std::endl;
+            fixed_rom = false;
         }
     }
-    if (!fixed_rom)
-    {
-        status = LOAD(pcm, ("opr-10188.71", 0x50000, 0x08000, 0xbad30ad9, RomLoader::NORMAL, VERBOSE));
-    }
 
-    //return LOAD(pcm, (fixed_rom ? "opr-10188.71f" : "opr-10188.71", 0x50000, 0x08000, fixed_rom ? 0x37598616 : 0xbad30ad9, RomLoader::NORMAL)) == 0;
+    // Original OutRun PCM ROM with the known stuck data bit. Keep this as the
+    // final fallback so every legacy extracted Rev B set continues to work.
+    if (!fixed_rom)
+        status = LOAD(pcm, ("opr-10188.71", 0x50000, 0x08000, 0xbad30ad9, RomLoader::NORMAL, VERBOSE));
+
     return status;
 }
 
