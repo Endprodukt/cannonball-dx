@@ -102,7 +102,7 @@ namespace highscore_storage_detail
 
     inline bool is_unified_tree(const ptree& tree)
     {
-        return tree.root &&
+        return tree.root && tree.root->Name() &&
                std::strcmp(tree.root->Name(), "highscores") == 0;
     }
 
@@ -202,6 +202,9 @@ namespace highscore_storage_detail
 
         destination.doc.Clear();
         tinyxml2::XMLNode* clone = source->DeepClone(&destination.doc);
+        if (!clone)
+            return false;
+
         destination.doc.InsertFirstChild(clone);
         destination.root = clone->ToElement();
         return destination.root != nullptr;
