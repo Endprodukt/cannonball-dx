@@ -11,7 +11,9 @@
 #include "engine/oroad.hpp"
 #include "engine/ostats.hpp"
 #include "engine/outrun.hpp"
+#include "engine/time_trial_records.hpp"
 #include "frontend/config.hpp"
+#include "frontend/ttrial.hpp"
 #include "frontend/xml_parser.h"
 #include "sdl2/input.hpp"
 
@@ -82,7 +84,27 @@ public:
         update_showcase();
         reset_view_on_start();
 
-        if (showcase_active)
+        // GS_BEST2 draws the normal FREE PLAY/credits text after the dedicated
+        // Time Trial records tick. This output pass runs later in the frame, so
+        // redraw only the Time Trial page here and let its editor own rows 25-27.
+        // No input is processed a second time by redraw_screen().
+        if (time_trial_records.is_record_screen_active())
+            time_trial_records.redraw_screen();
+
+        // The course selector uses only VIEW1 and the classic/general VIEW
+        // button as Traffic toggles. Reflect that same simple state physically:
+        // both relevant lamps are on for Traffic ON, all view lamps are off for
+        // Traffic OFF, and VIEW2/VIEW3 never participate in this selector.
+        const bool time_trial_selector = time_trial_selector_active();
+        if (time_trial_selector)
+        {
+            const bool traffic_on = time_trial_selector_traffic_enabled();
+            view_lamp = traffic_on ? 1 : 0;
+            view1_lamp = traffic_on ? 1 : 0;
+            view2_lamp = 0;
+            view3_lamp = 0;
+        }
+        else if (showcase_active)
         {
             // The dedicated VR lamps always follow the camera that is actually
             // on screen. View, label and lamp switch in the same update tick.
