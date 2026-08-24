@@ -50,7 +50,7 @@ namespace
 
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
-    const char* SELECTION_TIMERS_LABEL = "SELECTION TIMERS ";
+    const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
 
     bool starts_with_label(const std::string& value, const char* label)
     {
@@ -72,8 +72,9 @@ namespace
 
     std::string selection_timer_menu_text()
     {
-        return std::string(SELECTION_TIMERS_LABEL) +
-            (config.selection_timers_enabled() ? "ON" : "OFF");
+        const int seconds = config.selection_timer_seconds();
+        return std::string(SELECTION_TIMER_LABEL) +
+            (seconds == 0 ? "OFF" : std::to_string(seconds) + " SEC");
     }
 
     const char* ROW_LABELS[BINDING_ROWS] =
@@ -315,10 +316,9 @@ bool Menu::select_pressed()
     {
         const std::string& option = menu_engine[cursor];
 
-        if (starts_with_label(option, SELECTION_TIMERS_LABEL))
+        if (starts_with_label(option, SELECTION_TIMER_LABEL))
         {
-            config.set_selection_timers_enabled(
-                !config.selection_timers_enabled());
+            config.cycle_selection_timer();
             menu_engine[cursor] = selection_timer_menu_text();
             return false;
         }

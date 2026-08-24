@@ -96,6 +96,17 @@ void OMusic::enable()
 
     enable_base();
 
+    // The preserved implementation initializes this from sound.music_timer.
+    // DX now owns one shared selector duration under Game Engine instead, so
+    // override it here with 15 or 30 seconds. OFF is held indefinitely in
+    // tick(), but starts from 30 simply to keep the counter in a valid state.
+    if (!skip_music_tick)
+    {
+        const int selection_seconds = config.selection_timer_seconds();
+        ostats.time_counter = selection_seconds == 15 ? 0x15 : 0x30;
+        ostats.frame_counter = ostats.frame_reset;
+    }
+
     // Endless deliberately shares MODE_CONT. Restore its second VIEW2 state
     // when returning to Music Select after an Endless run.
     endless_selected =
@@ -282,13 +293,13 @@ void OMusic::tick()
     tick_base();
 
     // The stock Music Select timeout is owned by Outrun::decrement_timers()
-    // immediately after this function returns. Holding both counters at their
-    // initial values makes this selector unlimited without touching any race,
-    // attract or high-score timer behavior.
+    // immediately after this function returns. OFF keeps both counters at a
+    // safe starting value, making Music Select unlimited without affecting any
+    // race, attract or high-score timer behavior.
     if (outrun.game_state == GS_MUSIC &&
-        !config.selection_timers_enabled())
+        config.selection_timer_seconds() == 0)
     {
-        ostats.time_counter = config.sound.music_timer;
+        ostats.time_counter = 0x30;
         ostats.frame_counter = ostats.frame_reset;
     }
 
