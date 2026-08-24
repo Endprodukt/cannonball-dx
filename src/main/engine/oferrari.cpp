@@ -35,6 +35,11 @@
 #undef tick
 #undef PAL_CYAN
 
+namespace
+{
+    bool ttrial_goal_randomized = false;
+}
+
 void OFerrari::cycle_car_palette()
 {
     const int size = sizeof(FERRARI_PALETTES) / sizeof(FERRARI_PALETTES[0]);
@@ -69,6 +74,25 @@ void OFerrari::tick()
             car_palette_state::set_default(config.engine.car_pal);
             config.save();
         }
+    }
+
+    // A normal OutRun ending ties one of five end animations to the route.
+    // Time Trial repeatedly finishes the same selected course, so choose one
+    // of those five animation sets at random once when its GOAL sequence starts.
+    // The bonus road is already loaded at this point; only the visible character/
+    // celebration animation changes, which keeps the Time Trial course intact.
+    const bool ttrial_goal =
+        outrun.cannonball_mode == Outrun::MODE_TTRIAL &&
+        (outrun.game_state == GS_INIT_BONUS || outrun.game_state == GS_BONUS);
+
+    if (ttrial_goal && !ttrial_goal_randomized)
+    {
+        oanimseq.end_seq = static_cast<uint8_t>(outils::random() % 5);
+        ttrial_goal_randomized = true;
+    }
+    else if (!ttrial_goal)
+    {
+        ttrial_goal_randomized = false;
     }
 
     tick_base();
