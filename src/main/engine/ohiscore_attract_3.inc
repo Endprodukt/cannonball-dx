@@ -1,6 +1,3 @@
-        }
-    }
-
     void prepare_endless_attract_rows()
     {
         xml_parser::ptree data("endless_scores");
@@ -99,14 +96,10 @@
         const char* traffic_tag =
             traffic_on ? ".traffic_on.entry0" : ".traffic_off.entry0";
 
-        const int first_track =
-            attract_time_trial_page_index(page) * ATTRACT_VISIBLE_ROWS;
+        reset_time_trial_scroll_state();
 
-        for (int row_index = 0;
-             row_index < ATTRACT_VISIBLE_ROWS;
-             row_index++)
+        for (int track = 0; track < TimeTrialRecords::TRACK_COUNT; track++)
         {
-            const int track = first_track + row_index;
             const std::string track_base =
                 "time_trial.track" +
                 Utils::to_string(track) +
@@ -147,8 +140,108 @@
             put_field(row, 19, 5, initials, FIELD_CENTER);
             put_field(row, 27, 13, time_text, FIELD_CENTER);
 
-            write_attract_tile_row(row_index, row);
+            attract_ttrial_rows[track] = row;
         }
+
+        // The first five rows are still revealed by the original mini-cars.
+        for (int row = 0; row < ATTRACT_VISIBLE_ROWS; row++)
+            write_attract_tile_row(row, attract_ttrial_rows[row]);
+    }
+
+    void clear_time_trial_text_window()
+    {
+        for (uint16_t y = ATTRACT_TTRIAL_VIEW_TOP_Y;
+             y <= ATTRACT_TTRIAL_VIEW_BOTTOM_Y;
+             y++)
+        {
+            uint32_t dst = ohud.translate(0, y);
+            for (int x = 0; x < 40; x++)
+                video.write_text16(&dst, 0);
+        }
+    }
+
+    void draw_time_trial_text_row(const std::string& row, uint16_t y)
+    {
+        // Match the stock reveal palettes: course/record grey, initials green.
+        draw_attract_text(0, y, row.substr(0, 17), 0x84);
+        draw_attract_text(19, y, row.substr(19, 5), 0x82);
+        draw_attract_text(27, y, row.substr(27, 13), 0x84);
+    }
+
+    void draw_time_trial_scroll_window()
+    {
+        clear_time_trial_text_window();
+
+        // Two half-steps per course: even rows, then the same rows shifted one
+        // text line upward. Anything outside y=9..18 is simply not drawn, so
+        // records disappear beneath the fixed headers instead of crossing them.
+        for (int i = 0; i <= ATTRACT_VISIBLE_ROWS; i++)
+        {
+            const int track = attract_ttrial_window_start + i;
+            if (track < 0 || track >= TimeTrialRecords::TRACK_COUNT)
+                continue;
+
+            const int y =
+                static_cast<int>(ATTRACT_ROW_BOTTOM_Y) +
+                (i * 2) - attract_ttrial_scroll_phase;
+
+            if (y < ATTRACT_TTRIAL_VIEW_TOP_Y ||
+                y > ATTRACT_TTRIAL_VIEW_BOTTOM_Y)
+            {
+                continue;
+            }
+
+            draw_time_trial_text_row(
+                attract_ttrial_rows[track],
+                static_cast<uint16_t>(y));
+        }
+    }
+
+    bool tick_time_trial_scroll()
+    {
+        if (best_or_state < 2)
+            return false;
+
+        if (!attract_ttrial_scroll_started)
+        {
+            if (++attract_ttrial_hold_frames <
+                ATTRACT_TTRIAL_INITIAL_HOLD_FRAMES)
+            {
+                return false;
+            }
+
+            attract_ttrial_scroll_started = true;
+            attract_ttrial_hold_frames = 0;
+            attract_ttrial_scroll_frames = 0;
+        }
+
+        // Once courses 11-15 are aligned in the five-row viewport, leave them
+        // readable for one second before advancing to the next attract page.
+        if (attract_ttrial_window_start >=
+                TimeTrialRecords::TRACK_COUNT - ATTRACT_VISIBLE_ROWS &&
+            attract_ttrial_scroll_phase == 0)
+        {
+            return ++attract_ttrial_hold_frames >=
+                   ATTRACT_TTRIAL_FINAL_HOLD_FRAMES;
+        }
+
+        if (++attract_ttrial_scroll_frames < ATTRACT_TTRIAL_SCROLL_STEP_FRAMES)
+            return false;
+
+        attract_ttrial_scroll_frames = 0;
+
+        if (attract_ttrial_scroll_phase == 0)
+        {
+            attract_ttrial_scroll_phase = 1;
+        }
+        else
+        {
+            attract_ttrial_scroll_phase = 0;
+            attract_ttrial_window_start++;
+        }
+
+        draw_time_trial_scroll_window();
+        return false;
     }
 
     const char* attract_page_name(int page)
@@ -163,13 +256,9 @@
                 return "CONTINUOUS";
             case ATTRACT_SCORE_ENDLESS:
                 return "ENDLESS";
-            case ATTRACT_SCORE_TTRIAL_WITH_1:
-            case ATTRACT_SCORE_TTRIAL_WITH_2:
-            case ATTRACT_SCORE_TTRIAL_WITH_3:
+            case ATTRACT_SCORE_TTRIAL_WITH:
                 return "TIME TRIAL WITH TRAFFIC";
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_1:
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_2:
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_3:
+            case ATTRACT_SCORE_TTRIAL_WITHOUT:
                 return "TIME TRIAL WITHOUT TRAFFIC";
             default:
                 return "";
@@ -213,23 +302,20 @@
 
     uint16_t custom_reveal_tile_props(int page, int reveal_x)
     {
-        // Use the actual text-RAM column being revealed. The previous build
-        // derived colour from the car position before its draw pointer advanced,
-        // which made green initials spill into Time Trial record digits.
         if (page == ATTRACT_SCORE_ENDLESS)
         {
             if (reveal_x >= 0 && reveal_x < 3)
-                return 0x8600; // rank: pink, like the stock position column
+                return 0x8600;
             if (reveal_x >= 4 && reveal_x < 9)
-                return 0x8200; // initials/name: green
-            return 0x8400;     // numeric fields: stock white/grey
+                return 0x8200;
+            return 0x8400;
         }
 
         if (attract_time_trial_page(page))
         {
             if (reveal_x >= 19 && reveal_x < 24)
-                return 0x8200; // initials/name: green
-            return 0x8400;     // course and record: white/grey
+                return 0x8200;
+            return 0x8400;
         }
 
         return 0x8400;
