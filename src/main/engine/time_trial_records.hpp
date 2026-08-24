@@ -714,10 +714,9 @@ private:
         const bool entering_initials = qualifying_score && !initials_done;
 
         // The original alphabet lives at rows 23-24 and its timer at rows 3-4.
-        // While entering initials, use a 15-row scrolling window so neither
-        // original element can cover leaderboard data. Once entry is finished,
-        // restore the normal full 20-entry view.
-        const uint16_t header_y = entering_initials ? 5 : 3;
+        // During initials entry the header stays below the timer; otherwise it
+        // sits one row lower so the centered Traffic class has its own line.
+        const uint16_t header_y = entering_initials ? 5 : 4;
         const uint16_t first_row_y = entering_initials ? 7 : 5;
         const int visible_rows = entering_initials ? 15 : TABLE_ENTRIES;
 
@@ -739,11 +738,7 @@ private:
 
         ohud.blit_text_new(10, 0, "TIME TRIAL RECORDS", OHud::GREEN);
         draw_centered(1, track_name(current_track), OHud::GREEN);
-        ohud.blit_text_new(
-            current_traffic_class == TRAFFIC_ON ? 30 : 29,
-            1,
-            traffic_name(current_traffic_class),
-            OHud::GREEN);
+        draw_centered(2, traffic_name(current_traffic_class), OHud::GREEN);
 
         draw_field(X_POS,   W_POS,   header_y, "#",     OHud::GREY);
         draw_field(X_NAME,  W_NAME,  header_y, "NAME",  OHud::GREY);
