@@ -50,6 +50,7 @@ namespace
 
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
+    const char* SELECTION_TIMERS_LABEL = "SELECTION TIMERS ";
 
     bool starts_with_label(const std::string& value, const char* label)
     {
@@ -67,6 +68,12 @@ namespace
         return std::string(PIXEL_SCALER_LABEL) +
             pixel_scaler::name(
                 pixel_scaler::mode.load(std::memory_order_relaxed));
+    }
+
+    std::string selection_timer_menu_text()
+    {
+        return std::string(SELECTION_TIMERS_LABEL) +
+            (config.selection_timers_enabled() ? "ON" : "OFF");
     }
 
     const char* ROW_LABELS[BINDING_ROWS] =
@@ -301,6 +308,21 @@ bool Menu::select_pressed()
     const bool pressed = return_pressed || MenuBase::select_pressed();
     if (!pressed)
         return false;
+
+    if (menu_selected == &menu_engine &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_engine.size()))
+    {
+        const std::string& option = menu_engine[cursor];
+
+        if (starts_with_label(option, SELECTION_TIMERS_LABEL))
+        {
+            config.set_selection_timers_enabled(
+                !config.selection_timers_enabled());
+            menu_engine[cursor] = selection_timer_menu_text();
+            return false;
+        }
+    }
 
     if (menu_selected == &menu_enhancements &&
         cursor >= 0 &&
