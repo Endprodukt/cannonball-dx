@@ -4,8 +4,8 @@
     The original score implementation is preserved in ohiscore_base.cpp.
     Endless and Time Trial substitute their dedicated tables only at game end.
     DX also rotates the attract-mode score display through Original, Original
-    Japan, Continuous, Endless and a Time Trial course-record overview while
-    preserving the stock five-second timing and mini-car reveal animation.
+    Japan, Continuous, Endless and a two-page Time Trial course-record overview
+    while preserving the stock five-second timing and mini-car reveal animation.
 ***************************************************************************/
 
 // Pre-include the preserved implementation's dependencies before temporarily
@@ -50,7 +50,8 @@ namespace
         ATTRACT_SCORE_ORIGINAL_JAPAN,
         ATTRACT_SCORE_CONTINUOUS,
         ATTRACT_SCORE_ENDLESS,
-        ATTRACT_SCORE_TIME_TRIAL,
+        ATTRACT_SCORE_TIME_TRIAL_1,
+        ATTRACT_SCORE_TIME_TRIAL_2,
         ATTRACT_SCORE_PAGE_COUNT
     };
 
@@ -84,6 +85,12 @@ namespace
     {
         return outrun.game_state == GS_INIT_BEST1 ||
                outrun.game_state == GS_BEST1;
+    }
+
+    bool attract_time_trial_page(int page)
+    {
+        return page == ATTRACT_SCORE_TIME_TRIAL_1 ||
+               page == ATTRACT_SCORE_TIME_TRIAL_2;
     }
 
     void stabilize_score_background()
@@ -294,13 +301,25 @@ namespace
         }
     }
 
-    const char* time_trial_short_name(int track)
+    const char* time_trial_name(int track)
     {
         static const char* NAMES[TimeTrialRecords::TRACK_COUNT] =
         {
-            "COCONUT", "GATEWAY", "DEVILS",  "DESERT",  "ALPS",
-            "CLOUDY",  "WILDRNS", "OLD CAP", "WHEAT",   "SEASIDE",
-            "VINEYRD", "DEATH V", "DESOLAT", "AUTOBAH", "LAKESID"
+            "COCONUT BEACH",
+            "GATEWAY",
+            "DEVILS CANYON",
+            "DESERT",
+            "ALPS",
+            "CLOUDY MOUNTAIN",
+            "WILDERNESS",
+            "OLD CAPITAL",
+            "WHEAT FIELD",
+            "SEASIDE TOWN",
+            "VINEYARD",
+            "DEATH VALLEY",
+            "DESOLATION HILL",
+            "AUTOBAHN",
+            "LAKESIDE"
         };
 
         return track >= 0 && track < TimeTrialRecords::TRACK_COUNT ?
@@ -332,12 +351,12 @@ namespace
         char time_text[16];
         format_counter(total, time_text, sizeof(time_text));
 
-        char cell[32];
+        char cell[40];
         std::snprintf(
             cell,
             sizeof(cell),
-            "%-7s %c%c%c %8s",
-            time_trial_short_name(track),
+            "%-16s %c%c%c %8s",
+            time_trial_name(track),
             i1,
             i2,
             i3,
@@ -345,22 +364,24 @@ namespace
         return std::string(cell);
     }
 
-    void prepare_time_trial_attract_rows()
+    void prepare_time_trial_attract_rows(int page)
     {
         xml_parser::ptree data("timetrial_scores");
         xml_parser::read_xml(config.data.file_ttrial, data);
 
-        // Fourteen course records are revealed in two columns by the seven
-        // original mini-cars. The fifteenth course sits centered underneath;
-        // this keeps every course on one five-second attract page.
-        for (int row = 0; row < 7; row++)
-        {
-            std::string line = time_trial_record_cell(data, row);
-            line += time_trial_record_cell(data, row + 7);
-            write_attract_tile_row(row, line);
-        }
+        const int first_track =
+            page == ATTRACT_SCORE_TIME_TRIAL_1 ? 0 : 7;
 
-        attract_time_trial_footer = time_trial_record_cell(data, 14);
+        // Seven entries map one-to-one to the original seven mini-cars. Page 2
+        // has one remaining fifteenth course; it is drawn below the animated
+        // rows so all 15 records fit cleanly without exceeding 40 columns.
+        for (int row = 0; row < 7; row++)
+            write_attract_tile_row(
+                row,
+                time_trial_record_cell(data, first_track + row));
+
+        if (page == ATTRACT_SCORE_TIME_TRIAL_2)
+            attract_time_trial_footer = time_trial_record_cell(data, 14);
     }
 
     void draw_custom_attract_header(int page)
@@ -374,18 +395,28 @@ namespace
                 "# NAME STAGES      DISTANCE       TIME",
                 OHud::GREY);
         }
-        else if (page == ATTRACT_SCORE_TIME_TRIAL)
+        else if (attract_time_trial_page(page))
         {
-            draw_attract_centered(1, "TIME TRIAL RECORDS", OHud::GREEN);
+            draw_attract_centered(
+                1,
+                page == ATTRACT_SCORE_TIME_TRIAL_1 ?
+                    "TIME TRIAL RECORDS 1/2" :
+                    "TIME TRIAL RECORDS 2/2",
+                OHud::GREEN);
             draw_attract_centered(
                 4,
                 "TRAFFIC ON - BEST BY COURSE",
                 OHud::GREY);
-            draw_attract_text(
-                10,
-                23,
-                attract_time_trial_footer,
-                OHud::GREY);
+
+            if (page == ATTRACT_SCORE_TIME_TRIAL_2 &&
+                !attract_time_trial_footer.empty())
+            {
+                draw_attract_text(
+                    5,
+                    23,
+                    attract_time_trial_footer,
+                    OHud::GREY);
+            }
         }
     }
 
@@ -443,7 +474,8 @@ namespace
                 break;
 
             case ATTRACT_SCORE_ENDLESS:
-            case ATTRACT_SCORE_TIME_TRIAL:
+            case ATTRACT_SCORE_TIME_TRIAL_1:
+            case ATTRACT_SCORE_TIME_TRIAL_2:
                 break;
         }
     }
@@ -532,7 +564,7 @@ void OHiScore::display_scores()
                 if (attract_score_page == ATTRACT_SCORE_ENDLESS)
                     prepare_endless_attract_rows();
                 else
-                    prepare_time_trial_attract_rows();
+                    prepare_time_trial_attract_rows(attract_score_page);
 
                 best_or_state = 1;
                 break;
