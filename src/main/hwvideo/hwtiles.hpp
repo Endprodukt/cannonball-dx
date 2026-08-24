@@ -48,6 +48,10 @@ public:
         const uint16_t* data,
         int16_t count);
     void set_text_scroll_overlay_offset(int16_t offset);
+    void set_text_scroll_overlay_motion(
+        int16_t pixels_per_second,
+        int16_t max_offset);
+    int16_t get_text_scroll_overlay_offset() const;
     void render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw);
 
 private:
@@ -76,6 +80,9 @@ private:
     int16_t text_scroll_row_spacing = 16;
     int16_t text_scroll_row_count = 0;
     int16_t text_scroll_offset = 0;
+    int32_t text_scroll_offset_fp = 0;
+    int16_t text_scroll_speed = 0;
+    int16_t text_scroll_max_offset = 0;
     uint16_t text_scroll_overlay[TEXT_SCROLL_MAX_ROWS][TEXT_SCROLL_COLUMNS]{};
     
     void (hwtiles::*render8x8_tile_mask)(
