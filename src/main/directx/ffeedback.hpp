@@ -1,22 +1,18 @@
 /***************************************************************************
-    Microsoft DirectX 8 Force Feedback (aka Haptic) Support
-    
-    - Currently, SDL does not support haptic devices. So this is Win32 only.
+    CannonBall DX Force Feedback Interface
 
-    - DirectX 8 still works on Windows XP, so I'm not attempting to support
-      a higher version for now. 
+    The gameplay code talks only to this small backend-neutral interface.
+    On the test/sdl-wheel-ffb branch, Windows wheel FFB is implemented with
+    SDL2 Haptics using SDL_HAPTIC_STEERING_AXIS and signed torque, following
+    the same output model used by Flycast. Linux keeps the existing evdev
+    fallback.
 
-    Ref: http://msdn.microsoft.com/en-us/library/windows/desktop/ee417563%28v=vs.85%29.aspx
-    
     Copyright Chris White.
     See license.txt for more details.
 ***************************************************************************/
 
 #pragma once
 
-//-----------------------------------------------------------------------------
-// Function prototypes 
-//-----------------------------------------------------------------------------
 namespace forcefeedback
 {
     extern bool init(int max_force, int min_force, int force_duration);
