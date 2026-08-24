@@ -7,7 +7,7 @@
     DX attract mode uses one common Best OutRunners presentation for every
     score category: the original title, a mode label, column headers and five
     visible entries. Time Trial keeps those five rows as a clipped viewport
-    and scrolls all 15 courses through it.
+    and scrolls all 15 courses smoothly through it.
 ***************************************************************************/
 
 #include "main.hpp"
@@ -58,13 +58,24 @@ namespace
     const int ATTRACT_SCORE_SECONDS = 5;
     const int ATTRACT_VISIBLE_ROWS = 5;
     const int ATTRACT_TTRIAL_GUARD_SECONDS = 15;
-    const int ATTRACT_TTRIAL_INITIAL_HOLD_FRAMES = OStats::frame_reset * 2;
-    const int ATTRACT_TTRIAL_SCROLL_STEP_FRAMES = 4;
-    const int ATTRACT_TTRIAL_FINAL_HOLD_FRAMES = OStats::frame_reset;
+
+    // Logical System 16 pixels. A Time Trial row is two 8px text rows high.
+    // Ten row advances take us from courses 1-5 to courses 11-15.
+    const int ATTRACT_TTRIAL_ROW_PIXELS = 16;
+    const int ATTRACT_TTRIAL_SCROLL_PIXELS =
+        (TimeTrialRecords::TRACK_COUNT - ATTRACT_VISIBLE_ROWS) *
+        ATTRACT_TTRIAL_ROW_PIXELS;
+    const int ATTRACT_TTRIAL_SCROLL_PIXELS_PER_SECOND = 64;
 
     const uint16_t ATTRACT_ROW_BOTTOM_Y = 10;
     const uint16_t ATTRACT_TTRIAL_VIEW_TOP_Y = 9;
     const uint16_t ATTRACT_TTRIAL_VIEW_BOTTOM_Y = 18;
+    const int ATTRACT_TTRIAL_VIEW_TOP_PIXEL =
+        ATTRACT_TTRIAL_VIEW_TOP_Y * 8;
+    const int ATTRACT_TTRIAL_VIEW_BOTTOM_PIXEL =
+        (ATTRACT_TTRIAL_VIEW_BOTTOM_Y + 1) * 8;
+    const int ATTRACT_TTRIAL_FIRST_ROW_PIXEL =
+        ATTRACT_ROW_BOTTOM_Y * 8;
 
     bool endless_score_audio_started = false;
     bool time_trial_score_audio_started = false;
@@ -75,11 +86,11 @@ namespace
     int attract_saved_jap = 0;
 
     std::array<std::string, TimeTrialRecords::TRACK_COUNT> attract_ttrial_rows{};
-    int attract_ttrial_window_start = 0;
-    int attract_ttrial_scroll_phase = 0;
-    int attract_ttrial_scroll_frames = 0;
+    int attract_ttrial_scroll_fp = 0;
+    int attract_ttrial_scroll_offset = 0;
     int attract_ttrial_hold_frames = 0;
     bool attract_ttrial_scroll_started = false;
+    bool attract_ttrial_overlay_ready = false;
 
     bool endless_gameover_score_screen()
     {
@@ -115,11 +126,12 @@ namespace
 
     void reset_time_trial_scroll_state()
     {
-        attract_ttrial_window_start = 0;
-        attract_ttrial_scroll_phase = 0;
-        attract_ttrial_scroll_frames = 0;
+        attract_ttrial_scroll_fp = 0;
+        attract_ttrial_scroll_offset = 0;
         attract_ttrial_hold_frames = 0;
         attract_ttrial_scroll_started = false;
+        attract_ttrial_overlay_ready = false;
+        video.tile_layer->clear_text_scroll_overlay();
     }
 
     void stabilize_score_background()
