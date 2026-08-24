@@ -215,7 +215,7 @@ namespace
     {
         uint32_t tile_addr = 0x10E000;
         for (int i = 0; i <= 0x3FF; i++)
-            video.write_tile32(&tile_addr, 0x200020);
+            video.write_tile32(&tile_addr, 0);
     }
 
     uint32_t attract_tile_address(uint16_t x, uint16_t y)
