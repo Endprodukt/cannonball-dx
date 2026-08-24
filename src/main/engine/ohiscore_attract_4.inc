@@ -4,6 +4,8 @@
 
     void configure_attract_page(OHiScore& score, int page)
     {
+        // Never let a scrolling Time Trial overlay bleed into the next page.
+        reset_time_trial_scroll_state();
         attract_score_page = page;
         score.init_base();
 
@@ -49,6 +51,24 @@
 
         return ostats.time_counter == 0 &&
                ostats.frame_counter <= 0;
+    }
+
+    void prime_attract_exit_timer()
+    {
+        // GS_BEST1 calls Outrun::decrement_timers() immediately after this
+        // renderer returns. In fix_timer mode, feeding it 0 causes a BCD
+        // underflow instead of an expiry. Prime the exact one-tick state that
+        // each timer implementation expects so BEST1 reliably advances to LOGO.
+        if (config.engine.fix_timer)
+        {
+            ostats.time_counter = 1;
+            ostats.frame_counter = 1;
+        }
+        else
+        {
+            ostats.time_counter = 0;
+            ostats.frame_counter = 0;
+        }
     }
 }
 
