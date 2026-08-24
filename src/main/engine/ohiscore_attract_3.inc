@@ -199,9 +199,6 @@
 
     bool tick_time_trial_scroll()
     {
-        if (best_or_state < 2)
-            return false;
-
         if (!attract_ttrial_scroll_started)
         {
             if (++attract_ttrial_hold_frames <
