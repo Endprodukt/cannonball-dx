@@ -15,6 +15,7 @@
 #include <string>
 
 #include "../utils.hpp"
+#include "engine/oaddresses.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/oroad.hpp"
@@ -609,6 +610,39 @@ private:
         ohud.blit_text_new(static_cast<uint16_t>(x), y, text, colour);
     }
 
+    void draw_original_initials_editor()
+    {
+        // This is deliberately the same renderer as OHiScore::blit_alphabet():
+        // the ROM supplies the original two-row yellow/blue alphabet and these
+        // three hardware tiles append '.', delete-arrow and ED exactly as the
+        // arcade high-score entry screen does.
+        ohud.blit_text2(TEXT2_ALPHABET);
+
+        uint32_t adr = 0x110BF0;
+        video.write_text16(&adr,       0x8D00); // Full stop, top
+        video.write_text16(adr + 0x7E, 0x8D01); // Full stop, bottom
+        video.write_text16(&adr,       0x8D04); // Delete arrow, top
+        video.write_text16(adr + 0x7E, 0x8D05); // Delete arrow, bottom
+        video.write_text16(&adr,       0x8D02); // ED, top
+        video.write_text16(adr + 0x7E, 0x8D03); // ED, bottom
+
+        // The original routine highlights the selected two-row tile by swapping
+        // only its palette byte to red. Keep the exact same addressing scheme.
+        const uint16_t RED = 0x80;
+        adr = 0x110BBC + (letter_selected << 1);
+        video.write_text8(
+            adr,
+            (video.read_text8(adr) & 1) | RED);
+        video.write_text8(
+            adr + 0x80,
+            (video.read_text8(adr + 0x80) & 1) | RED);
+
+        // Same large red BCD countdown used by the stock Best OutRunners name
+        // entry. Its original address places it in the upper-right of the page.
+        const uint16_t BIG_RED_FONT = 0x8080;
+        ohud.draw_timer2(ostats.time_counter, 0x1101EC, BIG_RED_FONT);
+    }
+
     void render_results()
     {
         ohud.blit_text_big(1, "TIME TRIAL RESULTS");
@@ -677,6 +711,32 @@ private:
         const uint16_t X_CR    = 36;
         const uint16_t W_CR    = 4;
 
+        const bool entering_initials = qualifying_score && !initials_done;
+
+        // The original alphabet lives at rows 23-24 and its timer at rows 3-4.
+        // While entering initials, use a 15-row scrolling window so neither
+        // original element can cover leaderboard data. Once entry is finished,
+        // restore the normal full 20-entry view.
+        const uint16_t header_y = entering_initials ? 5 : 3;
+        const uint16_t first_row_y = entering_initials ? 7 : 5;
+        const int visible_rows = entering_initials ? 15 : TABLE_ENTRIES;
+
+        int display_start = 0;
+        if (entering_initials)
+        {
+            display_start = score_pos - (visible_rows / 2);
+            if (display_start < 0)
+                display_start = 0;
+            else if (display_start > TABLE_ENTRIES - visible_rows)
+                display_start = TABLE_ENTRIES - visible_rows;
+        }
+
+        // Own the complete table/editor area every frame. This removes FREE
+        // PLAY drawn later by the stock BEST2 HUD and also clears the original
+        // alphabet immediately when name entry finishes.
+        for (uint16_t y = 3; y <= 27; ++y)
+            ohud.blit_text_new(0, y, "                                        ", OHud::GREY);
+
         ohud.blit_text_new(10, 0, "TIME TRIAL RECORDS", OHud::GREEN);
         draw_centered(1, track_name(current_track), OHud::GREEN);
         ohud.blit_text_new(
@@ -685,31 +745,26 @@ private:
             traffic_name(current_traffic_class),
             OHud::GREEN);
 
-        draw_field(X_POS,   W_POS,   3, "#",     OHud::GREY);
-        draw_field(X_NAME,  W_NAME,  3, "NAME",  OHud::GREY);
-        draw_field(X_TOTAL, W_TOTAL, 3, "TOTAL", OHud::GREY);
-        draw_field(X_BEST,  W_BEST,  3, "BEST",  OHud::GREY);
-        draw_field(X_OVT,   W_OVT,   3, "OVT",   OHud::GREY);
-        draw_field(X_COL,   W_COL,   3, "COL",   OHud::GREY);
-        draw_field(X_CR,    W_CR,    3, "CR",    OHud::GREY);
+        draw_field(X_POS,   W_POS,   header_y, "#",     OHud::GREY);
+        draw_field(X_NAME,  W_NAME,  header_y, "NAME",  OHud::GREY);
+        draw_field(X_TOTAL, W_TOTAL, header_y, "TOTAL", OHud::GREY);
+        draw_field(X_BEST,  W_BEST,  header_y, "BEST",  OHud::GREY);
+        draw_field(X_OVT,   W_OVT,   header_y, "OVT",   OHud::GREY);
+        draw_field(X_COL,   W_COL,   header_y, "COL",   OHud::GREY);
+        draw_field(X_CR,    W_CR,    header_y, "CR",    OHud::GREY);
 
         if (current_track < 0 || current_track >= TRACK_COUNT)
             return;
 
         const ScoreTable& table = records[current_track][current_traffic_class];
 
-        for (int pos = 0; pos < TABLE_ENTRIES; pos++)
+        for (int row = 0; row < visible_rows; row++)
         {
-            const uint16_t y = static_cast<uint16_t>(5 + pos);
+            const int pos = display_start + row;
+            const uint16_t y = static_cast<uint16_t>(first_row_y + row);
             const Record& record = table[pos];
             const uint16_t colour =
                 qualifying_score && pos == score_pos ? OHud::GREEN : OHud::GREY;
-
-            ohud.blit_text_new(
-                0,
-                y,
-                "                                        ",
-                OHud::GREY);
 
             const std::string rank_text = Utils::to_string(pos + 1);
             draw_field(
@@ -757,55 +812,9 @@ private:
                 X_CR, W_CR, y, crashes_text.c_str(), colour);
         }
 
-        // BEST2 always draws FREE PLAY/credits after OHiScore::tick(). Own the
-        // three bottom editor rows completely so the late redraw can erase it.
-        ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
-        ohud.blit_text_new(0, 26, "                                        ", OHud::GREY);
-        ohud.blit_text_new(0, 27, "                                        ", OHud::GREY);
-
-        if (qualifying_score && !initials_done)
+        if (entering_initials)
         {
-            ohud.blit_text_new(13, 25, "ENTER INITIALS", OHud::GREEN);
-
-            // Match the original OutRun editor's three special choices:
-            // period, delete and end. Text labels are used for the latter two
-            // so their meaning is unambiguous on every ROM/font set.
-            ohud.blit_text_new(
-                2,
-                26,
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZ. DEL END",
-                OHud::GREY);
-
-            if (letter_selected <= INITIAL_DOT)
-            {
-                const char selected[2] =
-                {
-                    static_cast<char>(
-                        letter_selected < INITIAL_DOT
-                            ? ('A' + letter_selected)
-                            : '.'),
-                    0
-                };
-                ohud.blit_text_new(
-                    static_cast<uint16_t>(2 + letter_selected),
-                    26,
-                    selected,
-                    OHud::GREEN);
-            }
-            else if (letter_selected == INITIAL_DELETE)
-            {
-                ohud.blit_text_new(30, 26, "DEL", OHud::GREEN);
-            }
-            else
-            {
-                ohud.blit_text_new(34, 26, "END", OHud::GREEN);
-            }
-
-            ohud.blit_text_new(
-                5,
-                27,
-                "STEER  ACCEL SELECT  DEL/END",
-                OHud::GREY);
+            draw_original_initials_editor();
         }
         else if (qualifying_score)
         {
