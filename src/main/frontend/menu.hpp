@@ -161,6 +161,25 @@ public:
                 ++it;
         }
 
+        // One shared duration controls the automatic timeout on both selector
+        // screens. 30 seconds remains the default; 15 seconds and OFF are the
+        // two alternative Game Engine settings.
+        const int selection_seconds = config.selection_timer_seconds();
+        const std::string selection_timer_entry =
+            std::string("SELECTION TIMER ") +
+            (selection_seconds == 0
+                ? "OFF"
+                : std::to_string(selection_seconds) + " SEC");
+
+        for (auto it = menu_engine.begin(); it != menu_engine.end(); ++it)
+        {
+            if (it->rfind("ENHANCEMENTS", 0) == 0)
+            {
+                menu_engine.insert(it, selection_timer_entry);
+                break;
+            }
+        }
+
         const int scaler_mode =
             pixel_scaler::mode.load(std::memory_order_relaxed);
         const std::string scaler_entry =

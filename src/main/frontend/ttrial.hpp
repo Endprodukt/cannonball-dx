@@ -44,9 +44,16 @@ public:
     void update_best_time();
 
 private:
-    // Best lap times for all 15 tracks.
+    // Legacy best-lap table retained for compatibility with older Time Trial
+    // XML files. DX keeps separate ON/OFF fastest-lap values in the same XML.
     uint16_t* best_times;
 
     // Counter converted to actual laptime
     uint8_t best_converted[3];
 };
+
+// Read-only selector state used by cabinet/external-output code. The selector
+// itself remains owned by Menu/TTrial; these helpers avoid coupling the output
+// layer to a particular Menu instance.
+bool time_trial_selector_active();
+bool time_trial_selector_traffic_enabled();
