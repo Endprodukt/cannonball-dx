@@ -32,12 +32,12 @@ namespace
 {
     const uint8_t ENDLESS_MAX_DIFFICULTY = 7;
 
-    // Five visible flashes, each on/off phase lasting roughly a quarter second
-    // at the 60 Hz OStats tick rate. Total presentation time is about 2.5 sec.
+    // Normal completed laps keep the existing five flashes. The final lap also
+    // carries the total time, so give that finish presentation eight flashes.
+    // Each visible/hidden half-phase lasts roughly a quarter second at 60 Hz.
     const int TTRIAL_LAP_HALF_PHASE_TICKS = 15;
     const int TTRIAL_LAP_FLASHES = 5;
-    const int TTRIAL_LAP_TOTAL_TICKS =
-        TTRIAL_LAP_HALF_PHASE_TICKS * TTRIAL_LAP_FLASHES * 2;
+    const int TTRIAL_FINAL_LAP_FLASHES = 8;
 
     enum DifficultyBanner
     {
@@ -54,6 +54,7 @@ namespace
 
     int last_ttrial_lap = -1;
     int ttrial_lap_banner_ticks = 0;
+    int ttrial_lap_banner_total_ticks = 0;
     int ttrial_lap_banner_phase = -1;
     uint8_t ttrial_lap_time[3] = {0, 0, 0};
     uint8_t ttrial_total_time[3] = {0, 0, 0};
@@ -224,6 +225,27 @@ namespace
             video.write_text16(ohud.translate(x, y), 0);
     }
 
+    void clear_ttrial_no_traffic_score()
+    {
+        if (outrun.cannonball_mode != Outrun::MODE_TTRIAL ||
+            outrun.ttrial.traffic ||
+            outrun.game_state < GS_START1 ||
+            outrun.game_state > GS_BONUS)
+        {
+            return;
+        }
+
+        // Time Trial itself does not use score for ranking. With Traffic OFF it
+        // has no useful overtaking context either, so remove both the SCORE logo
+        // and the zero score digits from the in-game HUD.
+        ohud.blit_text_new(2, 1, "        ", OHud::GREY);
+        ohud.blit_text_new(2, 2, "        ", OHud::GREY);
+
+        uint32_t score_addr = 0x110150;
+        for (int i = 0; i < 8; i++)
+            video.write_text16(&score_addr, 0);
+    }
+
     void clear_ttrial_lap_banner()
     {
         // Clear both the original TIME graphic rows and the large digit rows.
@@ -323,7 +345,11 @@ namespace
             ttrial_total_time[2] = 0;
         }
 
-        ttrial_lap_banner_ticks = TTRIAL_LAP_TOTAL_TICKS;
+        const int flashes =
+            ttrial_show_total ? TTRIAL_FINAL_LAP_FLASHES : TTRIAL_LAP_FLASHES;
+        ttrial_lap_banner_total_ticks =
+            TTRIAL_LAP_HALF_PHASE_TICKS * flashes * 2;
+        ttrial_lap_banner_ticks = ttrial_lap_banner_total_ticks;
         ttrial_lap_banner_phase = -1;
 
         // check_stage() can still create the old small BEST LAP overlay on a
@@ -339,7 +365,7 @@ namespace
             return;
 
         const int elapsed =
-            TTRIAL_LAP_TOTAL_TICKS - ttrial_lap_banner_ticks;
+            ttrial_lap_banner_total_ticks - ttrial_lap_banner_ticks;
         const int phase = elapsed / TTRIAL_LAP_HALF_PHASE_TICKS;
         const bool visible = (phase & 1) == 0;
 
@@ -358,6 +384,7 @@ namespace
         if (--ttrial_lap_banner_ticks == 0)
         {
             clear_ttrial_lap_banner();
+            ttrial_lap_banner_total_ticks = 0;
             ttrial_lap_banner_phase = -1;
         }
     }
@@ -369,6 +396,7 @@ namespace
 
         last_ttrial_lap = -1;
         ttrial_lap_banner_ticks = 0;
+        ttrial_lap_banner_total_ticks = 0;
         ttrial_lap_banner_phase = -1;
         ttrial_lap_time[0] = 0;
         ttrial_lap_time[1] = 0;
@@ -454,6 +482,10 @@ void OStats::do_timers()
 
         draw_endless_banner();
     }
+
+    // Traffic OFF Time Trial is purely a lap-time challenge. Keep the normal
+    // score HUD out of the way while driving that class.
+    clear_ttrial_no_traffic_score();
 
     // Draw after the preserved timer code so the lap notification always owns
     // its temporary centre-screen area, including on the final lap as GOAL starts.
