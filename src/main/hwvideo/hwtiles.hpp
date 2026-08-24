@@ -30,6 +30,26 @@ public:
     void render_text_layer(uint16_t*, uint8_t);
     void render_all_tiles(uint16_t*);
 
+    // CannonBall DX: independent clipped text overlay used by the attract-mode
+    // Time Trial records. Keeping it outside normal text RAM lets fifteen rows
+    // scroll smoothly without moving headings, PUSH START or copyright text.
+    static const int TEXT_SCROLL_MAX_ROWS = 15;
+    static const int TEXT_SCROLL_COLUMNS = 40;
+
+    void clear_text_scroll_overlay();
+    void configure_text_scroll_overlay(
+        int16_t top_y,
+        int16_t bottom_y,
+        int16_t first_row_y,
+        int16_t row_spacing,
+        int16_t row_count);
+    void set_text_scroll_overlay_row(
+        int16_t row,
+        const uint16_t* data,
+        int16_t count);
+    void set_text_scroll_overlay_offset(int16_t offset);
+    void render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw);
+
 private:
     int16_t x_clamp;
 
@@ -48,6 +68,15 @@ private:
 
     static const uint16_t NUM_TILES = 0x2000; // Length of graphic rom / 24
     static const uint16_t TILEMAP_COLOUR_OFFSET = 0x1c00;
+
+    bool text_scroll_active = false;
+    int16_t text_scroll_top_y = 0;
+    int16_t text_scroll_bottom_y = 0;
+    int16_t text_scroll_first_row_y = 0;
+    int16_t text_scroll_row_spacing = 16;
+    int16_t text_scroll_row_count = 0;
+    int16_t text_scroll_offset = 0;
+    uint16_t text_scroll_overlay[TEXT_SCROLL_MAX_ROWS][TEXT_SCROLL_COLUMNS]{};
     
     void (hwtiles::*render8x8_tile_mask)(
         uint16_t *buf,
@@ -98,7 +127,7 @@ private:
         uint16_t nColourDepth, 
         uint16_t nMaskColour, 
         uint16_t nPaletteOffset); 
-        
+
     void render8x8_tile_mask_clip_hires(
         uint16_t *buf,
         uint16_t nTileNumber, 
