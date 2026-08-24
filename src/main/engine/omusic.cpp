@@ -95,6 +95,17 @@ namespace
         return japanese;
     }
 
+    void save_config_with_world_default()
+    {
+        // ORIGINAL JP is a per-run Music Select choice, not a persistent boot
+        // preference. Preserve the live Japanese mapping for the race while
+        // always writing World/ORIGINAL as the saved default for the next run.
+        const int runtime_jap = config.engine.jap;
+        config.engine.jap = 0;
+        config.save();
+        config.engine.jap = runtime_jap;
+    }
+
     void draw_submode_name(const char* text)
     {
         const uint8_t y = 5;
@@ -164,11 +175,10 @@ void OMusic::enable()
         ostats.frame_counter = ostats.frame_reset;
     }
 
-    // VIEW1 and VIEW2 each have a second selector state while still sharing
-    // their original CannonBall engine modes underneath.
-    japanese_selected =
-        outrun.cannonball_mode == Outrun::MODE_ORIGINAL &&
-        config.engine.jap != 0;
+    // ORIGINAL JP is deliberately never sticky. If the underlying engine mode
+    // is Original, every fresh selector visit begins at World/ORIGINAL and the
+    // player must press VIEW1 again to opt into JP for this run.
+    japanese_selected = false;
 
     endless_selected =
         outrun.cannonball_mode == Outrun::MODE_CONT && outrun.endless_mode;
@@ -287,6 +297,12 @@ void OMusic::check_start()
 
     check_start_base();
 
+    // The preserved start path may save config while the live JP mapping is
+    // active. Immediately rewrite the persistent setting as World/ORIGINAL;
+    // save_config_with_world_default() restores the live JP flag afterwards.
+    if (start_pressed)
+        save_config_with_world_default();
+
     // The preserved selector knows Original / Continuous / Time Trial. Apply
     // the two DX sub-mode states after its input handling. A VIEW press and START
     // on exactly the same frame remains intentionally undefined; normal arcade
@@ -346,10 +362,10 @@ void OMusic::check_start()
             wrap_car_color(old_color + color_direction);
 
         // The preserved five-colour routine may already have saved on START.
-        // Config::save() now always persists the separate attract/default
-        // colour, so this correction remains race-only even on the START frame.
+        // Keep the region persistence rule intact while applying the corrected
+        // eight-colour race-only value.
         if (save_after_correction)
-            config.save();
+            save_config_with_world_default();
     }
 }
 
@@ -389,7 +405,7 @@ void OMusic::tick()
         starting_japanese = apply_course_variant(starting_japanese);
         japanese_selected = starting_japanese;
 
-        config.save();
+        save_config_with_world_default();
 
         if (game_mode_selected == Outrun::MODE_TTRIAL &&
             outrun.cannonball_mode != Outrun::MODE_TTRIAL)
