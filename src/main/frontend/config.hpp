@@ -307,17 +307,41 @@ public:
     void inc_time();
     void inc_traffic();
 
-    // Shared Music Select / Time Trial track-selection timeout switch. Keep it
-    // in the main XML tree so the existing save routine persists it alongside
-    // the other Game Engine settings without needing another config structure.
-    bool selection_timers_enabled()
+    // Shared Music Select / Time Trial selector duration. 0 disables the
+    // automatic selection, otherwise the supported values are 15 or 30 seconds.
+    // The previous ON/OFF implementation stored 1 for ON; treat that legacy
+    // value as the new 30-second default so existing DX configs migrate cleanly.
+    int selection_timer_seconds()
     {
-        return cfg.get_int("engine.selection_timers", 1) != 0;
+        const int value = cfg.get_int("engine.selection_timers", 30);
+        if (value == 1)
+            return 30;
+        if (value == 15 || value == 30)
+            return value;
+        return 0;
     }
 
-    void set_selection_timers_enabled(bool enabled)
+    bool selection_timers_enabled()
     {
-        cfg.put_int("engine.selection_timers", enabled ? 1 : 0);
+        return selection_timer_seconds() != 0;
+    }
+
+    void set_selection_timer_seconds(int seconds)
+    {
+        if (seconds != 15 && seconds != 30)
+            seconds = 0;
+        cfg.put_int("engine.selection_timers", seconds);
+    }
+
+    void cycle_selection_timer()
+    {
+        const int seconds = selection_timer_seconds();
+        if (seconds == 15)
+            set_selection_timer_seconds(30);
+        else if (seconds == 30)
+            set_selection_timer_seconds(0);
+        else
+            set_selection_timer_seconds(15);
     }
 
     // To support multi-threaded SDL module:
