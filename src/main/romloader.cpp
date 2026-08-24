@@ -26,6 +26,7 @@
 #include <string>
 #include <algorithm>
 #include <limits>
+#include <cctype>
 
 #include <miniz.h>
 
@@ -316,12 +317,13 @@ int RomLoader::load_rom(const char* filename, const int offset, const int length
 
     const uint32_t crc = crc32(buffer.data(), buffer.size());
 
-    if (expected_crc != static_cast<int>(crc))
+    if (static_cast<uint32_t>(expected_crc) != crc)
     {
         if (verbose)
             std::cout << std::hex
                       << filename << " has incorrect checksum.\nExpected: "
-                      << expected_crc << " Found: " << crc << std::dec << std::endl;
+                      << static_cast<uint32_t>(expected_crc) << " Found: " << crc
+                      << std::dec << std::endl;
         loaded = false;
         return 1;
     }
