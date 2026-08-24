@@ -307,6 +307,19 @@ public:
     void inc_time();
     void inc_traffic();
 
+    // Shared Music Select / Time Trial track-selection timeout switch. Keep it
+    // in the main XML tree so the existing save routine persists it alongside
+    // the other Game Engine settings without needing another config structure.
+    bool selection_timers_enabled()
+    {
+        return cfg.get_int("engine.selection_timers", 1) != 0;
+    }
+
+    void set_selection_timers_enabled(bool enabled)
+    {
+        cfg.put_int("engine.selection_timers", enabled ? 1 : 0);
+    }
+
     // To support multi-threaded SDL module:
     bool videoRestartRequired = false;
 
