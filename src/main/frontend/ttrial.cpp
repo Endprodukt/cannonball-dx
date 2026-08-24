@@ -162,7 +162,8 @@ namespace
             // Compatibility with every Time Trial XML written before the
             // multi-entry split. Those records were always the traditional
             // traffic-enabled class, so migrate them into TRAFFIC ON only.
-            if (!fastest_laps[TRAFFIC_ON][track])n            {
+            if (!fastest_laps[TRAFFIC_ON][track])
+            {
                 fastest_laps[TRAFFIC_ON][track] = static_cast<uint16_t>(
                     data.get_int(
                         "time_trial.score" + Utils::to_string(track),
