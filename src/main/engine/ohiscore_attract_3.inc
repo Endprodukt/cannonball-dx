@@ -225,40 +225,24 @@
 
             attract_ttrial_scroll_started = true;
             attract_ttrial_hold_frames = 0;
-            attract_ttrial_scroll_fp = 0;
+            video.tile_layer->set_text_scroll_overlay_motion(
+                ATTRACT_TTRIAL_SCROLL_PIXELS_PER_SECOND,
+                ATTRACT_TTRIAL_SCROLL_PIXELS);
+            return false;
         }
 
-        // Courses 11-15 are now perfectly aligned with the original five-row
-        // grid. Leave that final view up for a full second before advancing.
-        if (attract_ttrial_scroll_offset >= ATTRACT_TTRIAL_SCROLL_PIXELS)
-        {
-            return ++attract_ttrial_hold_frames >= ticks_per_second;
-        }
+        // The renderer advances the overlay once per DISPLAY frame, not once
+        // per game-logic tick. This keeps the movement truly smooth in the
+        // common 60 FPS / 30 Hz logic hybrid mode as well as full 60 Hz mode.
+        attract_ttrial_scroll_offset =
+            video.tile_layer->get_text_scroll_overlay_offset();
 
-        // Fixed-point movement keeps speed time-based at both 30 and 60 logic
-        // ticks. At 60 Hz this is about one logical pixel per tick; at 30 Hz it
-        // is about two. Rendering itself clips at the actual pixel boundary.
-        const int delta_fp = std::max(
-            1,
-            (ATTRACT_TTRIAL_SCROLL_PIXELS_PER_SECOND << 8) /
-                ticks_per_second);
+        if (attract_ttrial_scroll_offset < ATTRACT_TTRIAL_SCROLL_PIXELS)
+            return false;
 
-        attract_ttrial_scroll_fp += delta_fp;
-        const int new_offset = std::min(
-            ATTRACT_TTRIAL_SCROLL_PIXELS,
-            attract_ttrial_scroll_fp >> 8);
-
-        if (new_offset != attract_ttrial_scroll_offset)
-        {
-            attract_ttrial_scroll_offset = new_offset;
-            video.tile_layer->set_text_scroll_overlay_offset(
-                static_cast<int16_t>(attract_ttrial_scroll_offset));
-
-            if (attract_ttrial_scroll_offset >= ATTRACT_TTRIAL_SCROLL_PIXELS)
-                attract_ttrial_hold_frames = 0;
-        }
-
-        return false;
+        // Courses 11-15 are perfectly aligned with the original five-row grid.
+        // Leave that final view up for one second before advancing.
+        return ++attract_ttrial_hold_frames >= ticks_per_second;
     }
 
     const char* attract_page_name(int page)
