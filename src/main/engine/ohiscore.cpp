@@ -417,37 +417,33 @@ namespace
         // Every page starts a fresh copy of the original mini-car state machine.
         score.init_base();
 
+        const int runtime_jap = config.engine.jap;
+
         switch (page)
         {
             case ATTRACT_SCORE_ORIGINAL:
                 config.engine.jap = 0;
-                outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
                 score.init_def_scores();
                 config.load_scores(true);
+                config.engine.jap = runtime_jap;
                 break;
 
             case ATTRACT_SCORE_ORIGINAL_JAPAN:
                 config.engine.jap = 1;
-                outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
                 score.init_def_scores();
                 config.load_scores(true);
+                config.engine.jap = runtime_jap;
                 break;
 
             case ATTRACT_SCORE_CONTINUOUS:
                 config.engine.jap = 0;
-                outrun.cannonball_mode = Outrun::MODE_CONT;
                 score.init_def_scores();
                 config.load_scores(false);
+                config.engine.jap = runtime_jap;
                 break;
 
             case ATTRACT_SCORE_ENDLESS:
-                config.engine.jap = 0;
-                outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
-                break;
-
             case ATTRACT_SCORE_TIME_TRIAL:
-                config.engine.jap = 0;
-                outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
                 break;
         }
     }
@@ -512,7 +508,16 @@ void OHiScore::display_scores()
 
     if (attract_score_page <= ATTRACT_SCORE_CONTINUOUS)
     {
+        // The stock renderer uses MODE_CONT only to decide whether the route
+        // column is present. Keep that mode override strictly local to this
+        // call so the surrounding attract road/tilemap logic never sees it.
+        const int runtime_mode = outrun.cannonball_mode;
+        outrun.cannonball_mode =
+            attract_score_page == ATTRACT_SCORE_CONTINUOUS ?
+                Outrun::MODE_CONT : Outrun::MODE_ORIGINAL;
+
         display_scores_base();
+        outrun.cannonball_mode = runtime_mode;
         draw_stock_attract_label(attract_score_page);
     }
     else
