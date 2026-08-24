@@ -428,6 +428,12 @@ void Config::load()
     if (first_run || cfg.get_int("controls.keyconfig.menu", -1) == -1)
         controls.keyconfig[10] = SDLK_F5;
 
+    // CannonBall DX stores every score table in one physical file. Keep the
+    // old mode-specific paths as logical selectors, but make Original World
+    // point at the real file so the legacy Clear Scores action removes it too.
+    data.file_scores = data.save_path + "highscores.xml";
+    xml_parser::migrate_highscores(data.save_path);
+
     // Do not inherit historical CannonBall-SE CRT/filter defaults on first run.
     // This deliberately overrides both the hard-coded config_base fallbacks and
     // an outdated res/config.xml that may still be present in a build folder.
