@@ -36,6 +36,34 @@
 #include "engine/time_trial_records.hpp"
 #include <iostream>
 
+namespace
+{
+    const int TIME_TRIAL_RESULTS_TICKS = 30 * 7;
+    int time_trial_results_ticks = 0;
+
+    bool time_trial_results_input(Input::presses press)
+    {
+        // Keep the existing Results renderer/capture logic, but let DX own the
+        // actual transition time. The preserved helper becomes ready at five
+        // seconds; intentionally ignore that readiness until seven seconds.
+        time_trial_records.synthetic_input(press);
+
+        // The old Results helper draws "RECORDS IN n" on this row. The delay is
+        // automatic now, so erase that implementation detail every frame.
+        ohud.blit_text_new(
+            0,
+            24,
+            "                                        ",
+            OHud::GREY);
+
+        if (++time_trial_results_ticks < TIME_TRIAL_RESULTS_TICKS)
+            return false;
+
+        time_trial_results_ticks = 0;
+        return true;
+    }
+}
+
 // Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
 // Endless as false. It therefore calls init_best_outrunners() instead of the
 // prototype's direct GS_REINIT shortcut. Everywhere else this macro resolves
@@ -45,12 +73,12 @@
 // The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
 // every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
 // screen: suppress physical START, clear the old PRESS START row, redraw the
-// Results page and synthesize a press after five seconds. When that happens we
-// move to GS_INIT_BEST2 before the preserved assignment executes.
+// Results page and synthesize a press after seven seconds. The visible countdown
+// from the older five-second helper is removed by time_trial_results_input().
 #define is_pressed(ARG) \
     is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
     (time_trial_records.suppress_physical_input(ARG) && \
-     (video.clear_text_ram(), time_trial_records.synthetic_input(ARG)) && \
+     (video.clear_text_ram(), time_trial_results_input(ARG)) && \
      (time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2, true))
 
 // The old Time Trial branch assigns STATE_INIT_MENU after its START check.
