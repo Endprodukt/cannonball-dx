@@ -284,6 +284,22 @@ private:
         return static_cast<int32_t>(outrun.tick_counter - due) >= 0;
     }
 
+    void hold_attract_view_cycle()
+    {
+        if (!attract_cycle_saved)
+            return;
+
+        // The normal Enhanced Attract view timer must not fire underneath the
+        // showcase. It runs before this output pass and ORoad::tick(), so an
+        // automatic change during a showcase would otherwise produce one road
+        // frame using the wrong camera before we forced the announced view back.
+        // Keep only that automatic view counter parked at zero; road, traffic,
+        // car movement, game timer and all other attract logic continue normally.
+        Outrun::AttractRuntimeState held = attract_cycle_state;
+        held.counter = 0;
+        outrun.restore_attract_runtime_state(held);
+    }
+
     void begin_view_phase(int phase)
     {
         static const uint8_t VIEWS[] =
@@ -308,6 +324,12 @@ private:
         showcase_active = true;
         attract_cycle_state = outrun.capture_attract_runtime_state();
         attract_cycle_saved = true;
+
+        // Park the normal automatic view cycle before the next engine tick.
+        // This removes the single-frame conflict that used to occur when its
+        // 240-tick switch landed during the first showcased view.
+        hold_attract_view_cycle();
+
         video.clear_text_ram();
         begin_view_phase(0);
     }
@@ -412,13 +434,21 @@ private:
             }
             else
             {
+                // Hold the underlying Enhanced Attract automatic camera timer
+                // at zero throughout the presentation. Without this, its own
+                // view change is processed by ORoad before this wrapper can put
+                // the showcase camera back, which creates a visible one-frame
+                // hiccup even though the car and road never actually pause.
+                hold_attract_view_cycle();
+
                 // Consume all view-button states while the presentation owns
                 // the camera. This prevents a held button from becoming a fresh
                 // input as soon as the showcase ends.
                 sync_view_button_states();
 
-                // Keep the announced view authoritative against the normal
-                // automatic Enhanced Attract cycle and ignored player inputs.
+                // Keep the announced view authoritative against ignored player
+                // inputs. The normal automatic cycle is parked above, so this
+                // should now be only a safety check rather than a frame repair.
                 if (oroad.get_view_mode() != phase_view)
                     oroad.set_view_mode(phase_view, true);
 
