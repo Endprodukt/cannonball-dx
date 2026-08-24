@@ -54,13 +54,8 @@ namespace
 
     Uint32 selection_timeout_ms()
     {
-        // Music Select stores its timeout as two-digit BCD. Reuse exactly that
-        // configured duration so both selection screens behave consistently.
-        const int timer = config.sound.music_timer;
-        const int seconds =
-            (((timer >> 4) & 0x0F) * 10) + (timer & 0x0F);
-
-        return static_cast<Uint32>(seconds > 0 ? seconds : 30) * 1000U;
+        const int seconds = config.selection_timer_seconds();
+        return seconds > 0 ? static_cast<Uint32>(seconds) * 1000U : 0;
     }
 
     bool course_selection_timed_out()
@@ -204,9 +199,15 @@ int TTrial::tick()
             osoundint.queue_sound(sound::PCM_WAVE);
             outrun.ttrial.laps    = config.ttrial.laps;
             outrun.custom_traffic = config.ttrial.traffic;
-            course_select_deadline_ms = config.selection_timers_enabled()
-                ? SDL_GetTicks() + selection_timeout_ms()
-                : 0;
+
+            // The selector shares the same Game Engine duration as Music
+            // Select: 15 seconds, 30 seconds, or unlimited when set to OFF.
+            {
+                const Uint32 timeout_ms = selection_timeout_ms();
+                course_select_deadline_ms = timeout_ms
+                    ? SDL_GetTicks() + timeout_ms
+                    : 0;
+            }
             state = TICK_COURSEMAP;
 
         case TICK_COURSEMAP:
@@ -218,13 +219,11 @@ int TTrial::tick()
                     return BACK_TO_MENU;
                 }
 
-                // Match Music Select: once its configured selection duration
+                // Match Music Select: once the configured selection duration
                 // expires, accept whatever is currently highlighted. Check the
                 // deadline before directional input so a held wheel cannot keep
                 // the selector alive indefinitely after timeout.
-                const bool timed_out =
-                    config.selection_timers_enabled() &&
-                    course_selection_timed_out();
+                const bool timed_out = course_selection_timed_out();
 
                 if (timed_out ||
                     input.has_pressed(Input::START) ||
