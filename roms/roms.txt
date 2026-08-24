@@ -1,6 +1,22 @@
 -------------------------------------------------------------------------------
-Place OutRun Revision B ROMs in this directory.
-They must be named as follows:
+CannonBall DX ROM setup
+-------------------------------------------------------------------------------
+
+CannonBall DX supports both of the following formats:
+
+1. Legacy/extracted ROM files placed directly in this directory.
+2. MAME ZIP archives placed in this directory, including a current merged
+   outrun.zip containing the required OutRun parent/clone ROM data.
+
+ZIP entries are matched by CRC32 and uncompressed size, so the filenames and
+subdirectories used inside a merged MAME archive do not need to match the old
+CannonBall filenames exactly.
+
+Extracted ROM files remain fully supported and take priority over identical
+ROM data found inside ZIP archives.
+
+-------------------------------------------------------------------------------
+OutRun Revision B - legacy extracted filenames
 -------------------------------------------------------------------------------
 epr-10187.88
 epr-10327a.76
@@ -35,13 +51,13 @@ opr-10267.100
 opr-10268.99
 
 -------------------------------------------------------------------------------
-The original Japanese release of OutRun featured slightly different tracks 
-and course ordering.
-
-Optionally, you can include the following files from the Japanese version to
-play these alternate tracks:
+Alternate early/Japanese course data
 -------------------------------------------------------------------------------
+The original Japanese/early OutRun program ROMs used by CannonBall provide
+slightly different tracks and course ordering.
 
+For a legacy extracted setup, optionally include:
+-------------------------------------------------------------------------------
 epr-10380.133
 epr-10382.118
 epr-10381.132
@@ -51,9 +67,26 @@ epr-10329.58
 epr-10328.75
 epr-10330.57
 
--------------------------------------------------------------------------------
-Fixed Audio Rom (Optional)
-http://reassembler.blogspot.co.uk/2013/01/outrun-original-game-shipped-with.html
--------------------------------------------------------------------------------
+A suitable merged MAME outrun.zip may already contain these ROMs; CannonBall DX
+will locate them automatically by CRC32 and size.
 
-opr-10188.71f
+-------------------------------------------------------------------------------
+Corrected PCM sample ROM (optional, recommended)
+-------------------------------------------------------------------------------
+The original opr-10188.71 has the known stuck-data-bit fault. When the fixed
+samples option is enabled, CannonBall DX accepts these in order:
+
+1. Sega/M2 official corrected ROM
+   CRC32: C2DE09B2
+   Current MAME filename: enhanced_203_opr-10188.71
+
+2. Historical CannonBall patched ROM
+   Filename: opr-10188.71f
+   CRC32: 37598616
+
+3. Original faulty arcade ROM as backwards-compatible fallback
+   Filename: opr-10188.71
+   CRC32: BAD30AD9
+
+No manual patch is required when the official corrected ROM is available in a
+ZIP archive or as a loose file.
