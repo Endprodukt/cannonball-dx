@@ -253,8 +253,8 @@
             return false;
 
         // Courses 11-15 are perfectly aligned with the original five-row grid.
-        // Leave that final view up for two seconds before advancing.
-        return ++attract_ttrial_hold_frames >= ticks_per_second * 2;
+        // Leave that final view up for one second before advancing.
+        return ++attract_ttrial_hold_frames >= ticks_per_second;
     }
 
     const char* attract_page_name(int page)
@@ -299,7 +299,8 @@
         }
         else if (page == ATTRACT_SCORE_ENDLESS)
         {
-            draw_header_field(0, 3, "#");
+            // Rank numbers are self-explanatory; no separate '#' heading keeps
+            // the table cleaner and consistent with the other score pages.
             draw_header_field(4, 5, "NAME");
             draw_header_field(10, 7, "STAGES");
             draw_header_field(18, 11, "DISTANCE");
