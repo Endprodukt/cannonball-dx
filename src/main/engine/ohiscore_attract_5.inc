@@ -121,8 +121,8 @@
     }
 
     // Time Trial owns its duration: reveal five rows, hold for two seconds,
-    // scroll all 15 courses inside the clipped five-row table, then hold the
-    // final five for one second. Only two Time Trial pages exist now.
+    // pixel-scroll all 15 courses inside the clipped five-row table, then hold
+    // the final five for one second. Only two Time Trial pages exist now.
     if (attract_time_trial_page(attract_score_page))
     {
         bool page_done = false;
@@ -148,11 +148,11 @@
             return;
         }
 
-        // Let the normal attract state machine continue immediately after the
-        // second scrolling Time Trial page.
+        // Let GS_BEST1's normal timer check advance to GS_INIT_LOGO on this
+        // same tick. The exact priming differs for fix_timer versus legacy
+        // countdown logic; feeding fix_timer a literal zero caused the hang.
         restore_attract_runtime();
-        ostats.time_counter = 0;
-        ostats.frame_counter = 0;
+        prime_attract_exit_timer();
         return;
     }
 
