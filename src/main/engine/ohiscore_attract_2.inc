@@ -52,6 +52,9 @@
     {
         std::array<std::array<uint8_t, 40>, 10> staged{};
 
+        // The first five stock entries occupy ten tile rows because ROUTE is
+        // a two-row mini-map. Move the complete block so routes and records
+        // stay aligned with the five-car DX layout.
         for (int row = 0; row < 10; row++)
         {
             const uint16_t y = static_cast<uint16_t>(7 + row);
@@ -199,22 +202,3 @@
         result += i3 == ' ' ? '-' : i3;
         return result;
     }
-
-    void prepare_stock_record_rows(OHiScore& score)
-    {
-        // RECORD is the completion time stored in the normal score table.
-        // Old/incomplete entries can legitimately have a zero counter. Show a
-        // placeholder rather than leaving the whole column looking broken.
-        for (int row = 0; row < ATTRACT_VISIBLE_ROWS; row++)
-        {
-            const uint16_t y = static_cast<uint16_t>(
-                ATTRACT_ROW_BOTTOM_Y + (row * 2));
-
-            char time_text[16];
-            format_counter(
-                score.scores[row].time,
-                time_text,
-                sizeof(time_text));
-
-            clear_attract_tile_span(28, y, 10);
-            write_attract_tile_text(29, y, time_text);
