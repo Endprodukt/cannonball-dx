@@ -337,20 +337,15 @@ int TTrial::tick()
                     return INIT_GAME;
                 }
 
-                // A single VIEW button toggles the class. On three-button
-                // cabinets VIEW1 explicitly selects OFF and VIEW3 selects ON,
-                // making the dedicated lamps useful as unambiguous status.
-                const bool traffic_before = traffic_enabled;
-
-                if (input.has_pressed(Input::VIEW1))
-                    traffic_enabled = false;
-                else if (input.has_pressed(Input::VIEW3))
-                    traffic_enabled = true;
-                else if (input.has_pressed(Input::VIEWPOINT))
+                // Both supported cabinet styles use one simple toggle: either
+                // the dedicated VIEW1 button or the classic/general VIEW button.
+                // VIEW2 and VIEW3 remain completely unrelated to Traffic.
+                if (input.has_pressed(Input::VIEW1) ||
+                    input.has_pressed(Input::VIEWPOINT))
+                {
                     traffic_enabled = !traffic_enabled;
-
-                if (traffic_enabled != traffic_before)
                     osoundint.queue_sound(sound::BEEP1);
+                }
 
                 const int previous_level = level_selected;
 
