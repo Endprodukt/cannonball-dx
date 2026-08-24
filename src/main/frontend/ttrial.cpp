@@ -115,27 +115,11 @@ namespace
         ohud.blit_text_big(1, track_name(level_selected));
         ohud.blit_text_new(9, 4, "STEER TO SELECT TRACK", OHud::GREY);
 
-        // The original single-lap record remains at rows 25/26. The new
-        // three-lap record that actually determines the DX Course Record is
-        // displayed directly above it together with the record holder.
-        ohud.blit_text_new(0, 21, "                                        ", OHud::GREY);
-        ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
-        ohud.blit_text_new(2, 21, "3 LAP RECORD", OHud::GREY);
-        ohud.blit_text_new(2, 23, "RECORD HOLDER", OHud::GREY);
-
-        if (!record.total_counter)
-        {
-            ohud.blit_text_new(18, 21, "NO RECORD", OHud::GREEN);
-            ohud.blit_text_new(18, 23, "---", OHud::GREEN);
-            return;
-        }
-
-        uint8_t converted[3] = {0, 0, 0};
-        outils::convert_counter_to_time(record.total_counter, converted);
-        ohud.draw_lap_timer(
-            ohud.translate(18, 21),
-            converted,
-            converted[2]);
+        // Keep all Time Trial record information on one compact line below
+        // the map. The old two-row LAP graphic is intentionally omitted.
+        ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
+        ohud.blit_text_new(1, 25, "RECORD", OHud::GREY);
+        ohud.blit_text_new(20, 25, "FASTEST LAP", OHud::GREY);
 
         char initials[4] =
         {
@@ -144,7 +128,20 @@ namespace
             record.initial3 == ' ' ? '-' : record.initial3,
             0
         };
-        ohud.blit_text_new(18, 23, initials, OHud::GREEN);
+        ohud.blit_text_new(8, 25, initials, OHud::GREEN);
+
+        if (!record.total_counter)
+        {
+            ohud.blit_text_new(12, 25, "NO TIME", OHud::GREEN);
+            return;
+        }
+
+        uint8_t converted[3] = {0, 0, 0};
+        outils::convert_counter_to_time(record.total_counter, converted);
+        ohud.draw_lap_timer(
+            ohud.translate(12, 25),
+            converted,
+            converted[2]);
     }
 }
 
@@ -178,8 +175,12 @@ int TTrial::tick()
             omap.init();
             omap.load_sprites();
             omap.position_ferrari(FERRARI_POS[level_selected = 0]);
-            ohud.blit_text1(2, 25, TEXT1_LAPTIME1);
-            ohud.blit_text1(2, 26, TEXT1_LAPTIME2);
+            // Clear the lower text area previously occupied by the two-row
+            // LAP label and by the earlier stacked Course Record layout.
+            ohud.blit_text_new(0, 21, "                                        ", OHud::GREY);
+            ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
+            ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
+            ohud.blit_text_new(0, 26, "                                        ", OHud::GREY);
             osoundint.queue_sound(sound::PCM_WAVE);
             outrun.ttrial.laps    = config.ttrial.laps;
             outrun.custom_traffic = config.ttrial.traffic;
@@ -224,15 +225,14 @@ int TTrial::tick()
 
                 omap.position_ferrari(FERRARI_POS[level_selected]);
 
-                // Keep the existing absolute best single lap visible for
-                // reference, but make the new three-lap record and holder the
-                // primary Time Trial target on this screen.
+                // Course Record total and the existing absolute best single
+                // lap are presented side-by-side on the same bottom row.
                 outils::convert_counter_to_time(best_times[level_selected], best_converted);
+                draw_course_record(level_selected);
                 ohud.draw_lap_timer(
-                    ohud.translate(7, 26),
+                    ohud.translate(32, 25),
                     best_converted,
                     best_converted[2]);
-                draw_course_record(level_selected);
 
                 omap.blit();
                 oroad.tick();
