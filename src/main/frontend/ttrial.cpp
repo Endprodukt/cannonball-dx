@@ -248,7 +248,10 @@ int TTrial::tick()
                     ostats.credits = 1;
                     return INIT_GAME;
                 }
-                else if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
+
+                const int previous_level = level_selected;
+
+                if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
                 {
                     if (--level_selected < 0)
                         level_selected = sizeof(FERRARI_POS) - 1;
@@ -258,6 +261,12 @@ int TTrial::tick()
                     if (++level_selected > sizeof(FERRARI_POS) - 1)
                         level_selected = 0;
                 }
+
+                // Give every actual course change a short arcade selection cue.
+                // This follows the same BEEP1 language already used elsewhere
+                // in the DX selection screens and also sounds on wrap-around.
+                if (level_selected != previous_level)
+                    osoundint.queue_sound(sound::BEEP1);
 
                 omap.position_ferrari(FERRARI_POS[level_selected]);
 
