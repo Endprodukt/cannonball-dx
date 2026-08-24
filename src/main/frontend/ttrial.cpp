@@ -162,8 +162,7 @@ namespace
             // Compatibility with every Time Trial XML written before the
             // multi-entry split. Those records were always the traditional
             // traffic-enabled class, so migrate them into TRAFFIC ON only.
-            if (!fastest_laps[TRAFFIC_ON][track])
-            {
+            if (!fastest_laps[TRAFFIC_ON][track])n            {
                 fastest_laps[TRAFFIC_ON][track] = static_cast<uint16_t>(
                     data.get_int(
                         "time_trial.score" + Utils::to_string(track),
@@ -191,10 +190,14 @@ namespace
         // Prominently identify the course currently selected on the map.
         ohud.blit_text_big(1, track_name(level_selected));
 
-        // Make the Traffic control explicit without involving VIEW2/VIEW3.
-        // The two-line block is right-aligned in the free top-right area.
-        ohud.blit_text_new(30, 3, "PRESS VIEW", OHud::GREY);
-        ohud.blit_text_new(26, 4, "TRAFFIC ON/OFF", OHud::GREEN);
+        // Align the two-line Traffic control with the two-row course title.
+        // The status is live: VIEW toggles between TRAFFIC ON and TRAFFIC OFF.
+        ohud.blit_text_new(30, 1, "PRESS VIEW", OHud::GREY);
+        ohud.blit_text_new(
+            traffic_enabled ? 30 : 29,
+            2,
+            traffic_name(),
+            OHud::GREEN);
 
         // Keep all Time Trial record information on one compact line below
         // the map. The top entry is always from the selected traffic class.
