@@ -12,21 +12,51 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 ---
 
-## CannonBall DX Highlights
+## CannonBall DX Features
 
-- **Arcade cabinet and racing-wheel focus** with modern USB wheel, pedal, shifter and gamepad support
-- **True multi-device input** - steering, pedals, shifter and buttons can come from different physical devices
-- **Unified control-binding matrix** with separate Keyboard, Gamepad and Wheel assignments
-- **Expanded DirectInput force feedback** - cornering weight, tyre slip, off-road effects, gear-change kick, crashes/spins, start/rev effects and music-selector detents
-- **Gamepad rumble support** with enable and strength controls on supported controllers
-- **Direct View 1 / View 2 / View 3 controls** alongside the original single-button view cycling
-- **21:9 ultrawide support** in addition to the original 4:3 presentation and existing widescreen modes
-- **Enhanced Attract Mode** with automatic camera presentation changes and cabinet lamp effects
-- **Game-mode selection from the Music Select screen** - Original, Continuous or Time Trial via the VIEW controls
-- **Expanded Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver, with a persistent default colour and per-run Music Select choice
-- **Continuous Mode traffic follows the normal OutRun difficulty and stage scaling**
-- **Direct MAME ROM ZIP loading** with full compatibility for traditional extracted CannonBall ROM sets
-- **Arcade lamp outputs** for START, BRAKE and VIEW lamps via **MAME network output**, **Windows MAMEOutput / MAMEHooker** and the existing **SmartyPi** output path
+Everything below is currently implemented in the **`master`** branch.
+
+### Game Modes
+
+- **Original OutRun** - classic branching five-stage game
+- **Continuous Mode** - play all stages in one run with normal traffic and difficulty scaling
+- **Time Trial** - three-lap course runs with **Traffic ON/OFF**, per-course records, fastest lap and total time
+- **Endless Mode** - survival-style continuous driving with rising difficulty, automatic music rotation and dedicated high scores
+
+### Controls & Driving
+
+- **True multi-device input** - wheel, pedals, shifter and buttons can come from different USB devices
+- **Unified binding matrix** - separate Keyboard, Gamepad and Wheel assignments
+- **Direct View 1 / View 2 / View 3 controls** plus the original view-cycle button
+- **Expanded DirectInput force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
+- **Gamepad rumble** with separate enable and strength settings
+- **Eight Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver
+
+### Display & Presentation
+
+- **4:3, widescreen and 21:9 ultrawide support**
+- **xBRZ 3x/4x/5x/6x and HQX 3x/4x pixel scalers** selectable from Enhancements
+- **CRT / analogue video and NTSC filtering** inherited from CannonBall-SE
+- **Enhanced Attract Mode** with automatic camera changes and cabinet-lamp choreography
+- **Configurable selection timers** - 15 sec, 30 sec or OFF
+- **Dedicated Time Trial and Endless results / high-score presentation**
+
+### Arcade Cabinet Features
+
+- **START, BRAKE, VIEW, VIEW1, VIEW2 and VIEW3 lamp outputs**
+- **MAME network output** support
+- **Windows MAMEOutput / MAMEHooker** support
+- **SmartyPi** output support
+- **Automatic VIEW lamp effects** tied to Attract Mode camera changes
+
+### ROM & Audio Features
+
+- **Direct MAME ROM ZIP loading** - current merged `outrun.zip` can be used without extraction
+- **Full backwards compatibility with traditional loose CannonBall ROM files**
+- **Optional early/Japanese program-ROM data** detected by CRC when present
+- **Corrected Sega/M2 PCM ROM preferred automatically**, with historical CannonBall patch and original ROM fallbacks
+- **WAV, MP3 and YM custom music support**
+- **FFB detents in the music selector** on supported Windows wheels
 
 ---
 
