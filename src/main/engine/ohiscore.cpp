@@ -95,15 +95,6 @@ namespace
 
     void stabilize_score_background()
     {
-        // Dedicated game-end score screens can be entered from any stage, and
-        // Time Trial in particular normally leaves the selected course's tilemap
-        // and palette live. Rebuild the complete common Best OutRunners scene
-        // for those dedicated screens only.
-        //
-        // IMPORTANT: never call this for GS_INIT_BEST1/GS_BEST1. The original
-        // attract-mode high-score sequence is an organic overlay on the demo
-        // scene that was already running; resetting road/tile/palette state here
-        // makes the road disappear and visibly jumps to a different background.
         oroad.init();
         oroad.stage_lookup_off = 0;
         oinitengine.init_road_seg_master();
@@ -122,8 +113,6 @@ namespace
         opalette.setup_road_side();
         opalette.setup_road_colour();
 
-        // These are the original dedicated Best OutRunners palette overrides:
-        // shaded red/sunset backdrop plus the black score-screen road.
         ohiscore.setup_pal_best();
         ohiscore.setup_road_best();
 
@@ -152,13 +141,8 @@ namespace
                            uint16_t colour)
     {
         uint32_t dst = ohud.translate(x, y);
-
         for (char value : text)
-        {
-            video.write_text16(
-                &dst,
-                (colour << 8) | attract_tile_char(value));
-        }
+            video.write_text16(&dst, (colour << 8) | attract_tile_char(value));
     }
 
     void draw_attract_centered(uint16_t y,
@@ -180,9 +164,6 @@ namespace
 
     void write_attract_tile_row(int row, const std::string& source)
     {
-        // The stock mini-car routine reveals seven two-line score bands. The
-        // visible System 16 name table starts at hardware column 24, and the
-        // stock first score row is y=8 with subsequent rows two lines apart.
         uint32_t dst = ohud.translate(
             24,
             static_cast<uint16_t>(8 + (row * 2)),
@@ -190,8 +171,7 @@ namespace
 
         for (int x = 0; x < 40; x++)
         {
-            const char value = x < static_cast<int>(source.size()) ?
-                source[x] : ' ';
+            const char value = x < static_cast<int>(source.size()) ? source[x] : ' ';
             video.write_tile8(dst + 1, attract_tile_char(value));
             dst += 2;
         }
@@ -212,11 +192,7 @@ namespace
 
         uint8_t converted[3] = {0, 0, 0};
         outils::convert_counter_to_time(counter, converted);
-
-        std::snprintf(
-            dst,
-            size,
-            "%02u'%02u\"%02u",
+        std::snprintf(dst, size, "%02u'%02u\"%02u",
             static_cast<unsigned>(converted[0]),
             static_cast<unsigned>(bcd_to_decimal(converted[1])),
             static_cast<unsigned>(bcd_to_decimal(converted[2])));
@@ -230,22 +206,12 @@ namespace
             return;
         }
 
-        const uint64_t centiseconds =
-            (static_cast<uint64_t>(ticks) * 100ULL) / 60ULL;
-        const uint32_t minutes =
-            static_cast<uint32_t>(centiseconds / 6000ULL);
-        const uint32_t seconds =
-            static_cast<uint32_t>((centiseconds / 100ULL) % 60ULL);
-        const uint32_t hundredths =
-            static_cast<uint32_t>(centiseconds % 100ULL);
+        const uint64_t centiseconds = (static_cast<uint64_t>(ticks) * 100ULL) / 60ULL;
+        const uint32_t minutes = static_cast<uint32_t>(centiseconds / 6000ULL);
+        const uint32_t seconds = static_cast<uint32_t>((centiseconds / 100ULL) % 60ULL);
+        const uint32_t hundredths = static_cast<uint32_t>(centiseconds % 100ULL);
 
-        std::snprintf(
-            dst,
-            size,
-            "%02u'%02u\"%02u",
-            minutes,
-            seconds,
-            hundredths);
+        std::snprintf(dst, size, "%02u'%02u\"%02u", minutes, seconds, hundredths);
     }
 
     char read_initial(xml_parser::ptree& data, const std::string& key)
@@ -257,19 +223,14 @@ namespace
     void prepare_endless_attract_rows()
     {
         xml_parser::ptree data("endless_scores");
-        xml_parser::read_xml(
-            config.data.save_path + "hiscores_endless.xml",
-            data);
+        xml_parser::read_xml(config.data.save_path + "hiscores_endless.xml", data);
 
         for (int row = 0; row < 7; row++)
         {
             const std::string tag = "score" + Utils::to_string(row);
-            const uint16_t stages = static_cast<uint16_t>(
-                data.get_int(tag + ".stages", 0));
-            const uint32_t distance = static_cast<uint32_t>(
-                data.get_int(tag + ".distance_tenths", 0));
-            const uint32_t ticks = static_cast<uint32_t>(
-                data.get_int(tag + ".time_ticks", 0));
+            const uint16_t stages = static_cast<uint16_t>(data.get_int(tag + ".stages", 0));
+            const uint32_t distance = static_cast<uint32_t>(data.get_int(tag + ".distance_tenths", 0));
+            const uint32_t ticks = static_cast<uint32_t>(data.get_int(tag + ".time_ticks", 0));
 
             std::string line;
             if (stages || distance || ticks)
@@ -277,26 +238,19 @@ namespace
                 const char i1 = read_initial(data, tag + ".initial1");
                 const char i2 = read_initial(data, tag + ".initial2");
                 const char i3 = read_initial(data, tag + ".initial3");
-
                 char time_text[16];
                 format_endless_time(ticks, time_text, sizeof(time_text));
 
                 char row_text[64];
-                std::snprintf(
-                    row_text,
-                    sizeof(row_text),
+                std::snprintf(row_text, sizeof(row_text),
                     "%2d %c%c%c %3u STG %5u.%u KM %8s",
-                    row + 1,
-                    i1,
-                    i2,
-                    i3,
+                    row + 1, i1, i2, i3,
                     static_cast<unsigned>(stages),
                     static_cast<unsigned>(distance / 10),
                     static_cast<unsigned>(distance % 10),
                     time_text);
                 line = row_text;
             }
-
             write_attract_tile_row(row, line);
         }
     }
@@ -305,62 +259,37 @@ namespace
     {
         static const char* NAMES[TimeTrialRecords::TRACK_COUNT] =
         {
-            "COCONUT BEACH",
-            "GATEWAY",
-            "DEVILS CANYON",
-            "DESERT",
-            "ALPS",
-            "CLOUDY MOUNTAIN",
-            "WILDERNESS",
-            "OLD CAPITAL",
-            "WHEAT FIELD",
-            "SEASIDE TOWN",
-            "VINEYARD",
-            "DEATH VALLEY",
-            "DESOLATION HILL",
-            "AUTOBAHN",
-            "LAKESIDE"
+            "COCONUT BEACH", "GATEWAY", "DEVILS CANYON", "DESERT", "ALPS",
+            "CLOUDY MOUNTAIN", "WILDERNESS", "OLD CAPITAL", "WHEAT FIELD",
+            "SEASIDE TOWN", "VINEYARD", "DEATH VALLEY", "DESOLATION HILL",
+            "AUTOBAHN", "LAKESIDE"
         };
-
-        return track >= 0 && track < TimeTrialRecords::TRACK_COUNT ?
-            NAMES[track] : "UNKNOWN";
+        return track >= 0 && track < TimeTrialRecords::TRACK_COUNT ? NAMES[track] : "UNKNOWN";
     }
 
     std::string time_trial_record_cell(xml_parser::ptree& data, int track)
     {
         const std::string track_base =
             "time_trial.track" + Utils::to_string(track) + ".traffic_on.entry0";
-        const std::string legacy_base =
-            "time_trial.record" + Utils::to_string(track);
+        const std::string legacy_base = "time_trial.record" + Utils::to_string(track);
 
-        uint16_t total = static_cast<uint16_t>(
-            data.get_int(track_base + ".total", 0));
+        uint16_t total = static_cast<uint16_t>(data.get_int(track_base + ".total", 0));
         std::string initial_base = track_base;
-
         if (!total)
         {
-            total = static_cast<uint16_t>(
-                data.get_int(legacy_base + ".total", 0));
+            total = static_cast<uint16_t>(data.get_int(legacy_base + ".total", 0));
             initial_base = legacy_base;
         }
 
         const char i1 = total ? read_initial(data, initial_base + ".initial1") : '-';
         const char i2 = total ? read_initial(data, initial_base + ".initial2") : '-';
         const char i3 = total ? read_initial(data, initial_base + ".initial3") : '-';
-
         char time_text[16];
         format_counter(total, time_text, sizeof(time_text));
 
         char cell[40];
-        std::snprintf(
-            cell,
-            sizeof(cell),
-            "%-16s %c%c%c %8s",
-            time_trial_name(track),
-            i1,
-            i2,
-            i3,
-            time_text);
+        std::snprintf(cell, sizeof(cell), "%-16s %c%c%c %8s",
+            time_trial_name(track), i1, i2, i3, time_text);
         return std::string(cell);
     }
 
@@ -368,17 +297,10 @@ namespace
     {
         xml_parser::ptree data("timetrial_scores");
         xml_parser::read_xml(config.data.file_ttrial, data);
+        const int first_track = page == ATTRACT_SCORE_TIME_TRIAL_1 ? 0 : 7;
 
-        const int first_track =
-            page == ATTRACT_SCORE_TIME_TRIAL_1 ? 0 : 7;
-
-        // Seven entries map one-to-one to the original seven mini-cars. Page 2
-        // has one remaining fifteenth course; it is drawn below the animated
-        // rows so all 15 records fit cleanly without exceeding 40 columns.
         for (int row = 0; row < 7; row++)
-            write_attract_tile_row(
-                row,
-                time_trial_record_cell(data, first_track + row));
+            write_attract_tile_row(row, time_trial_record_cell(data, first_track + row));
 
         if (page == ATTRACT_SCORE_TIME_TRIAL_2)
             attract_time_trial_footer = time_trial_record_cell(data, 14);
@@ -400,9 +322,6 @@ namespace
 
     void draw_stock_score_header_shifted()
     {
-        // The stock SCORE / NAME / ROUTE / RECORD row sits directly beneath
-        // BEST OUTRUNNERS. Move only that header down by one text row so the
-        // DX mode label has a dedicated line between title and table.
         uint32_t src = TEXT1_SCORE_ETC;
         uint32_t original_dst = roms.rom0.read32(&src);
         const uint16_t counter = roms.rom0.read16(&src);
@@ -422,35 +341,19 @@ namespace
 
     void draw_attract_page_header(int page)
     {
-        // Keep the same hierarchy on every attract score page:
-        // BEST OUTRUNNERS -> mode -> table.
         ohud.blit_text2(TEXT2_BEST_OR);
         draw_attract_centered(5, attract_page_name(page), OHud::GREEN);
 
         if (page == ATTRACT_SCORE_ENDLESS)
         {
-            draw_attract_text(
-                0,
-                6,
-                "# NAME STAGES      DISTANCE       TIME",
-                OHud::GREY);
+            draw_attract_text(0, 6,
+                "# NAME STAGES      DISTANCE       TIME", OHud::GREY);
         }
         else if (attract_time_trial_page(page))
         {
-            draw_attract_centered(
-                6,
-                "TRAFFIC ON - BEST BY COURSE",
-                OHud::GREY);
-
-            if (page == ATTRACT_SCORE_TIME_TRIAL_2 &&
-                !attract_time_trial_footer.empty())
-            {
-                draw_attract_text(
-                    5,
-                    23,
-                    attract_time_trial_footer,
-                    OHud::GREY);
-            }
+            draw_attract_centered(6, "TRAFFIC ON - BEST BY COURSE", OHud::GREY);
+            if (page == ATTRACT_SCORE_TIME_TRIAL_2 && !attract_time_trial_footer.empty())
+                draw_attract_text(5, 23, attract_time_trial_footer, OHud::GREY);
         }
     }
 
@@ -466,12 +369,9 @@ namespace
     {
         attract_score_page = page;
         attract_time_trial_footer.clear();
-
-        // Every page starts a fresh copy of the original mini-car state machine.
         score.init_base();
 
         const int runtime_jap = config.engine.jap;
-
         switch (page)
         {
             case ATTRACT_SCORE_ORIGINAL:
@@ -480,21 +380,18 @@ namespace
                 config.load_scores(true);
                 config.engine.jap = runtime_jap;
                 break;
-
             case ATTRACT_SCORE_ORIGINAL_JAPAN:
                 config.engine.jap = 1;
                 score.init_def_scores();
                 config.load_scores(true);
                 config.engine.jap = runtime_jap;
                 break;
-
             case ATTRACT_SCORE_CONTINUOUS:
                 config.engine.jap = 0;
                 score.init_def_scores();
                 config.load_scores(false);
                 config.engine.jap = runtime_jap;
                 break;
-
             case ATTRACT_SCORE_ENDLESS:
             case ATTRACT_SCORE_TIME_TRIAL_1:
             case ATTRACT_SCORE_TIME_TRIAL_2:
@@ -504,22 +401,14 @@ namespace
 
     bool attract_timer_will_expire_this_tick()
     {
-        // GS_BEST1 calls display_scores() immediately before decrement_timers().
-        // Mirror the two stock timer branches so the next DX page is installed
-        // only on the exact frame on which the original screen would have ended.
         if (config.engine.fix_timer)
             return ostats.time_counter == 1 && ostats.frame_counter <= 1;
-
         return ostats.time_counter == 0 && ostats.frame_counter <= 0;
     }
 }
 
 void OHiScore::init()
 {
-    // Preserve the original attract transition exactly: BEST1 must inherit the
-    // running demo's road, scenery and palette instead of rebuilding a separate
-    // Best OutRunners background. DX only rotates the score data presented on
-    // top of that untouched scene.
     if (attract_score_screen())
     {
         attract_saved_jap = config.engine.jap;
@@ -530,14 +419,12 @@ void OHiScore::init()
     }
 
     stabilize_score_background();
-
     if (time_trial_record_screen())
     {
         time_trial_score_audio_started = false;
         time_trial_records.init_screen();
         return;
     }
-
     if (!endless_gameover_score_screen())
     {
         init_base();
@@ -545,10 +432,7 @@ void OHiScore::init()
     }
 
     endless_score_audio_started = false;
-    endless_hiscore.capture_result(
-        outrun.endless_stage,
-        ostats.score);
-
+    endless_hiscore.capture_result(outrun.endless_stage, ostats.score);
     endless_hiscore.init_screen();
 }
 
@@ -562,13 +446,9 @@ void OHiScore::display_scores()
 
     if (attract_score_page <= ATTRACT_SCORE_CONTINUOUS)
     {
-        // The stock renderer uses MODE_CONT only to decide whether the route
-        // column is present. Keep that mode override strictly local to this
-        // call so the surrounding attract road/tilemap logic never sees it.
         const int runtime_mode = outrun.cannonball_mode;
-        outrun.cannonball_mode =
-            attract_score_page == ATTRACT_SCORE_CONTINUOUS ?
-                Outrun::MODE_CONT : Outrun::MODE_ORIGINAL;
+        outrun.cannonball_mode = attract_score_page == ATTRACT_SCORE_CONTINUOUS ?
+            Outrun::MODE_CONT : Outrun::MODE_ORIGINAL;
 
         display_scores_base();
         outrun.cannonball_mode = runtime_mode;
@@ -583,36 +463,28 @@ void OHiScore::display_scores()
                 video.clear_text_ram();
                 clear_score_tile_page();
                 setup_minicars();
-
                 if (attract_score_page == ATTRACT_SCORE_ENDLESS)
                     prepare_endless_attract_rows();
                 else
                     prepare_time_trial_attract_rows(attract_score_page);
-
                 best_or_state = 1;
                 break;
-
             case 1:
                 tick_minicars();
                 if (dest_total >= 7)
                     best_or_state = 2;
                 break;
-
             case 2:
                 break;
         }
-
         draw_attract_page_header(attract_score_page);
     }
 
-    // Credits can leave BEST1 immediately. Restore the player's configured
-    // region/mode before the Music Select state is entered.
     if (ostats.credits)
     {
         restore_attract_runtime();
         return;
     }
-
     if (!attract_timer_will_expire_this_tick())
         return;
 
@@ -624,9 +496,6 @@ void OHiScore::display_scores()
     }
     else
     {
-        // Leave the final timer untouched. The stock GS_BEST1 call to
-        // decrement_timers() directly after this function will expire normally
-        // and continue to GS_INIT_LOGO, exactly as before the rotation existed.
         restore_attract_runtime();
     }
 }
@@ -635,36 +504,27 @@ void OHiScore::tick()
 {
     if (time_trial_record_screen())
     {
-        // GS_INIT_BEST2 resets FM/WAV immediately after init(). Start the
-        // familiar Last Wave high-score ambience on the first real BEST2 tick.
         if (!time_trial_score_audio_started && outrun.game_state == GS_BEST2)
         {
             osoundint.queue_sound(sound::PCM_WAVE);
             osoundint.queue_sound(sound::MUSIC_LASTWAVE);
             time_trial_score_audio_started = true;
         }
-
         time_trial_records.tick_screen();
         return;
     }
 
     if (endless_gameover_score_screen())
     {
-        // GS_INIT_BEST2 queues FM_RESET and clears WAV playback immediately
-        // after init(). Start Last Wave on the first real BEST2 tick instead,
-        // after that stock reset has completed, so the Endless score screen
-        // gets the intended OutRun high-score music and sea ambience.
         if (!endless_score_audio_started && outrun.game_state == GS_BEST2)
         {
             osoundint.queue_sound(sound::PCM_WAVE);
             osoundint.queue_sound(sound::MUSIC_LASTWAVE);
             endless_score_audio_started = true;
         }
-
         endless_hiscore.tick_screen();
         return;
     }
-
     tick_base();
 }
 
@@ -673,32 +533,20 @@ int OHiScore::score_position()
     if (time_trial_record_screen())
     {
         time_trial_records.finish_flow();
-
-        // GS_BEST2 performs the normal full engine reset immediately after
-        // this call. Switch back to Original first so it initializes Stage 1
-        // and returns to attract mode instead of reloading the Time Trial track.
         outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
         outrun.freeze_timer = config.engine.freeze_timer;
         time_trial_score_audio_started = false;
         return -1;
     }
 
-    // The preserved GS_BEST2 exit saves Original/Continuous tables when this
-    // reports a valid entry. Endless persists its own XML table, so suppress
-    // that legacy save and keep hiscores_continuous.xml untouched.
     if (endless_gameover_score_screen())
     {
         endless_hiscore.save_if_needed();
-
-        // GS_BEST2 immediately performs the full engine reset after this call.
-        // Return the runtime to the normal Original attract state first so an
-        // Endless MODE_CONT flag cannot leak into the demo/audio sequence.
         outrun.endless_mode = false;
         outrun.cannonball_mode = Outrun::MODE_ORIGINAL;
         outrun.freeze_timer = config.engine.freeze_timer;
         endless_score_audio_started = false;
         return -1;
     }
-
     return score_position_base();
 }
