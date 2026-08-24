@@ -25,6 +25,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Game-mode selection from the Music Select screen** - Original, Continuous or Time Trial via the VIEW controls
 - **Expanded Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver, with a persistent default colour and per-run Music Select choice
 - **Continuous Mode traffic follows the normal OutRun difficulty and stage scaling**
+- **Direct MAME ROM ZIP loading** with full compatibility for traditional extracted CannonBall ROM sets
 - **Arcade lamp outputs** for START, BRAKE and VIEW lamps via **MAME network output**, **Windows MAMEOutput / MAMEHooker** and the existing **SmartyPi** output path
 
 ---
@@ -66,7 +67,18 @@ The expanded DirectInput force-feedback implementation is primarily intended for
 
 ## ROMs
 
-CannonBall DX requires the original **OutRun revision B** ROM set. Copy the ROMs into the `roms/` directory.
+CannonBall DX requires the original **OutRun Revision B** ROM data. There are now two supported ways to provide it:
+
+- Copy the traditional extracted CannonBall ROM files into `roms/`, exactly as before.
+- Place a suitable MAME ZIP archive such as a current merged `outrun.zip` into `roms/` without extracting it.
+
+ZIP entries are identified by **CRC32 and uncompressed size**, not by archive filename alone. This allows CannonBall DX to locate the Revision B data, the optional alternate early/Japanese program ROMs and corrected PCM data inside modern merged archives even when MAME uses different filenames or subdirectories.
+
+**Backwards compatibility is intentional:** extracted ROMs remain fully supported and take priority when identical data exists both loose and inside a ZIP.
+
+When `sound.fix_samples` is enabled, CannonBall DX prefers Sega/M2's official corrected PCM ROM (`C2DE09B2`), then accepts CannonBall's historical patched `opr-10188.71f` (`37598616`), and finally falls back to the original arcade `opr-10188.71` (`BAD30AD9`). No manual PCM patching is required when the official corrected ROM is present.
+
+See `roms/roms.txt` for the legacy filenames and accepted PCM variants.
 
 You are expected to legally own the original ROMs; usage may be restricted by local law.
 
@@ -81,7 +93,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Then copy the OutRun revision B ROMs into `./roms/` and run:
+Then copy either the extracted OutRun Revision B ROMs or a suitable `outrun.zip` into `./roms/` and run:
 
 ```bash
 build/cannonball-dx
@@ -207,6 +219,7 @@ CannonBall DX builds directly on the work of the original projects and their con
 - **Chris White** - creator of the original **CannonBall** engine and core OutRun recreation
 - **James Pearce (J1mbo)** - creator and maintainer of **CannonBall-SE**, including its cabinet, video, performance, audio and gameplay enhancements
 - **Shay Green (Blargg)** - `snes_ntsc` NTSC filter library
+- **Rich Geldreich and miniz contributors** - `miniz` ZIP/DEFLATE library used for direct ROM archive loading
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
 - **Endprodukt** - CannonBall DX fork, multi-device input, ultrawide, cabinet-output and modern wheel / feedback extensions
@@ -223,7 +236,7 @@ Upstream projects:
 
 - **Upstream CannonBall license:** non-commercial use; modified redistributions must include full source; warranty disclaimer. See `license.txt`.
 - **CannonBall-SE additional terms:** SE enhancements © 2020-2025 James Pearce; provided "as is"; not for sale / monetisation; preserve notices. See `CannonBall-SE-license.txt`.
-- **Third-party notices:** includes Blargg's `snes_ntsc` under **LGPL-2.1**. See `THIRD-PARTY-NOTICES.md` and `licenses/`.
+- **Third-party notices:** includes Blargg's `snes_ntsc` under **LGPL-2.1** and `miniz` under its public-domain / Unlicense terms. See `THIRD-PARTY-NOTICES.md` and `licenses/`.
 
 *OutRun is a trademark of SEGA Corporation. This project is not affiliated with SEGA.*
 

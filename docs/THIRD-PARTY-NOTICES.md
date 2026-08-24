@@ -21,3 +21,18 @@ can swap in a compatible modified library. Preserve copyright and license notice
 
 For the full terms, see `licenses/LGPL-2.1.txt`.
 
+---
+
+## miniz
+
+- **Component:** `miniz` 3.1.2
+- **Original author:** Rich Geldreich
+- **License:** Public domain / Unlicense
+- **Upstream:** `richgel999/miniz`
+
+### Notes
+
+CannonBall DX uses miniz for read-only ZIP archive access so OutRun ROMs can be
+loaded directly from MAME ZIP sets. The dependency is fetched at build time from a
+pinned upstream revision. miniz permits unrestricted use under its public-domain /
+Unlicense terms.

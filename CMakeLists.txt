@@ -314,6 +314,24 @@ SOURCE_GROUP(src\\engine\\audio FILES ${src_engine_audio})
 
 add_executable(cannonball-dx ${SRCS})
 
+# --- ZIP ROM support -----------------------------------------------------------
+# miniz is used only for reading ROMs directly from ZIP archives. Keep it pinned
+# so Windows, Linux and Raspberry Pi builds all use the same implementation.
+set(BUILD_EXAMPLES OFF CACHE BOOL "Build miniz examples" FORCE)
+set(BUILD_FUZZERS OFF CACHE BOOL "Build miniz fuzzers" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "Build miniz tests" FORCE)
+set(INSTALL_PROJECT OFF CACHE BOOL "Install miniz" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build miniz as a static library" FORCE)
+FetchContent_Declare(
+    cannonball_miniz
+    GIT_REPOSITORY https://github.com/richgel999/miniz.git
+    GIT_TAG 77d0dce8627735138c51770d1799a1ef48f2117d
+)
+FetchContent_MakeAvailable(cannonball_miniz)
+target_link_libraries(cannonball-dx PRIVATE miniz)
+# miniz enables verbose makefiles in its own project; restore CannonBall's choice.
+set(CMAKE_VERBOSE_MAKEFILE OFF CACHE BOOL "Do not echo full compile/link commands" FORCE)
+
 if(WIN32)
     target_compile_features(cannonball-dx PRIVATE cxx_std_23)
     target_compile_definitions(cannonball-dx PRIVATE
