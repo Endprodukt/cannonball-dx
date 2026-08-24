@@ -122,7 +122,7 @@ namespace
         record.initial3 = i3.empty() || i3[0] == '_' ? ' ' : i3[0];
     }
 
-    void load_course_records()
+    void load_course_records(const uint16_t* legacy_best_times)
     {
         for (int mode = 0; mode < 2; mode++)
         {
@@ -167,7 +167,7 @@ namespace
                 fastest_laps[TRAFFIC_ON][track] = static_cast<uint16_t>(
                     data.get_int(
                         "time_trial.score" + Utils::to_string(track),
-                        best_times[track]));
+                        legacy_best_times ? legacy_best_times[track] : 0));
             }
 
             if (!course_records[TRAFFIC_ON][track].total_counter)
@@ -263,7 +263,7 @@ int TTrial::tick()
         case INIT_COURSEMAP:
             outrun.select_course(config.engine.jap != 0, config.engine.prototype != 0);
             config.load_timetrial_scores();
-            load_course_records();
+            load_course_records(best_times);
             ostats.init(true);
             osprites.init();
             video.enabled = true;
