@@ -2,18 +2,17 @@
 CannonBall DX ROM setup
 -------------------------------------------------------------------------------
 
-CannonBall DX supports both of the following formats:
+Recommended setup:
+Place a current MAME merged outrun.zip in this directory. CannonBall DX reads
+required ROM data directly from the ZIP; no manual extraction is needed.
 
-1. Legacy/extracted ROM files placed directly in this directory.
-2. MAME ZIP archives placed in this directory, including a current merged
-   outrun.zip containing the required OutRun parent/clone ROM data.
+CannonBall DX remains fully backwards-compatible with the traditional setup of
+individual extracted ROM files placed directly in this directory.
 
-ZIP entries are matched by CRC32 and uncompressed size, so the filenames and
-subdirectories used inside a merged MAME archive do not need to match the old
-CannonBall filenames exactly.
-
-Extracted ROM files remain fully supported and take priority over identical
-ROM data found inside ZIP archives.
+ZIP entries are matched by CRC32 and uncompressed size, so filenames and
+subdirectories inside a merged MAME archive do not need to match CannonBall's
+legacy filenames. Extracted ROM files take priority over identical data found
+inside ZIP archives.
 
 -------------------------------------------------------------------------------
 OutRun Revision B - legacy extracted filenames
@@ -24,7 +23,7 @@ epr-10328a.75
 epr-10329a.58
 epr-10330a.57
 epr-10380b.133
-epr-10381a.132
+epr-10381b.132
 epr-10382b.118
 epr-10383b.117
 mpr-10371.9
