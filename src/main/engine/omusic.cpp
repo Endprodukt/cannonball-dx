@@ -281,6 +281,17 @@ void OMusic::tick()
 {
     tick_base();
 
+    // The stock Music Select timeout is owned by Outrun::decrement_timers()
+    // immediately after this function returns. Holding both counters at their
+    // initial values makes this selector unlimited without touching any race,
+    // attract or high-score timer behavior.
+    if (outrun.game_state == GS_MUSIC &&
+        !config.selection_timers_enabled())
+    {
+        ostats.time_counter = config.sound.music_timer;
+        ostats.frame_counter = ostats.frame_reset;
+    }
+
     if (outrun.game_state == GS_MUSIC &&
         game_mode_selected == Outrun::MODE_CONT &&
         endless_selected)
