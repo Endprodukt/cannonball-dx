@@ -422,6 +422,12 @@ void Config::load()
 
     load_base();
 
+    // CannonBall's original keyboard default for opening the menu is F5.
+    // CannonBall-SE changed this to M. Keep existing user mappings untouched,
+    // but restore F5 for new configs and configs where the menu key is absent.
+    if (first_run || cfg.get_int("controls.keyconfig.menu", -1) == -1)
+        controls.keyconfig[10] = SDLK_F5;
+
     // Do not inherit historical CannonBall-SE CRT/filter defaults on first run.
     // This deliberately overrides both the hard-coded config_base fallbacks and
     // an outdated res/config.xml that may still be present in a build folder.
