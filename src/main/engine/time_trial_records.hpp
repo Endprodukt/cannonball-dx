@@ -136,6 +136,15 @@ public:
         accel_old = accel_now;
     }
 
+    // Called from the late output pass after the stock BEST2 code has drawn its
+    // normal FREE PLAY/credits row. Redrawing here keeps the dedicated Time
+    // Trial editor authoritative without processing input a second time.
+    void redraw_screen()
+    {
+        if (record_screen_active)
+            render_records();
+    }
+
     void save_if_needed()
     {
         if (run_captured)
@@ -173,6 +182,10 @@ private:
     static const int TRAFFIC_CLASSES = 2;
     static const int TRAFFIC_OFF = 0;
     static const int TRAFFIC_ON = 1;
+
+    static const int INITIAL_DOT = 26;
+    static const int INITIAL_DELETE = 27;
+    static const int INITIAL_END = 28;
 
     using ScoreTable = std::array<Record, TABLE_ENTRIES>;
 
@@ -558,6 +571,33 @@ private:
         }
     }
 
+    static uint16_t field_x(uint16_t x, uint16_t width, const char* text)
+    {
+        int length = static_cast<int>(std::string(text).size());
+        if (length > width)
+            length = width;
+
+        return static_cast<uint16_t>(x + ((width - length) / 2));
+    }
+
+    static void draw_field(uint16_t x,
+                           uint16_t width,
+                           uint16_t y,
+                           const char* text,
+                           uint16_t colour)
+    {
+        ohud.blit_text_new(field_x(x, width, text), y, text, colour);
+    }
+
+    static void draw_time_field(uint16_t x,
+                                uint16_t width,
+                                uint16_t y,
+                                const char* text,
+                                uint16_t colour)
+    {
+        draw_time(field_x(x, width, text), y, text, colour);
+    }
+
     static void draw_centered(uint16_t y, const char* text, uint16_t colour)
     {
         const int length = static_cast<int>(std::string(text).size());
@@ -620,13 +660,22 @@ private:
 
     void render_records()
     {
+        // The seven fields exactly partition the 40-column text layer. Header
+        // labels and values are centred independently inside their own field.
         const uint16_t X_POS   = 0;
+        const uint16_t W_POS   = 3;
         const uint16_t X_NAME  = 3;
+        const uint16_t W_NAME  = 5;
         const uint16_t X_TOTAL = 8;
+        const uint16_t W_TOTAL = 9;
         const uint16_t X_BEST  = 17;
+        const uint16_t W_BEST  = 9;
         const uint16_t X_OVT   = 26;
+        const uint16_t W_OVT   = 5;
         const uint16_t X_COL   = 31;
+        const uint16_t W_COL   = 5;
         const uint16_t X_CR    = 36;
+        const uint16_t W_CR    = 4;
 
         ohud.blit_text_new(10, 0, "TIME TRIAL RECORDS", OHud::GREEN);
         draw_centered(1, track_name(current_track), OHud::GREEN);
@@ -636,13 +685,13 @@ private:
             traffic_name(current_traffic_class),
             OHud::GREEN);
 
-        ohud.blit_text_new(X_POS,   3, "#", OHud::GREY);
-        ohud.blit_text_new(X_NAME,  3, "NAME", OHud::GREY);
-        ohud.blit_text_new(X_TOTAL, 3, "TOTAL", OHud::GREY);
-        ohud.blit_text_new(X_BEST,  3, "BEST", OHud::GREY);
-        ohud.blit_text_new(X_OVT,   3, "OVT", OHud::GREY);
-        ohud.blit_text_new(X_COL,   3, "COL", OHud::GREY);
-        ohud.blit_text_new(X_CR,    3, "CR", OHud::GREY);
+        draw_field(X_POS,   W_POS,   3, "#",     OHud::GREY);
+        draw_field(X_NAME,  W_NAME,  3, "NAME",  OHud::GREY);
+        draw_field(X_TOTAL, W_TOTAL, 3, "TOTAL", OHud::GREY);
+        draw_field(X_BEST,  W_BEST,  3, "BEST",  OHud::GREY);
+        draw_field(X_OVT,   W_OVT,   3, "OVT",   OHud::GREY);
+        draw_field(X_COL,   W_COL,   3, "COL",   OHud::GREY);
+        draw_field(X_CR,    W_CR,    3, "CR",    OHud::GREY);
 
         if (current_track < 0 || current_track >= TRACK_COUNT)
             return;
@@ -662,20 +711,18 @@ private:
                 "                                        ",
                 OHud::GREY);
 
-            ohud.blit_text_new(
-                X_POS,
-                y,
-                Utils::to_string(pos + 1).c_str(),
-                colour);
+            const std::string rank_text = Utils::to_string(pos + 1);
+            draw_field(
+                X_POS, W_POS, y, rank_text.c_str(), colour);
 
             if (!record.total_counter)
             {
-                ohud.blit_text_new(X_NAME, y, "---", colour);
-                draw_time(X_TOTAL, y, "--'--\"--", colour);
-                draw_time(X_BEST, y, "--'--\"--", colour);
-                ohud.blit_text_new(X_OVT, y, "-", colour);
-                ohud.blit_text_new(X_COL, y, "-", colour);
-                ohud.blit_text_new(X_CR, y, "-", colour);
+                draw_field(X_NAME, W_NAME, y, "---", colour);
+                draw_time_field(X_TOTAL, W_TOTAL, y, "--'--\"--", colour);
+                draw_time_field(X_BEST, W_BEST, y, "--'--\"--", colour);
+                draw_field(X_OVT, W_OVT, y, "-", colour);
+                draw_field(X_COL, W_COL, y, "-", colour);
+                draw_field(X_CR, W_CR, y, "-", colour);
                 continue;
             }
 
@@ -686,52 +733,82 @@ private:
                 record.initial3 == ' ' ? '-' : record.initial3,
                 0
             };
-            ohud.blit_text_new(X_NAME, y, initials, colour);
+            draw_field(X_NAME, W_NAME, y, initials, colour);
 
             char total_text[16];
             char best_text[16];
             format_counter(record.total_counter, total_text, sizeof(total_text));
             format_counter(record.best_lap_counter, best_text, sizeof(best_text));
-            draw_time(X_TOTAL, y, total_text, colour);
-            draw_time(X_BEST, y, best_text, colour);
+            draw_time_field(X_TOTAL, W_TOTAL, y, total_text, colour);
+            draw_time_field(X_BEST, W_BEST, y, best_text, colour);
 
-            ohud.blit_text_new(
-                X_OVT,
-                y,
-                Utils::to_string(static_cast<int>(record.overtakes)).c_str(),
-                colour);
-            ohud.blit_text_new(
-                X_COL,
-                y,
-                Utils::to_string(static_cast<int>(record.vehicle_cols)).c_str(),
-                colour);
-            ohud.blit_text_new(
-                X_CR,
-                y,
-                Utils::to_string(static_cast<int>(record.crashes)).c_str(),
-                colour);
+            const std::string overtakes_text =
+                Utils::to_string(static_cast<int>(record.overtakes));
+            const std::string collisions_text =
+                Utils::to_string(static_cast<int>(record.vehicle_cols));
+            const std::string crashes_text =
+                Utils::to_string(static_cast<int>(record.crashes));
+
+            draw_field(
+                X_OVT, W_OVT, y, overtakes_text.c_str(), colour);
+            draw_field(
+                X_COL, W_COL, y, collisions_text.c_str(), colour);
+            draw_field(
+                X_CR, W_CR, y, crashes_text.c_str(), colour);
         }
+
+        // BEST2 always draws FREE PLAY/credits after OHiScore::tick(). Own the
+        // three bottom editor rows completely so the late redraw can erase it.
+        ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
+        ohud.blit_text_new(0, 26, "                                        ", OHud::GREY);
+        ohud.blit_text_new(0, 27, "                                        ", OHud::GREY);
 
         if (qualifying_score && !initials_done)
         {
             ohud.blit_text_new(13, 25, "ENTER INITIALS", OHud::GREEN);
-            ohud.blit_text_new(6, 26, "ABCDEFGHIJKLMNOPQRSTUVWXYZ.", OHud::GREY);
 
-            const char selected[2] =
+            // Match the original OutRun editor's three special choices:
+            // period, delete and end. Text labels are used for the latter two
+            // so their meaning is unambiguous on every ROM/font set.
+            ohud.blit_text_new(
+                2,
+                26,
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ. DEL END",
+                OHud::GREY);
+
+            if (letter_selected <= INITIAL_DOT)
             {
-                static_cast<char>(letter_selected < 26 ?
-                    ('A' + letter_selected) : '.'),
-                0
-            };
-            ohud.blit_text_new(6 + letter_selected, 26, selected, OHud::GREEN);
-            ohud.blit_text_new(7, 27, "STEER LETTER  ACCEL SELECT", OHud::GREY);
+                const char selected[2] =
+                {
+                    static_cast<char>(
+                        letter_selected < INITIAL_DOT
+                            ? ('A' + letter_selected)
+                            : '.'),
+                    0
+                };
+                ohud.blit_text_new(
+                    static_cast<uint16_t>(2 + letter_selected),
+                    26,
+                    selected,
+                    OHud::GREEN);
+            }
+            else if (letter_selected == INITIAL_DELETE)
+            {
+                ohud.blit_text_new(30, 26, "DEL", OHud::GREEN);
+            }
+            else
+            {
+                ohud.blit_text_new(34, 26, "END", OHud::GREEN);
+            }
+
+            ohud.blit_text_new(
+                5,
+                27,
+                "STEER  ACCEL SELECT  DEL/END",
+                OHud::GREY);
         }
         else if (qualifying_score)
         {
-            ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
-            ohud.blit_text_new(0, 26, "                                        ", OHud::GREY);
-            ohud.blit_text_new(0, 27, "                                        ", OHud::GREY);
-
             if (new_course_record)
                 ohud.blit_text_new(11, 26, "NEW COURSE RECORD", OHud::GREEN);
             else
@@ -782,29 +859,68 @@ private:
         if (!direction)
             return;
 
+        const int first_option =
+            initial_selected >= 3 ? INITIAL_DELETE : 0;
+
         letter_selected += direction;
-        if (letter_selected < 0)
-            letter_selected = 26;
-        else if (letter_selected > 26)
-            letter_selected = 0;
+        if (letter_selected < first_option)
+            letter_selected = INITIAL_END;
+        else if (letter_selected > INITIAL_END)
+            letter_selected = first_option;
+    }
+
+    void finish_initials_entry()
+    {
+        initials_done = true;
+        save();
+        ostats.frame_counter = ostats.frame_reset;
+        ostats.time_counter = 3;
     }
 
     void accept_letter()
     {
         if (!qualifying_score ||
             current_track < 0 || current_track >= TRACK_COUNT ||
-            score_pos < 0 || score_pos >= TABLE_ENTRIES ||
-            initial_selected >= 3)
+            score_pos < 0 || score_pos >= TABLE_ENTRIES)
         {
             return;
         }
 
-        const char letter =
-            static_cast<char>(letter_selected < 26 ?
-                ('A' + letter_selected) : '.');
-
         Record& record =
             records[current_track][current_traffic_class][score_pos];
+
+        if (letter_selected == INITIAL_END)
+        {
+            finish_initials_entry();
+            return;
+        }
+
+        if (letter_selected == INITIAL_DELETE)
+        {
+            if (initial_selected > 0)
+            {
+                --initial_selected;
+
+                if (initial_selected == 0)
+                    record.initial1 = ' ';
+                else if (initial_selected == 1)
+                    record.initial2 = ' ';
+                else
+                    record.initial3 = ' ';
+
+                save();
+            }
+            return;
+        }
+
+        if (initial_selected >= 3)
+            return;
+
+        const char letter =
+            static_cast<char>(
+                letter_selected < INITIAL_DOT
+                    ? ('A' + letter_selected)
+                    : '.');
 
         if (initial_selected == 0)
             record.initial1 = letter;
@@ -816,12 +932,11 @@ private:
         ++initial_selected;
         save();
 
+        // Like the original OutRun editor, completing three letters does not
+        // remove the ability to correct the last character. Move directly to
+        // END while keeping DELETE immediately adjacent.
         if (initial_selected >= 3)
-        {
-            initials_done = true;
-            ostats.frame_counter = ostats.frame_reset;
-            ostats.time_counter = 3;
-        }
+            letter_selected = INITIAL_END;
     }
 };
 
