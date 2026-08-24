@@ -6,6 +6,7 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <SDL.h>
 #include <string>
 
 #include "sdl2/input.hpp"
@@ -49,6 +50,24 @@ namespace
     };
 
     CourseRecordDisplay course_records[15];
+    Uint32 course_select_deadline_ms = 0;
+
+    Uint32 selection_timeout_ms()
+    {
+        // Music Select stores its timeout as two-digit BCD. Reuse exactly that
+        // configured duration so both selection screens behave consistently.
+        const int timer = config.sound.music_timer;
+        const int seconds =
+            (((timer >> 4) & 0x0F) * 10) + (timer & 0x0F);
+
+        return static_cast<Uint32>(seconds > 0 ? seconds : 30) * 1000U;
+    }
+
+    bool course_selection_timed_out()
+    {
+        return course_select_deadline_ms != 0 &&
+            static_cast<Sint32>(SDL_GetTicks() - course_select_deadline_ms) >= 0;
+    }
 
     const char* track_name(int index)
     {
@@ -117,9 +136,9 @@ namespace
 
         // Keep all Time Trial record information on one compact line below
         // the map. The old two-row LAP graphic is intentionally omitted.
-        ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
-        ohud.blit_text_new(1, 25, "RECORD", OHud::GREY);
-        ohud.blit_text_new(20, 25, "FASTEST LAP", OHud::GREY);
+        ohud.blit_text_new(0, 26, "                                        ", OHud::GREY);
+        ohud.blit_text_new(1, 26, "RECORD", OHud::GREY);
+        ohud.blit_text_new(20, 26, "FASTEST LAP", OHud::GREY);
 
         char initials[4] =
         {
@@ -128,18 +147,18 @@ namespace
             record.initial3 == ' ' ? '-' : record.initial3,
             0
         };
-        ohud.blit_text_new(8, 25, initials, OHud::GREEN);
+        ohud.blit_text_new(8, 26, initials, OHud::GREEN);
 
         if (!record.total_counter)
         {
-            ohud.blit_text_new(12, 25, "NO TIME", OHud::GREEN);
+            ohud.blit_text_new(12, 26, "NO TIME", OHud::GREEN);
             return;
         }
 
         uint8_t converted[3] = {0, 0, 0};
         outils::convert_counter_to_time(record.total_counter, converted);
         ohud.draw_lap_timer(
-            ohud.translate(12, 25),
+            ohud.translate(12, 26),
             converted,
             converted[2]);
     }
@@ -157,6 +176,7 @@ TTrial::~TTrial(void)
 
 void TTrial::init()
 {
+    course_select_deadline_ms = 0;
     state = INIT_COURSEMAP;
 }
 
@@ -184,27 +204,34 @@ int TTrial::tick()
             osoundint.queue_sound(sound::PCM_WAVE);
             outrun.ttrial.laps    = config.ttrial.laps;
             outrun.custom_traffic = config.ttrial.traffic;
+            course_select_deadline_ms = config.selection_timers_enabled()
+                ? SDL_GetTicks() + selection_timeout_ms()
+                : 0;
             state = TICK_COURSEMAP;
 
         case TICK_COURSEMAP:
             {
                 if (input.has_pressed(Input::MENU))
                 {
+                    course_select_deadline_ms = 0;
                     omusic.cancel_time_trial_from_music();
                     return BACK_TO_MENU;
                 }
-                else if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
+
+                // Match Music Select: once its configured selection duration
+                // expires, accept whatever is currently highlighted. Check the
+                // deadline before directional input so a held wheel cannot keep
+                // the selector alive indefinitely after timeout.
+                const bool timed_out =
+                    config.selection_timers_enabled() &&
+                    course_selection_timed_out();
+
+                if (timed_out ||
+                    input.has_pressed(Input::START) ||
+                    input.has_pressed(Input::ACCEL) ||
+                    oinputs.is_analog_select())
                 {
-                    if (--level_selected < 0)
-                        level_selected = sizeof(FERRARI_POS) - 1;
-                }
-                else if (input.has_pressed(Input::RIGHT)|| oinputs.is_analog_r())
-                {
-                    if (++level_selected > sizeof(FERRARI_POS) - 1)
-                        level_selected = 0;
-                }
-                else if (input.has_pressed(Input::START) || input.has_pressed(Input::ACCEL) || oinputs.is_analog_select())
-                {
+                    course_select_deadline_ms = 0;
                     outils::convert_counter_to_time(best_times[level_selected], best_converted);
 
                     outrun.cannonball_mode         = Outrun::MODE_TTRIAL;
@@ -222,6 +249,16 @@ int TTrial::tick()
                     ostats.credits = 1;
                     return INIT_GAME;
                 }
+                else if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
+                {
+                    if (--level_selected < 0)
+                        level_selected = sizeof(FERRARI_POS) - 1;
+                }
+                else if (input.has_pressed(Input::RIGHT)|| oinputs.is_analog_r())
+                {
+                    if (++level_selected > sizeof(FERRARI_POS) - 1)
+                        level_selected = 0;
+                }
 
                 omap.position_ferrari(FERRARI_POS[level_selected]);
 
@@ -230,7 +267,7 @@ int TTrial::tick()
                 outils::convert_counter_to_time(best_times[level_selected], best_converted);
                 draw_course_record(level_selected);
                 ohud.draw_lap_timer(
-                    ohud.translate(32, 25),
+                    ohud.translate(32, 26),
                     best_converted,
                     best_converted[2]);
 
