@@ -14,30 +14,43 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 ## CannonBall DX Features
 
-Everything below is currently implemented in the **`master`** branch.
-
 ### Game Modes
 
+**All game modes are selected directly in-game from the Music Select screen with the VIEW controls - no mode switching through settings menus.**
+
 - **Original OutRun** - classic branching five-stage game
+- **Original Japanese** - alternate early/Japanese program ROMs and course layout
 - **Continuous Mode** - play all stages in one run with normal traffic and difficulty scaling
+- **Endless Mode** - survival driving with rising difficulty, automatic music rotation and dedicated high scores
 - **Time Trial** - three-lap course runs with **Traffic ON/OFF**, per-course records, fastest lap and total time
-- **Endless Mode** - survival-style continuous driving with rising difficulty, automatic music rotation and dedicated high scores
 
 ### Controls & Driving
 
 - **True multi-device input** - wheel, pedals, shifter and buttons can come from different USB devices
 - **Unified binding matrix** - separate Keyboard, Gamepad and Wheel assignments
-- **Direct View 1 / View 2 / View 3 controls** plus the original view-cycle button
+- **Direct VIEW1 / VIEW2 / VIEW3 controls** plus the original view-cycle button
 - **Expanded DirectInput force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
 - **Gamepad rumble** with separate enable and strength settings
-- **Eight Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver
+
+### Fixed Keyboard Hotkeys
+
+- **F1** Pause
+- **F2** Frame step
+- **F3** Freeze timer
+- **F5** Menu
+- **F6** Pixel-scaler quick cycle
+- **F7** Hi-res sprites
+- **F8** Video-processing toggle
+- **F9** Shadow-mask toggle
+- **F10** Ferrari colour
 
 ### Display & Presentation
 
-- **4:3, widescreen and 21:9 ultrawide support**
-- **xBRZ 3x/4x/5x/6x and HQX 3x/4x pixel scalers** selectable from Enhancements
+- **4:3, 16:9 and 21:9 ultrawide support**
+- **xBRZ 3x/4x/5x/6x and HQX 3x/4x pixel scalers**
 - **CRT / analogue video and NTSC filtering** inherited from CannonBall-SE
 - **Enhanced Attract Mode** with automatic camera changes and cabinet-lamp choreography
+- **Eight Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver
 - **Configurable selection timers** - 15 sec, 30 sec or OFF
 - **Dedicated Time Trial and Endless results / high-score presentation**
 
@@ -53,7 +66,7 @@ Everything below is currently implemented in the **`master`** branch.
 
 - **Direct MAME ROM ZIP loading** - current merged `outrun.zip` can be used without extraction
 - **Full backwards compatibility with traditional loose CannonBall ROM files**
-- **Optional early/Japanese program-ROM data** detected by CRC when present
+- **Early/Japanese program-ROM data** detected by CRC when present
 - **Corrected Sega/M2 PCM ROM preferred automatically**, with historical CannonBall patch and original ROM fallbacks
 - **WAV, MP3 and YM custom music support**
 - **FFB detents in the music selector** on supported Windows wheels
@@ -183,9 +196,10 @@ FF_TARGET_VIDPID=0x046d:0xc24f
 - **Low / High Gear:** `G` / `H`
 - **Steer:** Left / Right arrows
 - **Change View:** `V`
-- **Default Car Colour in Attract Mode:** `F10`
 - **Menu:** `M`
 - **Quit:** `Esc`
+
+Fixed function keys are not redefinable: **F1 Pause, F2 Frame Step, F3 Freeze Timer, F5 Menu, F6 Pixel Scaler, F7 Hi-Res Sprites, F8 Video Processing, F9 Shadow Mask and F10 Ferrari Colour**.
 
 While the car is driving in Attract Mode, press **F10** to cycle the Ferrari colour. The selected colour is saved as the new default and is restored on future starts.
 
@@ -195,10 +209,12 @@ Controls can be remapped in the in-game menu.
 
 ## Music Select
 
-The Music Select screen can now also be used to prepare the next run:
+Game mode selection is integrated directly into the Music Select screen:
 
-- **VIEW** cycles Original -> Continuous -> Time Trial
-- **VIEW1 / VIEW2 / VIEW3** select those modes directly
+- **VIEW** cycles through the available game modes
+- **VIEW1** selects Original / Original Japanese
+- **VIEW2** selects Continuous / Endless
+- **VIEW3** selects Time Trial
 - **LOW / HIGH gear** changes Ferrari colour
 - **START** confirms the selection
 
