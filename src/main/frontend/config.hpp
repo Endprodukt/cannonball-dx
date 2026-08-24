@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 #include "stdint.hpp"
-#include "xml_parser.h" // replaces Boost for XML handling
+#include "highscore_storage.hpp" // one physical highscores.xml for all score tables
 
 struct data_settings_t
 {

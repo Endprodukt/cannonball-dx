@@ -10,6 +10,7 @@
 #include "main.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/oferrari.hpp"
+#include "engine/ohiscore.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ologo.hpp"
@@ -22,6 +23,7 @@
 
 #include <SDL.h>
 #include <cstring>
+#include <iostream>
 
 #define enable enable_base
 #define check_start check_start_base
@@ -38,13 +40,16 @@ namespace
     const int CAR_COLOR_COUNT = 8;
     int last_endless_music_stage = -1;
     Uint32 music_select_deadline_ms = 0;
+    bool japanese_selected = false;
 
     enum MusicModeSelection
     {
         SELECT_ORIGINAL = 0,
+        SELECT_ORIGINAL_JP,
         SELECT_CONTINUOUS,
         SELECT_ENDLESS,
         SELECT_TIME_TRIAL,
+        SELECT_COUNT,
     };
 
     int wrap_car_color(int color)
@@ -62,16 +67,55 @@ namespace
             static_cast<Sint32>(SDL_GetTicks() - music_select_deadline_ms) >= 0;
     }
 
-    void draw_endless_mode_name()
+    bool apply_course_variant(bool japanese)
     {
-        const char* text = "ENDLESS";
+        // Music Select changes modes after Outrun::init() has already run, so
+        // the normal STATE_INIT_GAME ROM-loading path cannot switch regions for
+        // us. Lazily load the Japanese program ROMs here and remap the complete
+        // address/course table before the new race is initialized.
+        if (japanese && !roms.load_japanese_roms())
+        {
+            std::cerr
+                << "Japanese ROMs not loaded. Falling back to Original."
+                << std::endl;
+            japanese = false;
+        }
+
+        config.engine.jap = japanese ? 1 : 0;
+        outrun.select_course(japanese, config.engine.prototype != 0);
+
+        // Each course variant owns a separate score file. When switching from
+        // World to Japanese (or back) after boot(), the previous table is still
+        // resident in memory. Reset it first so a missing target score file
+        // starts from the factory defaults instead of inheriting the other
+        // region's entries. An existing score file is loaded over these defaults
+        // immediately afterwards by the normal Music Select start path.
+        ohiscore.init_def_scores();
+
+        return japanese;
+    }
+
+    void save_config_with_world_default()
+    {
+        // ORIGINAL JP is a per-run Music Select choice, not a persistent boot
+        // preference. Preserve the live Japanese mapping for the race while
+        // always writing World/ORIGINAL as the saved default for the next run.
+        const int runtime_jap = config.engine.jap;
+        config.engine.jap = 0;
+        config.save();
+        config.engine.jap = runtime_jap;
+    }
+
+    void draw_submode_name(const char* text)
+    {
         const uint8_t y = 5;
         const uint16_t pal = 0x8AA0;
         const int length = static_cast<int>(std::strlen(text));
         const int x_start = 20 - (length / 2);
 
-        // The preserved selector renders MODE_CONT as CONTINUOUS. Replace only
-        // those two text rows when the VIEW2 sub-mode is Endless.
+        // The preserved selector only knows the three underlying engine modes.
+        // Replace those two text rows for DX sub-modes that intentionally share
+        // MODE_ORIGINAL or MODE_CONT.
         for (int x = 0; x < 40; x++)
         {
             video.write_text16(ohud.translate(x, y), 0);
@@ -82,9 +126,18 @@ namespace
         for (int i = 0; i < length; i++)
         {
             uint16_t c = static_cast<uint8_t>(text[i]);
-            c = ((c - 'A') * 2) + pal;
-            video.write_text16(&dst_addr, c);
-            video.write_text16(0x7E + dst_addr, c + 1);
+
+            if (c == ' ')
+            {
+                video.write_text16(&dst_addr, 0);
+                video.write_text16(0x7E + dst_addr, 0);
+            }
+            else if (c >= 'A' && c <= 'Z')
+            {
+                c = ((c - 'A') * 2) + pal;
+                video.write_text16(&dst_addr, c);
+                video.write_text16(0x7E + dst_addr, c + 1);
+            }
         }
     }
 }
@@ -122,8 +175,11 @@ void OMusic::enable()
         ostats.frame_counter = ostats.frame_reset;
     }
 
-    // Endless deliberately shares MODE_CONT. Restore its second VIEW2 state
-    // when returning to Music Select after an Endless run.
+    // ORIGINAL JP is deliberately never sticky. If the underlying engine mode
+    // is Original, every fresh selector visit begins at World/ORIGINAL and the
+    // player must press VIEW1 again to opt into JP for this run.
+    japanese_selected = false;
+
     endless_selected =
         outrun.cannonball_mode == Outrun::MODE_CONT && outrun.endless_mode;
 
@@ -137,21 +193,26 @@ void OMusic::check_start()
     int old_color = wrap_car_color(config.engine.car_pal);
     int color_direction = 0;
 
-    // Resolve the four logical choices while keeping only the three existing
-    // CannonBall engine modes underneath. VIEW cycles all four. VIEW2 toggles
-    // Continuous <-> Endless when it is pressed repeatedly.
+    // Resolve the five logical choices while keeping only the three existing
+    // CannonBall engine modes underneath. VIEW1 toggles Original <-> Original
+    // JP, VIEW2 toggles Continuous <-> Endless, and VIEW cycles all five.
     int old_selection = SELECT_ORIGINAL;
     if (game_mode_selected == Outrun::MODE_TTRIAL)
         old_selection = SELECT_TIME_TRIAL;
     else if (game_mode_selected == Outrun::MODE_CONT)
         old_selection = endless_selected ? SELECT_ENDLESS : SELECT_CONTINUOUS;
+    else if (japanese_selected)
+        old_selection = SELECT_ORIGINAL_JP;
 
     int new_selection = old_selection;
     bool mode_pressed = false;
 
     if (input.has_pressed(Input::VIEW1))
     {
-        new_selection = SELECT_ORIGINAL;
+        new_selection =
+            old_selection == SELECT_ORIGINAL ? SELECT_ORIGINAL_JP :
+            old_selection == SELECT_ORIGINAL_JP ? SELECT_ORIGINAL :
+            SELECT_ORIGINAL;
         mode_pressed = true;
     }
     else if (input.has_pressed(Input::VIEW2))
@@ -169,7 +230,7 @@ void OMusic::check_start()
     }
     else if (input.has_pressed(Input::VIEWPOINT))
     {
-        new_selection = (old_selection + 1) & 3;
+        new_selection = (old_selection + 1) % SELECT_COUNT;
         mode_pressed = true;
     }
 
@@ -177,6 +238,8 @@ void OMusic::check_start()
         ostats.credits && input.has_pressed(Input::START);
     const bool starting_endless =
         start_pressed && old_selection == SELECT_ENDLESS;
+    bool starting_japanese =
+        start_pressed && old_selection == SELECT_ORIGINAL_JP;
 
     // Endless is a survival mode, so the global Timer OFF option must never
     // freeze its countdown. Restore the normal user setting for Original and
@@ -184,6 +247,11 @@ void OMusic::check_start()
     if (start_pressed)
     {
         music_select_deadline_ms = 0;
+
+        // Commit the selected region before check_start_base() saves config and
+        // refreshes the score table. Non-JP modes explicitly restore World data.
+        starting_japanese = apply_course_variant(starting_japanese);
+        japanese_selected = starting_japanese;
 
         if (old_selection == SELECT_ENDLESS)
             outrun.freeze_timer = false;
@@ -229,31 +297,47 @@ void OMusic::check_start()
 
     check_start_base();
 
+    // The preserved start path may save config while the live JP mapping is
+    // active. Immediately rewrite the persistent setting as World/ORIGINAL;
+    // save_config_with_world_default() restores the live JP flag afterwards.
+    if (start_pressed)
+        save_config_with_world_default();
+
     // The preserved selector knows Original / Continuous / Time Trial. Apply
-    // the fourth logical state after its input handling. A VIEW press and START
+    // the two DX sub-mode states after its input handling. A VIEW press and START
     // on exactly the same frame remains intentionally undefined; normal arcade
     // use selects the mode first and confirms it afterwards.
     if (mode_pressed)
     {
         switch (new_selection)
         {
+            case SELECT_ORIGINAL_JP:
+                game_mode_selected = Outrun::MODE_ORIGINAL;
+                japanese_selected = true;
+                endless_selected = false;
+                break;
+
             case SELECT_CONTINUOUS:
                 game_mode_selected = Outrun::MODE_CONT;
+                japanese_selected = false;
                 endless_selected = false;
                 break;
 
             case SELECT_ENDLESS:
                 game_mode_selected = Outrun::MODE_CONT;
+                japanese_selected = false;
                 endless_selected = true;
                 break;
 
             case SELECT_TIME_TRIAL:
                 game_mode_selected = Outrun::MODE_TTRIAL;
+                japanese_selected = false;
                 endless_selected = false;
                 break;
 
             default:
                 game_mode_selected = Outrun::MODE_ORIGINAL;
+                japanese_selected = false;
                 endless_selected = false;
                 break;
         }
@@ -278,10 +362,10 @@ void OMusic::check_start()
             wrap_car_color(old_color + color_direction);
 
         // The preserved five-colour routine may already have saved on START.
-        // Config::save() now always persists the separate attract/default
-        // colour, so this correction remains race-only even on the START frame.
+        // Keep the region persistence rule intact while applying the corrected
+        // eight-colour race-only value.
         if (save_after_correction)
-            config.save();
+            save_config_with_world_default();
     }
 }
 
@@ -315,7 +399,13 @@ void OMusic::tick()
         music_selection_timed_out())
     {
         music_select_deadline_ms = 0;
-        config.save();
+
+        bool starting_japanese =
+            game_mode_selected == Outrun::MODE_ORIGINAL && japanese_selected;
+        starting_japanese = apply_course_variant(starting_japanese);
+        japanese_selected = starting_japanese;
+
+        save_config_with_world_default();
 
         if (game_mode_selected == Outrun::MODE_TTRIAL &&
             outrun.cannonball_mode != Outrun::MODE_TTRIAL)
@@ -387,10 +477,11 @@ void OMusic::tick()
         ostats.frame_counter = ostats.frame_reset;
     }
 
-    if (outrun.game_state == GS_MUSIC &&
-        game_mode_selected == Outrun::MODE_CONT &&
-        endless_selected)
+    if (outrun.game_state == GS_MUSIC)
     {
-        draw_endless_mode_name();
+        if (game_mode_selected == Outrun::MODE_ORIGINAL && japanese_selected)
+            draw_submode_name("ORIGINAL JP");
+        else if (game_mode_selected == Outrun::MODE_CONT && endless_selected)
+            draw_submode_name("ENDLESS");
     }
 }
