@@ -4,7 +4,7 @@
     The original score implementation is preserved in ohiscore_base.cpp.
     Endless and Time Trial substitute their dedicated tables only at game end;
     attract-mode, Original and Continuous score handling continue to use the
-    preserved implementation, with a shared stable high-score background.
+    preserved implementation.
 ***************************************************************************/
 
 // Pre-include the preserved implementation's dependencies before temporarily
@@ -56,12 +56,23 @@ namespace
                 outrun.game_state == GS_BEST2);
     }
 
+    bool attract_score_screen()
+    {
+        return outrun.game_state == GS_INIT_BEST1 ||
+               outrun.game_state == GS_BEST1;
+    }
+
     void stabilize_score_background()
     {
-        // A score screen can be entered from any stage, and Time Trial in
-        // particular normally leaves the selected course's tilemap and palette
-        // live. Rebuild the complete common Best OutRunners scene instead of
-        // inheriting any part of that course.
+        // Dedicated game-end score screens can be entered from any stage, and
+        // Time Trial in particular normally leaves the selected course's tilemap
+        // and palette live. Rebuild the complete common Best OutRunners scene
+        // for those dedicated screens only.
+        //
+        // IMPORTANT: never call this for GS_INIT_BEST1/GS_BEST1. The original
+        // attract-mode high-score sequence is an organic overlay on the demo
+        // scene that was already running; resetting road/tile/palette state here
+        // makes the road disappear and visibly jumps to a different background.
         oroad.init();
         oroad.stage_lookup_off = 0;
         oinitengine.init_road_seg_master();
@@ -96,6 +107,16 @@ namespace
 
 void OHiScore::init()
 {
+    // Preserve the original attract transition exactly: BEST1 must inherit the
+    // running demo's road, scenery and palette instead of rebuilding a separate
+    // Best OutRunners background. This deliberately leaves every other attract
+    // subsystem untouched.
+    if (attract_score_screen())
+    {
+        init_base();
+        return;
+    }
+
     stabilize_score_background();
 
     if (time_trial_record_screen())
