@@ -33,12 +33,8 @@
                 break;
 
             case ATTRACT_SCORE_ENDLESS:
-            case ATTRACT_SCORE_TTRIAL_WITH_1:
-            case ATTRACT_SCORE_TTRIAL_WITH_2:
-            case ATTRACT_SCORE_TTRIAL_WITH_3:
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_1:
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_2:
-            case ATTRACT_SCORE_TTRIAL_WITHOUT_3:
+            case ATTRACT_SCORE_TTRIAL_WITH:
+            case ATTRACT_SCORE_TTRIAL_WITHOUT:
                 break;
         }
     }
@@ -117,11 +113,14 @@ void OHiScore::display_scores()
                         Outrun::MODE_CONT :
                         Outrun::MODE_ORIGINAL;
 
+                // ORIGINAL and ORIGINAL JAPAN deliberately use the complete
+                // stock table here, including their two-row ROUTE mini-maps and
+                // completion-time RECORD field. Continuous suppresses ROUTE in
+                // blit_score_table() because MODE_CONT is active temporarily.
                 blit_score_table();
                 outrun.cannonball_mode = runtime_mode;
 
                 shift_stock_rows_down_two_lines();
-                prepare_stock_record_rows(*this);
                 video.clear_text_ram();
             }
             else
