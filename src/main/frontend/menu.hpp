@@ -161,6 +161,22 @@ public:
                 ++it;
         }
 
+        // One shared switch controls the automatic timeout on both selection
+        // screens. Put it directly in Game Engine, immediately before the
+        // existing Enhancements/Car Setup submenus.
+        const std::string selection_timer_entry =
+            std::string("SELECTION TIMERS ") +
+            (config.selection_timers_enabled() ? "ON" : "OFF");
+
+        for (auto it = menu_engine.begin(); it != menu_engine.end(); ++it)
+        {
+            if (it->rfind("ENHANCEMENTS", 0) == 0)
+            {
+                menu_engine.insert(it, selection_timer_entry);
+                break;
+            }
+        }
+
         const int scaler_mode =
             pixel_scaler::mode.load(std::memory_order_relaxed);
         const std::string scaler_entry =
