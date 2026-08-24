@@ -1,6 +1,6 @@
 /***************************************************************************
-    Binary File Loader. 
-    
+    Binary File Loader.
+
     Handles loading an individual binary file to memory.
     Supports reading bytes, words and longs from this area of memory.
 
@@ -9,6 +9,11 @@
 
     Refactored to remove Boost and Dirent dependency.
     Uses std::filesystem for directory scanning and a small CRC32 impl.
+
+    CannonBall DX adds transparent ZIP archive support while retaining the
+    existing loose-ROM behaviour. ROMs are indexed by CRC32 and uncompressed
+    size, so current MAME merged/split archives and legacy extracted sets can
+    coexist in the same ROM directory.
 ***************************************************************************/
 
 #include <iostream>
@@ -17,6 +22,12 @@
 #include <unordered_map>
 #include <cstdint>
 #include <filesystem>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <limits>
+
+#include <miniz.h>
 
 #include "stdint.hpp"
 #include "romloader.hpp"
@@ -53,15 +64,212 @@ inline uint32_t crc32(const void* data, std::size_t n)
     return c ^ 0xFFFFFFFFu;
 }
 
-} // namespace
+struct RomKey
+{
+    uint32_t crc;
+    uint32_t size;
 
-static std::unordered_map<int, std::string> map;
-static bool map_created;
+    bool operator==(const RomKey& other) const
+    {
+        return crc == other.crc && size == other.size;
+    }
+};
+
+struct RomKeyHash
+{
+    std::size_t operator()(const RomKey& key) const
+    {
+        return (static_cast<std::size_t>(key.crc) << 1) ^
+               static_cast<std::size_t>(key.size);
+    }
+};
+
+enum class RomSourceType
+{
+    LooseFile,
+    ZipEntry
+};
+
+struct RomSource
+{
+    RomSourceType type = RomSourceType::LooseFile;
+    std::string path;
+    mz_uint file_index = 0;
+    std::string entry_name;
+};
+
+static std::unordered_map<RomKey, RomSource, RomKeyHash> rom_map;
+static bool map_created = false;
+static std::string mapped_rom_path;
+
+bool is_zip_path(const std::filesystem::path& path)
+{
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".zip";
+}
+
+bool read_entire_file(const std::filesystem::path& path, std::vector<uint8_t>& buffer)
+{
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    const uintmax_t file_size = fs::file_size(path, ec);
+    if (ec || file_size > static_cast<uintmax_t>(std::numeric_limits<uint32_t>::max()))
+        return false;
+
+    buffer.resize(static_cast<std::size_t>(file_size));
+
+    std::ifstream src(path, std::ios::in | std::ios::binary);
+    if (!src)
+        return false;
+
+    if (!buffer.empty())
+        src.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+
+    return src.good() || (src.eof() && static_cast<std::size_t>(src.gcount()) == buffer.size());
+}
+
+bool read_exact_file(const std::filesystem::path& path, const int expected_length, std::vector<uint8_t>& buffer)
+{
+    if (expected_length < 0)
+        return false;
+
+    std::error_code ec;
+    const uintmax_t file_size = std::filesystem::file_size(path, ec);
+    if (ec || file_size != static_cast<uintmax_t>(expected_length))
+        return false;
+
+    buffer.resize(static_cast<std::size_t>(expected_length));
+
+    std::ifstream src(path, std::ios::in | std::ios::binary);
+    if (!src)
+        return false;
+
+    if (!buffer.empty())
+        src.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+
+    return static_cast<std::size_t>(src.gcount()) == buffer.size();
+}
+
+void add_loose_file_to_map(const std::filesystem::path& path)
+{
+    std::vector<uint8_t> buffer;
+    if (!read_entire_file(path, buffer))
+        return;
+
+    const RomKey key {
+        crc32(buffer.data(), buffer.size()),
+        static_cast<uint32_t>(buffer.size())
+    };
+
+    // Loose files deliberately win over archives when identical data exists in
+    // both places. This preserves the behaviour expected by existing installs.
+    rom_map.emplace(key, RomSource { RomSourceType::LooseFile, path.string(), 0, std::string() });
+}
+
+void add_zip_to_map(const std::filesystem::path& archive_path)
+{
+    mz_zip_archive zip {};
+    if (!mz_zip_reader_init_file(&zip, archive_path.string().c_str(), 0))
+    {
+        std::cout << "Warning: Could not open ROM archive - " << archive_path.string() << std::endl;
+        return;
+    }
+
+    const mz_uint file_count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < file_count; ++i)
+    {
+        mz_zip_archive_file_stat stat {};
+        if (!mz_zip_reader_file_stat(&zip, i, &stat))
+            continue;
+        if (stat.m_is_directory || !stat.m_is_supported || stat.m_is_encrypted)
+            continue;
+        if (stat.m_uncomp_size > static_cast<mz_uint64>(std::numeric_limits<uint32_t>::max()))
+            continue;
+
+        const RomKey key {
+            static_cast<uint32_t>(stat.m_crc32),
+            static_cast<uint32_t>(stat.m_uncomp_size)
+        };
+
+        rom_map.emplace(key, RomSource {
+            RomSourceType::ZipEntry,
+            archive_path.string(),
+            i,
+            stat.m_filename
+        });
+    }
+
+    mz_zip_reader_end(&zip);
+}
+
+bool load_source(const RomSource& source, const int expected_length, std::vector<uint8_t>& buffer, const bool verbose)
+{
+    if (source.type == RomSourceType::LooseFile)
+    {
+        if (!read_exact_file(source.path, expected_length, buffer))
+        {
+            if (verbose)
+                std::cout << "cannot read rom: " << source.path << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    mz_zip_archive zip {};
+    if (!mz_zip_reader_init_file(&zip, source.path.c_str(), 0))
+    {
+        if (verbose)
+            std::cout << "cannot open rom archive: " << source.path << std::endl;
+        return false;
+    }
+
+    mz_zip_archive_file_stat stat {};
+    if (!mz_zip_reader_file_stat(&zip, source.file_index, &stat) ||
+        stat.m_is_directory || !stat.m_is_supported || stat.m_is_encrypted ||
+        stat.m_uncomp_size != static_cast<mz_uint64>(expected_length))
+    {
+        if (verbose)
+            std::cout << "invalid rom entry in archive: " << source.path
+                      << " -> " << source.entry_name << std::endl;
+        mz_zip_reader_end(&zip);
+        return false;
+    }
+
+    buffer.resize(static_cast<std::size_t>(expected_length));
+    const mz_bool extracted = mz_zip_reader_extract_to_mem(
+        &zip,
+        source.file_index,
+        buffer.data(),
+        buffer.size(),
+        0);
+
+    if (!extracted && verbose)
+    {
+        const mz_zip_error err = mz_zip_get_last_error(&zip);
+        std::cout << "cannot extract rom from archive: " << source.path
+                  << " -> " << source.entry_name
+                  << " (" << mz_zip_get_error_string(err) << ")" << std::endl;
+    }
+
+    mz_zip_reader_end(&zip);
+    return extracted == MZ_TRUE;
+}
+
+void copy_interleaved(uint8_t* destination, const std::vector<uint8_t>& buffer,
+                      const int offset, const uint8_t interleave)
+{
+    for (std::size_t i = 0; i < buffer.size(); ++i)
+        destination[(i * interleave) + static_cast<std::size_t>(offset)] = buffer[i];
+}
+
+} // namespace
 
 RomLoader::RomLoader()
 {
     rom = NULL;
-    map_created = false;
     loaded = false;
 }
 
@@ -86,114 +294,145 @@ void RomLoader::unload(void)
 
 int RomLoader::load_rom(const char* filename, const int offset, const int length, const int expected_crc, const uint8_t interleave, const bool verbose)
 {
-    std::string path = config.data.rom_path;
-    path += std::string(filename);
+    namespace fs = std::filesystem;
 
-    std::ifstream src(path, std::ios::in | std::ios::binary);
-    if (!src)
+    const fs::path base(config.data.rom_path);
+    const fs::path path = base / filename;
+
+    // Preserve the original filename-based loose-ROM behaviour when the file
+    // exists. If it does not, transparently fall back to the CRC index so ZIP
+    // archives also work when data.crc32 is disabled.
+    if (!fs::exists(path))
+        return load_crc32(filename, offset, length, expected_crc, interleave, verbose);
+
+    std::vector<uint8_t> buffer;
+    if (!read_exact_file(path, length, buffer))
     {
-        if (verbose) std::cout << "cannot open rom: " << path << std::endl;
+        if (verbose)
+            std::cout << "cannot read rom or unexpected size: " << path.string() << std::endl;
         loaded = false;
         return 1;
     }
 
-    char* buffer = new char[length];
-    src.read(buffer, length);
-
-    const uint32_t crc = crc32(buffer, static_cast<std::size_t>(src.gcount()));
+    const uint32_t crc = crc32(buffer.data(), buffer.size());
 
     if (expected_crc != static_cast<int>(crc))
     {
         if (verbose)
             std::cout << std::hex
                       << filename << " has incorrect checksum.\nExpected: "
-                      << expected_crc << " Found: " << crc << std::endl;
-
-        delete[] buffer;
-        src.close();
+                      << expected_crc << " Found: " << crc << std::dec << std::endl;
+        loaded = false;
         return 1;
     }
 
-    for (int i = 0; i < length; i++)
-    {
-        rom[(i * interleave) + offset] = buffer[i];
-    }
-
-    delete[] buffer;
-    src.close();
+    copy_interleaved(rom, buffer, offset, interleave);
     loaded = true;
     return 0;
 }
 
 int RomLoader::create_map()
 {
-    map_created = true;
     namespace fs = std::filesystem;
 
-    std::string path = config.data.rom_path;
-    fs::path dir(path);
+    rom_map.clear();
+    mapped_rom_path = config.data.rom_path;
+    map_created = true;
 
-    if (!fs::exists(dir) || !fs::is_directory(dir)) {
-        std::cout << "Warning: Could not open ROM directory - " << path << std::endl;
+    const fs::path source_path(config.data.rom_path);
+
+    // Also accept data.rompath pointing directly at a ZIP file. The normal and
+    // documented form remains a directory such as roms/.
+    if (fs::exists(source_path) && fs::is_regular_file(source_path) && is_zip_path(source_path))
+    {
+        add_zip_to_map(source_path);
+        return rom_map.empty() ? 1 : 0;
+    }
+
+    if (!fs::exists(source_path) || !fs::is_directory(source_path))
+    {
+        std::cout << "Warning: Could not open ROM directory - " << config.data.rom_path << std::endl;
         return 1;
     }
 
-    for (auto& entry : fs::directory_iterator(dir))
+    std::vector<fs::path> archives;
+
+    // First index extracted ROMs. They win ties over identical archive entries
+    // for maximum backwards compatibility with existing CannonBall installs.
+    for (const auto& entry : fs::directory_iterator(source_path))
     {
-        if (!entry.is_regular_file()) continue;
-        std::ifstream src(entry.path(), std::ios::in | std::ios::binary);
-        if (!src) continue;
+        if (!entry.is_regular_file())
+            continue;
 
-        char* buffer = new char[length];
-        src.read(buffer, length);
-        const uint32_t c = crc32(buffer, static_cast<std::size_t>(src.gcount()));
-        map.insert({ static_cast<int>(c), entry.path().string() });
-
-        delete[] buffer;
-        src.close();
+        if (is_zip_path(entry.path()))
+            archives.push_back(entry.path());
+        else
+            add_loose_file_to_map(entry.path());
     }
 
-    if (map.empty())
-        std::cout << "Warning: Could not create CRC32 Map. Did you copy the ROM files into the directory? " << std::endl;
+    // Then index ZIP central directories. No ROM data is decompressed here;
+    // miniz exposes CRC32 and uncompressed size directly from each entry.
+    for (const fs::path& archive : archives)
+        add_zip_to_map(archive);
+
+    if (rom_map.empty())
+    {
+        std::cout << "Warning: Could not create CRC32 ROM map. "
+                  << "Did you copy the ROM files or a MAME ZIP into the directory?" << std::endl;
+        return 1;
+    }
 
     return 0;
 }
 
 int RomLoader::load_crc32(const char* debug, const int offset, const int length, const int expected_crc, const uint8_t interleave, const bool verbose)
 {
-    if (!map_created)
+    if (!map_created || mapped_rom_path != config.data.rom_path)
         create_map();
 
-    if (map.empty())
+    if (rom_map.empty())
         return 1;
 
-    auto search = map.find(expected_crc);
+    const RomKey key {
+        static_cast<uint32_t>(expected_crc),
+        static_cast<uint32_t>(length)
+    };
 
-    if (search == map.end())
+    const auto search = rom_map.find(key);
+
+    if (search == rom_map.end())
     {
-        if (verbose) std::cout << "Unable to locate rom in path: " << config.data.rom_path
-                                << " possible name: " << debug << " crc32: 0x" << std::hex << expected_crc << std::endl;
+        if (verbose)
+            std::cout << "Unable to locate rom in path: " << config.data.rom_path
+                      << " possible name: " << debug
+                      << " crc32: 0x" << std::hex << static_cast<uint32_t>(expected_crc)
+                      << " size: 0x" << length << std::dec << std::endl;
         loaded = false;
         return 1;
     }
 
-    std::string file = search->second;
-    std::ifstream src(file, std::ios::in | std::ios::binary);
-    if (!src)
+    std::vector<uint8_t> buffer;
+    if (!load_source(search->second, length, buffer, verbose))
     {
-        if (verbose) std::cout << "cannot open rom: " << file << std::endl;
         loaded = false;
         return 1;
     }
 
-    char* buffer = new char[length];
-    src.read(buffer, length);
+    // Re-check the uncompressed bytes. ZIP central-directory CRCs are useful
+    // for indexing, but this keeps the same data-integrity guarantee as loose
+    // ROM loading and catches a modified/corrupt archive after indexing.
+    const uint32_t crc = crc32(buffer.data(), buffer.size());
+    if (crc != static_cast<uint32_t>(expected_crc))
+    {
+        if (verbose)
+            std::cout << "ROM checksum changed while loading " << debug
+                      << ". Expected: " << std::hex << static_cast<uint32_t>(expected_crc)
+                      << " Found: " << crc << std::dec << std::endl;
+        loaded = false;
+        return 1;
+    }
 
-    for (int i = 0; i < length; i++)
-        rom[(i * interleave) + offset] = buffer[i];
-
-    delete[] buffer;
-    src.close();
+    copy_interleaved(rom, buffer, offset, interleave);
     loaded = true;
     return 0;
 }
@@ -211,7 +450,7 @@ int RomLoader::load_binary(const char* filename)
     length = filesize(filename);
     char* buffer = new char[length];
     src.read(buffer, length);
-    rom = (uint8_t*) buffer;
+    rom = reinterpret_cast<uint8_t*>(buffer);
     src.close();
     loaded = true;
     return 0;
@@ -221,7 +460,7 @@ int RomLoader::filesize(const char* filename)
 {
     std::ifstream in(filename, std::ifstream::in | std::ifstream::binary);
     in.seekg(0, std::ifstream::end);
-    int size = (int) in.tellg();
+    int size = static_cast<int>(in.tellg());
     in.close();
-    return size; 
+    return size;
 }
