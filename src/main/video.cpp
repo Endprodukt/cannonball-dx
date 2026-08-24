@@ -642,6 +642,9 @@ void hwtiles::clear_text_scroll_overlay()
     text_scroll_row_spacing = 16;
     text_scroll_row_count = 0;
     text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
     std::memset(text_scroll_overlay, 0, sizeof(text_scroll_overlay));
 }
 
@@ -664,6 +667,9 @@ void hwtiles::configure_text_scroll_overlay(
         text_scroll_row_count = TEXT_SCROLL_MAX_ROWS;
 
     text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
     text_scroll_active =
         text_scroll_row_count > 0 &&
         text_scroll_bottom_y > text_scroll_top_y;
@@ -697,12 +703,61 @@ void hwtiles::set_text_scroll_overlay_row(
 void hwtiles::set_text_scroll_overlay_offset(int16_t offset)
 {
     text_scroll_offset = offset < 0 ? 0 : offset;
+    text_scroll_offset_fp = static_cast<int32_t>(text_scroll_offset) << 16;
+    text_scroll_speed = 0;
+}
+
+void hwtiles::set_text_scroll_overlay_motion(
+    int16_t pixels_per_second,
+    int16_t max_offset)
+{
+    text_scroll_speed = pixels_per_second > 0 ? pixels_per_second : 0;
+    text_scroll_max_offset = max_offset > 0 ? max_offset : 0;
+
+    if (text_scroll_offset >= text_scroll_max_offset)
+    {
+        text_scroll_offset = text_scroll_max_offset;
+        text_scroll_offset_fp =
+            static_cast<int32_t>(text_scroll_offset) << 16;
+        text_scroll_speed = 0;
+    }
+}
+
+int16_t hwtiles::get_text_scroll_overlay_offset() const
+{
+    return text_scroll_offset;
 }
 
 void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw)
 {
     if (!text_scroll_active || !buf)
         return;
+
+    // Advance at the DISPLAY frame rate, not the game-logic tick rate. This is
+    // what makes a 60 FPS / 30 Hz CannonBall configuration genuinely smooth.
+    if (text_scroll_speed > 0 &&
+        text_scroll_offset < text_scroll_max_offset)
+    {
+        const int frame_rate = config.fps > 0 ? config.fps : 60;
+        int32_t delta_fp =
+            (static_cast<int32_t>(text_scroll_speed) << 16) /
+            frame_rate;
+        if (delta_fp < 1)
+            delta_fp = 1;
+
+        text_scroll_offset_fp += delta_fp;
+        int32_t next_offset = text_scroll_offset_fp >> 16;
+
+        if (next_offset >= text_scroll_max_offset)
+        {
+            next_offset = text_scroll_max_offset;
+            text_scroll_offset_fp =
+                static_cast<int32_t>(text_scroll_max_offset) << 16;
+            text_scroll_speed = 0;
+        }
+
+        text_scroll_offset = static_cast<int16_t>(next_offset);
+    }
 
     const bool hires = config.video.hires != 0;
     const int logical_width = s16_width_noscale;
