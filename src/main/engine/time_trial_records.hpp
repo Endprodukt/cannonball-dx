@@ -647,11 +647,7 @@ private:
     {
         ohud.blit_text_big(1, "TIME TRIAL RESULTS");
         draw_centered(5, track_name(current_track), OHud::GREEN);
-        ohud.blit_text_new(
-            current_traffic_class == TRAFFIC_ON ? 30 : 29,
-            5,
-            traffic_name(current_traffic_class),
-            OHud::GREEN);
+        draw_centered(6, traffic_name(current_traffic_class), OHud::GREEN);
 
         char total_text[16];
         char best_text[16];
@@ -694,22 +690,25 @@ private:
 
     void render_records()
     {
-        // The seven fields exactly partition the 40-column text layer. Header
-        // labels and values are centred independently inside their own field.
+        // Traffic ON keeps the seven-column table including overtakes. With
+        // Traffic OFF overtakes are meaningless, so remove OVT entirely and
+        // redistribute its five columns across the remaining timing/stat fields.
+        const bool show_overtakes = current_traffic_class == TRAFFIC_ON;
+
         const uint16_t X_POS   = 0;
         const uint16_t W_POS   = 3;
         const uint16_t X_NAME  = 3;
         const uint16_t W_NAME  = 5;
         const uint16_t X_TOTAL = 8;
-        const uint16_t W_TOTAL = 9;
-        const uint16_t X_BEST  = 17;
-        const uint16_t W_BEST  = 9;
+        const uint16_t W_TOTAL = show_overtakes ? 9 : 10;
+        const uint16_t X_BEST  = show_overtakes ? 17 : 18;
+        const uint16_t W_BEST  = show_overtakes ? 9 : 10;
         const uint16_t X_OVT   = 26;
         const uint16_t W_OVT   = 5;
-        const uint16_t X_COL   = 31;
-        const uint16_t W_COL   = 5;
-        const uint16_t X_CR    = 36;
-        const uint16_t W_CR    = 4;
+        const uint16_t X_COL   = show_overtakes ? 31 : 28;
+        const uint16_t W_COL   = show_overtakes ? 5 : 6;
+        const uint16_t X_CR    = show_overtakes ? 36 : 34;
+        const uint16_t W_CR    = show_overtakes ? 4 : 6;
 
         const bool entering_initials = qualifying_score && !initials_done;
 
@@ -744,7 +743,8 @@ private:
         draw_field(X_NAME,  W_NAME,  header_y, "NAME",  OHud::GREY);
         draw_field(X_TOTAL, W_TOTAL, header_y, "TOTAL", OHud::GREY);
         draw_field(X_BEST,  W_BEST,  header_y, "BEST",  OHud::GREY);
-        draw_field(X_OVT,   W_OVT,   header_y, "OVT",   OHud::GREY);
+        if (show_overtakes)
+            draw_field(X_OVT, W_OVT, header_y, "OVT", OHud::GREY);
         draw_field(X_COL,   W_COL,   header_y, "COL",   OHud::GREY);
         draw_field(X_CR,    W_CR,    header_y, "CR",    OHud::GREY);
 
@@ -770,7 +770,8 @@ private:
                 draw_field(X_NAME, W_NAME, y, "---", colour);
                 draw_time_field(X_TOTAL, W_TOTAL, y, "--'--\"--", colour);
                 draw_time_field(X_BEST, W_BEST, y, "--'--\"--", colour);
-                draw_field(X_OVT, W_OVT, y, "-", colour);
+                if (show_overtakes)
+                    draw_field(X_OVT, W_OVT, y, "-", colour);
                 draw_field(X_COL, W_COL, y, "-", colour);
                 draw_field(X_CR, W_CR, y, "-", colour);
                 continue;
@@ -799,8 +800,11 @@ private:
             const std::string crashes_text =
                 Utils::to_string(static_cast<int>(record.crashes));
 
-            draw_field(
-                X_OVT, W_OVT, y, overtakes_text.c_str(), colour);
+            if (show_overtakes)
+            {
+                draw_field(
+                    X_OVT, W_OVT, y, overtakes_text.c_str(), colour);
+            }
             draw_field(
                 X_COL, W_COL, y, collisions_text.c_str(), colour);
             draw_field(
