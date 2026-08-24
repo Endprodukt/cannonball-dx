@@ -143,7 +143,9 @@
             attract_ttrial_rows[track] = row;
         }
 
-        // The first five rows are still revealed by the original mini-cars.
+        // Courses 1-5 are initially revealed by the original mini-car routine.
+        // Once that animation is complete the smooth overlay takes over at the
+        // exact same pixel positions, so the hand-off should be invisible.
         for (int row = 0; row < ATTRACT_VISIBLE_ROWS; row++)
             write_attract_tile_row(row, attract_ttrial_rows[row]);
     }
@@ -160,84 +162,102 @@
         }
     }
 
-    void draw_time_trial_text_row(const std::string& row, uint16_t y)
-    {
-        // Match the stock reveal palettes: course/record grey, initials green.
-        draw_attract_text(0, y, row.substr(0, 17), 0x84);
-        draw_attract_text(19, y, row.substr(19, 5), 0x82);
-        draw_attract_text(27, y, row.substr(27, 13), 0x84);
-    }
-
-    void draw_time_trial_scroll_window()
+    void setup_time_trial_smooth_overlay()
     {
         clear_time_trial_text_window();
+        video.tile_layer->clear_text_scroll_overlay();
 
-        // Two half-steps per course: even rows, then the same rows shifted one
-        // text line upward. Anything outside y=9..18 is simply not drawn, so
-        // records disappear beneath the fixed headers instead of crossing them.
-        for (int i = 0; i <= ATTRACT_VISIBLE_ROWS; i++)
+        video.tile_layer->configure_text_scroll_overlay(
+            ATTRACT_TTRIAL_VIEW_TOP_PIXEL,
+            ATTRACT_TTRIAL_VIEW_BOTTOM_PIXEL,
+            ATTRACT_TTRIAL_FIRST_ROW_PIXEL,
+            ATTRACT_TTRIAL_ROW_PIXELS,
+            TimeTrialRecords::TRACK_COUNT);
+
+        for (int track = 0; track < TimeTrialRecords::TRACK_COUNT; track++)
         {
-            const int track = attract_ttrial_window_start + i;
-            if (track < 0 || track >= TimeTrialRecords::TRACK_COUNT)
-                continue;
+            uint16_t tiles[hwtiles::TEXT_SCROLL_COLUMNS] = {};
+            const std::string& row = attract_ttrial_rows[track];
 
-            const int y =
-                static_cast<int>(ATTRACT_ROW_BOTTOM_Y) +
-                (i * 2) - attract_ttrial_scroll_phase;
-
-            if (y < ATTRACT_TTRIAL_VIEW_TOP_Y ||
-                y > ATTRACT_TTRIAL_VIEW_BOTTOM_Y)
+            for (int x = 0; x < hwtiles::TEXT_SCROLL_COLUMNS; x++)
             {
-                continue;
+                const char value =
+                    x < static_cast<int>(row.size()) ? row[x] : ' ';
+                if (value == ' ')
+                    continue;
+
+                // Keep the established score-screen palette hierarchy:
+                // initials green, course name and record grey/white.
+                const uint16_t props =
+                    x >= 19 && x < 24 ? 0x8200 : 0x8400;
+                tiles[x] = props | attract_tile_char(value);
             }
 
-            draw_time_trial_text_row(
-                attract_ttrial_rows[track],
-                static_cast<uint16_t>(y));
+            video.tile_layer->set_text_scroll_overlay_row(
+                track,
+                tiles,
+                hwtiles::TEXT_SCROLL_COLUMNS);
         }
+
+        video.tile_layer->set_text_scroll_overlay_offset(0);
+        attract_ttrial_scroll_fp = 0;
+        attract_ttrial_scroll_offset = 0;
+        attract_ttrial_hold_frames = 0;
+        attract_ttrial_scroll_started = false;
+        attract_ttrial_overlay_ready = true;
     }
 
     bool tick_time_trial_scroll()
     {
+        if (!attract_ttrial_overlay_ready)
+        {
+            setup_time_trial_smooth_overlay();
+            return false;
+        }
+
+        const int ticks_per_second = std::max(1, config.tick_fps);
+
+        // Let the freshly revealed first five records sit for two seconds.
         if (!attract_ttrial_scroll_started)
         {
-            if (++attract_ttrial_hold_frames <
-                ATTRACT_TTRIAL_INITIAL_HOLD_FRAMES)
-            {
+            if (++attract_ttrial_hold_frames < ticks_per_second * 2)
                 return false;
-            }
 
             attract_ttrial_scroll_started = true;
             attract_ttrial_hold_frames = 0;
-            attract_ttrial_scroll_frames = 0;
+            attract_ttrial_scroll_fp = 0;
         }
 
-        // Once courses 11-15 are aligned in the five-row viewport, leave them
-        // readable for one second before advancing to the next attract page.
-        if (attract_ttrial_window_start >=
-                TimeTrialRecords::TRACK_COUNT - ATTRACT_VISIBLE_ROWS &&
-            attract_ttrial_scroll_phase == 0)
+        // Courses 11-15 are now perfectly aligned with the original five-row
+        // grid. Leave that final view up for a full second before advancing.
+        if (attract_ttrial_scroll_offset >= ATTRACT_TTRIAL_SCROLL_PIXELS)
         {
-            return ++attract_ttrial_hold_frames >=
-                   ATTRACT_TTRIAL_FINAL_HOLD_FRAMES;
+            return ++attract_ttrial_hold_frames >= ticks_per_second;
         }
 
-        if (++attract_ttrial_scroll_frames < ATTRACT_TTRIAL_SCROLL_STEP_FRAMES)
-            return false;
+        // Fixed-point movement keeps speed time-based at both 30 and 60 logic
+        // ticks. At 60 Hz this is about one logical pixel per tick; at 30 Hz it
+        // is about two. Rendering itself clips at the actual pixel boundary.
+        const int delta_fp = std::max(
+            1,
+            (ATTRACT_TTRIAL_SCROLL_PIXELS_PER_SECOND << 8) /
+                ticks_per_second);
 
-        attract_ttrial_scroll_frames = 0;
+        attract_ttrial_scroll_fp += delta_fp;
+        const int new_offset = std::min(
+            ATTRACT_TTRIAL_SCROLL_PIXELS,
+            attract_ttrial_scroll_fp >> 8);
 
-        if (attract_ttrial_scroll_phase == 0)
+        if (new_offset != attract_ttrial_scroll_offset)
         {
-            attract_ttrial_scroll_phase = 1;
-        }
-        else
-        {
-            attract_ttrial_scroll_phase = 0;
-            attract_ttrial_window_start++;
+            attract_ttrial_scroll_offset = new_offset;
+            video.tile_layer->set_text_scroll_overlay_offset(
+                static_cast<int16_t>(attract_ttrial_scroll_offset));
+
+            if (attract_ttrial_scroll_offset >= ATTRACT_TTRIAL_SCROLL_PIXELS)
+                attract_ttrial_hold_frames = 0;
         }
 
-        draw_time_trial_scroll_window();
         return false;
     }
 
@@ -320,4 +340,5 @@
 
     void restore_attract_runtime()
     {
+        video.tile_layer->clear_text_scroll_overlay();
         config.engine.jap = attract_saved_jap;
