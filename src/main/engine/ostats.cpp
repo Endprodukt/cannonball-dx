@@ -56,6 +56,8 @@ namespace
     int ttrial_lap_banner_ticks = 0;
     int ttrial_lap_banner_phase = -1;
     uint8_t ttrial_lap_time[3] = {0, 0, 0};
+    uint8_t ttrial_total_time[3] = {0, 0, 0};
+    bool ttrial_show_total = false;
 
     uint8_t endless_difficulty_rank(uint16_t stage)
     {
@@ -216,51 +218,72 @@ namespace
         endless_banner_text[0] = 0;
     }
 
-    void clear_ttrial_lap_banner()
+    void clear_text_row(uint16_t y)
     {
-        ohud.blit_text_big(8, "");
-
         for (uint16_t x = 0; x < 40; x++)
-        {
-            video.write_text16(ohud.translate(x, 11), 0);
-            video.write_text16(ohud.translate(x, 12), 0);
-        }
+            video.write_text16(ohud.translate(x, y), 0);
     }
 
-    void draw_ttrial_lap_banner()
+    void clear_ttrial_lap_banner()
     {
-        // Two deliberately different large styles: the existing two-row
-        // headline font for LAP TIME and the bonus-screen large digit font for
-        // the actual time. Position is centred about one third down the screen.
-        ohud.blit_text_big(8, "LAP TIME");
+        // Clear both the original TIME graphic rows and the large digit rows.
+        // blit_text_big owns a separate two-row font path, so clear those labels
+        // through the same helper that created them.
+        clear_text_row(8);
+        clear_text_row(9);
+        clear_text_row(11);
+        clear_text_row(12);
+        ohud.blit_text_big(15, "");
+        clear_text_row(18);
+        clear_text_row(19);
+    }
 
-        for (uint16_t x = 0; x < 40; x++)
-        {
-            video.write_text16(ohud.translate(x, 11), 0);
-            video.write_text16(ohud.translate(x, 12), 0);
-        }
+    void draw_ttrial_large_time(uint8_t y, const uint8_t* time)
+    {
+        if (!time)
+            return;
 
-        uint32_t addr = ohud.translate(16, 11);
+        uint32_t addr = ohud.translate(16, y);
         const uint16_t APOSTROPHE = 0x835E;
         const uint16_t QUOTE = 0x835F;
 
         ohud.blit_large_digit(
             &addr,
-            static_cast<uint8_t>((ttrial_lap_time[0] & 0x0F) << 1));
+            static_cast<uint8_t>((time[0] & 0x0F) << 1));
         video.write_text16(&addr, APOSTROPHE);
         ohud.blit_large_digit(
             &addr,
-            static_cast<uint8_t>(((ttrial_lap_time[1] >> 4) & 0x0F) << 1));
+            static_cast<uint8_t>(((time[1] >> 4) & 0x0F) << 1));
         ohud.blit_large_digit(
             &addr,
-            static_cast<uint8_t>((ttrial_lap_time[1] & 0x0F) << 1));
+            static_cast<uint8_t>((time[1] & 0x0F) << 1));
         video.write_text16(&addr, QUOTE);
         ohud.blit_large_digit(
             &addr,
-            static_cast<uint8_t>(((ttrial_lap_time[2] >> 4) & 0x0F) << 1));
+            static_cast<uint8_t>(((time[2] >> 4) & 0x0F) << 1));
         ohud.blit_large_digit(
             &addr,
-            static_cast<uint8_t>((ttrial_lap_time[2] & 0x0F) << 1));
+            static_cast<uint8_t>((time[2] & 0x0F) << 1));
+    }
+
+    void draw_ttrial_lap_banner()
+    {
+        clear_ttrial_lap_banner();
+
+        // Use the original arcade HUD TIME graphic instead of synthesizing a
+        // new LAP TIME heading. Reposition its two source rows to the centre.
+        ohud.blit_text1(18, 8, HUD_TIME1);
+        ohud.blit_text1(18, 9, HUD_TIME2);
+        draw_ttrial_large_time(11, ttrial_lap_time);
+
+        // On the final lap keep the just-completed lap visible and add the full
+        // run time underneath. In the normal three-lap Time Trial this means
+        // lap 3 and the three-lap total appear together as the GOAL sequence starts.
+        if (ttrial_show_total)
+        {
+            ohud.blit_text_big(15, "TOTAL TIME");
+            draw_ttrial_large_time(18, ttrial_total_time);
+        }
     }
 
     void begin_ttrial_lap_banner(int completed_lap, const uint8_t* lap_ms)
@@ -272,6 +295,34 @@ namespace
         ttrial_lap_time[0] = lap[0];
         ttrial_lap_time[1] = lap[1];
         ttrial_lap_time[2] = lap_ms[lap[2]];
+
+        ttrial_show_total =
+            completed_lap + 1 >= static_cast<int>(outrun.ttrial.laps);
+
+        if (ttrial_show_total)
+        {
+            uint32_t total_counter = 0;
+            for (int i = 0; i <= completed_lap; i++)
+            {
+                if (ostats.stage_counters[i] > 0)
+                    total_counter +=
+                        static_cast<uint16_t>(ostats.stage_counters[i]);
+            }
+
+            if (total_counter > 0xFFFF)
+                total_counter = 0xFFFF;
+
+            outils::convert_counter_to_time(
+                static_cast<uint16_t>(total_counter),
+                ttrial_total_time);
+        }
+        else
+        {
+            ttrial_total_time[0] = 0;
+            ttrial_total_time[1] = 0;
+            ttrial_total_time[2] = 0;
+        }
+
         ttrial_lap_banner_ticks = TTRIAL_LAP_TOTAL_TICKS;
         ttrial_lap_banner_phase = -1;
 
@@ -322,6 +373,10 @@ namespace
         ttrial_lap_time[0] = 0;
         ttrial_lap_time[1] = 0;
         ttrial_lap_time[2] = 0;
+        ttrial_total_time[0] = 0;
+        ttrial_total_time[1] = 0;
+        ttrial_total_time[2] = 0;
+        ttrial_show_total = false;
     }
 }
 
