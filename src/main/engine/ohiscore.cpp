@@ -384,27 +384,61 @@ namespace
             attract_time_trial_footer = time_trial_record_cell(data, 14);
     }
 
-    void draw_custom_attract_header(int page)
+    const char* attract_page_name(int page)
     {
+        switch (page)
+        {
+            case ATTRACT_SCORE_ORIGINAL:       return "ORIGINAL";
+            case ATTRACT_SCORE_ORIGINAL_JAPAN: return "ORIGINAL JAPAN";
+            case ATTRACT_SCORE_CONTINUOUS:     return "CONTINUOUS";
+            case ATTRACT_SCORE_ENDLESS:        return "ENDLESS";
+            case ATTRACT_SCORE_TIME_TRIAL_1:   return "TIME TRIAL 1/2";
+            case ATTRACT_SCORE_TIME_TRIAL_2:   return "TIME TRIAL 2/2";
+            default:                           return "";
+        }
+    }
+
+    void draw_stock_score_header_shifted()
+    {
+        // The stock SCORE / NAME / ROUTE / RECORD row sits directly beneath
+        // BEST OUTRUNNERS. Move only that header down by one text row so the
+        // DX mode label has a dedicated line between title and table.
+        uint32_t src = TEXT1_SCORE_ETC;
+        uint32_t original_dst = roms.rom0.read32(&src);
+        const uint16_t counter = roms.rom0.read16(&src);
+        uint16_t data = roms.rom0.read16(&src);
+
+        uint32_t clear_dst = original_dst;
+        for (uint16_t i = 0; i <= counter; i++)
+            video.write_text16(&clear_dst, 0);
+
+        uint32_t shifted_dst = original_dst + 0x80;
+        for (uint16_t i = 0; i <= counter; i++)
+        {
+            data = (data & 0xFF00) | roms.rom0.read8(&src);
+            video.write_text16(&shifted_dst, data);
+        }
+    }
+
+    void draw_attract_page_header(int page)
+    {
+        // Keep the same hierarchy on every attract score page:
+        // BEST OUTRUNNERS -> mode -> table.
+        ohud.blit_text2(TEXT2_BEST_OR);
+        draw_attract_centered(5, attract_page_name(page), OHud::GREEN);
+
         if (page == ATTRACT_SCORE_ENDLESS)
         {
-            draw_attract_centered(1, "ENDLESS OUTRUNNERS", OHud::GREEN);
             draw_attract_text(
                 0,
-                5,
+                6,
                 "# NAME STAGES      DISTANCE       TIME",
                 OHud::GREY);
         }
         else if (attract_time_trial_page(page))
         {
             draw_attract_centered(
-                1,
-                page == ATTRACT_SCORE_TIME_TRIAL_1 ?
-                    "TIME TRIAL RECORDS 1/2" :
-                    "TIME TRIAL RECORDS 2/2",
-                OHud::GREEN);
-            draw_attract_centered(
-                4,
+                6,
                 "TRAFFIC ON - BEST BY COURSE",
                 OHud::GREY);
 
@@ -418,18 +452,6 @@ namespace
                     OHud::GREY);
             }
         }
-    }
-
-    void draw_stock_attract_label(int page)
-    {
-        const char* label = "ORIGINAL";
-
-        if (page == ATTRACT_SCORE_ORIGINAL_JAPAN)
-            label = "ORIGINAL JAPAN";
-        else if (page == ATTRACT_SCORE_CONTINUOUS)
-            label = "CONTINUOUS";
-
-        draw_attract_centered(4, label, OHud::GREEN);
     }
 
     void restore_attract_runtime()
@@ -550,7 +572,8 @@ void OHiScore::display_scores()
 
         display_scores_base();
         outrun.cannonball_mode = runtime_mode;
-        draw_stock_attract_label(attract_score_page);
+        draw_stock_score_header_shifted();
+        draw_attract_page_header(attract_score_page);
     }
     else
     {
@@ -579,7 +602,7 @@ void OHiScore::display_scores()
                 break;
         }
 
-        draw_custom_attract_header(attract_score_page);
+        draw_attract_page_header(attract_score_page);
     }
 
     // Credits can leave BEST1 immediately. Restore the player's configured
