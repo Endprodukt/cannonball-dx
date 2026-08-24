@@ -7,6 +7,12 @@
     storing every high-score table inside one physical highscores.xml file.
     Legacy hiscores*.xml files are imported once and removed only after the
     combined file has been written successfully.
+
+    Physical sections:
+      original_world / original_japan
+      continuous_world / continuous_japan
+      time_trial_world / time_trial_japan
+      endless_world / endless_japan
 ***************************************************************************/
 
 // Rename the low-level XML functions while including the existing TinyXML2
