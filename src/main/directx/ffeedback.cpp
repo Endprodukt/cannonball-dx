@@ -134,7 +134,7 @@ namespace forcefeedback
         return true;
     }
 
-    int set(int, int force)
+    int set(int, int force, const std::source_location&)
     {
         if (!g_supported || !g_enabled || fd < 0)
             return -1;
@@ -147,8 +147,8 @@ namespace forcefeedback
         return write(fd, &play, sizeof(play)) == -1 ? -1 : 0;
     }
 
-    void set_centering_strength(int) {}
-    void set_tyre_slip(bool) {}
+    void set_centering_strength(int, const std::source_location&) {}
+    void set_tyre_slip(bool, const std::source_location&) {}
 
     void set_enabled(bool enabled)
     {
@@ -204,6 +204,13 @@ namespace forcefeedback
 
 #include <SDL.h>
 
+#include "main.hpp"
+#include "engine/ocrash.hpp"
+#include "engine/oferrari.hpp"
+#include "engine/oinitengine.hpp"
+#include "engine/outrun.hpp"
+#include "frontend/config.hpp"
+
 namespace forcefeedback
 {
     static SDL_Joystick* g_joystick = nullptr;
@@ -226,6 +233,9 @@ namespace forcefeedback
     static int g_min_force = 0x2fff;
     static int g_gain_percent = 100;
     static int g_centering_percent = 30;
+    static int g_tyre_slip_strength_percent = 15;
+    static int g_tyre_slip_spring_percent = 67;
+    static int g_offroad_pull_direction = 0;
 
     // DirectInput constant-force magnitude is nominally 0..10000, whereas
     // SDL_HapticConstant uses the full signed 16-bit range. The legacy DX
@@ -240,9 +250,324 @@ namespace forcefeedback
         return std::max(0, std::min(100, percent));
     }
 
-    static int constant_force_level(int force)
+    static bool source_function_contains(
+        const std::source_location& source,
+        const char* text)
+    {
+        const char* function_name = source.function_name();
+        return function_name && std::strstr(function_name, text) != nullptr;
+    }
+
+    static bool source_file_contains(
+        const std::source_location& source,
+        const char* text)
+    {
+        const char* file_name = source.file_name();
+        return file_name && std::strstr(file_name, text) != nullptr;
+    }
+
+    static int effect_setting(const char* name, int default_value)
+    {
+        return config.ffb_effect_setting(name, default_value);
+    }
+
+    static int spring_setting(const char* name, int default_value)
+    {
+        return config.ffb_spring_setting(name, default_value);
+    }
+
+    static int scale_value(int value, int percent, int denominator = 100)
+    {
+        if (denominator <= 0)
+            denominator = 100;
+
+        return static_cast<int>(
+            (static_cast<long long>(value) * percent + (denominator / 2)) /
+            denominator);
+    }
+
+    static int master_effect_gain(int effect_percent)
+    {
+        return scale_value(config.controls.ffb_strength, effect_percent);
+    }
+
+    static bool low_speed_crash_bump()
+    {
+        return
+            ocrash.crash_counter &&
+            !ocrash.is_flip() &&
+            ocrash.crash_state == 1 &&
+            (oinitengine.car_increment >> 16) == 0;
+    }
+
+    static int tuned_gain_for_source(const std::source_location& source)
+    {
+        // Rough-surface grit currently uses a small absolute gain rather than
+        // the master FFB percentage. Keeping the default at 4 reproduces the
+        // exact tested DX setting; users can raise it directly in config.xml.
+        if (source_function_contains(source, "apply_surface_rattle"))
+            return effect_setting("sand", 4);
+
+        if (source_function_contains(source, "set_shift_force"))
+            return master_effect_gain(effect_setting("gear_shift", 85));
+
+        if (source_function_contains(source, "set_crash_yank"))
+        {
+            return master_effect_gain(
+                ocrash.is_flip()
+                    ? effect_setting("crash_flip", 115)
+                    : effect_setting("crash_spin", 115));
+        }
+
+        if (source_function_contains(source, "set_start_intro_force"))
+        {
+            return scale_value(
+                g_gain_percent,
+                effect_setting("start_steering", 100));
+        }
+
+        // Music Select's current detent is already tuned around an 80% scale.
+        // Treat the XML value as that visible tuning number: 80 reproduces the
+        // current build, 40 halves it and 100 makes it 25% stronger.
+        if (source_function_contains(source, "apply_music_detent_ffb") ||
+            source_function_contains(source, "set_music_detent_force"))
+        {
+            return scale_value(
+                g_gain_percent,
+                effect_setting("music_selector", 80),
+                80);
+        }
+
+        if (source_function_contains(source, "do_motors") &&
+            ocrash.skid_counter)
+        {
+            return master_effect_gain(effect_setting("traffic_skid", 100));
+        }
+
+        if (source_function_contains(source, "apply_crash_ffb_force") &&
+            ocrash.crash_counter)
+        {
+            if (low_speed_crash_bump())
+                return master_effect_gain(effect_setting("crash_bump", 100));
+
+            if (ocrash.is_flip())
+            {
+                if (ocrash.crash_state >= 5)
+                {
+                    return master_effect_gain(
+                        effect_setting("crash_flip_landing", 100));
+                }
+
+                return master_effect_gain(
+                    effect_setting("crash_flip_impact", 100));
+            }
+
+            return master_effect_gain(
+                effect_setting("crash_spin_impact", 100));
+        }
+
+        return g_gain_percent;
+    }
+
+    static void tune_offroad_command(
+        int& xdirection,
+        int& force,
+        const std::source_location& source)
+    {
+        if (!source_function_contains(source, "motor_output") ||
+            outrun.game_state != GS_INGAME ||
+            oferrari.wheel_state == OFerrari::WHEELS_ON)
+        {
+            if (oferrari.wheel_state == OFerrari::WHEELS_ON)
+                g_offroad_pull_direction = 0;
+            return;
+        }
+
+        if (oferrari.wheel_state == OFerrari::WHEELS_LEFT_OFF)
+            g_offroad_pull_direction = 1;
+        else if (oferrari.wheel_state == OFerrari::WHEELS_RIGHT_OFF)
+            g_offroad_pull_direction = -1;
+        else if (oferrari.wheel_state == OFerrari::WHEELS_OFF &&
+                 g_offroad_pull_direction == 0)
+            g_offroad_pull_direction = oinitengine.car_x_pos >= 0 ? -1 : 1;
+
+        const bool fully_offroad =
+            oferrari.wheel_state == OFerrari::WHEELS_OFF;
+
+        // OOutputs has already combined its alternating off-road rumble with
+        // the outward pull. Recover those two current components, rescale each
+        // independently, then combine them again. The defaults reproduce the
+        // existing 50/100% rumble and 3/7 or 2/7 pull exactly.
+        int combined_force = xdirection - 0x08;
+        const int current_pull_magnitude = fully_offroad ? 2 : 3;
+        const int current_pull =
+            current_pull_magnitude * g_offroad_pull_direction;
+        const int current_rumble =
+            combined_force - current_pull;
+
+        const int default_rumble = fully_offroad ? 100 : 50;
+        const int configured_rumble =
+            fully_offroad
+                ? effect_setting("offroad_rumble_full", 100)
+                : effect_setting("offroad_rumble_one_wheel", 50);
+
+        const int tuned_rumble =
+            scale_value(current_rumble, configured_rumble, default_rumble);
+
+        const int pull_percent =
+            fully_offroad
+                ? effect_setting("offroad_pull_full", 29)
+                : effect_setting("offroad_pull_one_wheel", 43);
+        const int tuned_pull_magnitude =
+            scale_value(7, pull_percent);
+        const int tuned_pull =
+            tuned_pull_magnitude * g_offroad_pull_direction;
+
+        combined_force = tuned_rumble + tuned_pull;
+        combined_force = std::max(-7, std::min(7, combined_force));
+
+        xdirection = 0x08 + combined_force;
+        force = combined_force == 0
+            ? 7
+            : 7 - std::abs(combined_force);
+    }
+
+    static int configured_low_speed_spring()
+    {
+        return scale_value(
+            config.controls.centering_strength,
+            spring_setting("low_speed", 40));
+    }
+
+    static int configured_high_speed_spring()
+    {
+        return scale_value(
+            config.controls.centering_strength,
+            spring_setting("high_speed", 100));
+    }
+
+    static int tuned_centering_for_source(
+        int requested_percent,
+        const std::source_location& source)
+    {
+        // The normal frontend, Attract Mode and stationary/start states all use
+        // the configured low-speed spring. This also overrides the inherited
+        // menu code that used to send centering_strength directly.
+        if (source_file_contains(source, "menu.cpp") ||
+            source_file_contains(source, "menu_base.cpp") ||
+            source_function_contains(source, "reset_music_detent_ffb"))
+        {
+            return configured_low_speed_spring();
+        }
+
+        if (source_function_contains(source, "apply_music_detent_ffb"))
+        {
+            return scale_value(
+                requested_percent,
+                effect_setting("music_selector", 80),
+                80);
+        }
+
+        if (!source_file_contains(source, "ooutputs_base.cpp"))
+            return requested_percent;
+
+        if (source_function_contains(source, "init"))
+            return configured_low_speed_spring();
+
+        if (!source_function_contains(source, "update_centering_strength"))
+            return requested_percent;
+
+        const int low_speed_strength = configured_low_speed_spring();
+        const int high_speed_strength = configured_high_speed_spring();
+        int target_strength = low_speed_strength;
+
+        if (outrun.game_state == GS_INGAME &&
+            !ocrash.crash_counter &&
+            !ocrash.skid_counter &&
+            oferrari.wheel_state == OFerrari::WHEELS_ON)
+        {
+            const int car_inc =
+                static_cast<int>(oinitengine.car_increment >> 16);
+            const int speed_start = spring_setting("speed_start", 100);
+            int speed_full = spring_setting("speed_full", 240);
+
+            if (speed_full <= speed_start)
+                speed_full = speed_start + 1;
+
+            int speed_factor = car_inc - speed_start;
+            const int speed_span = speed_full - speed_start;
+
+            if (speed_factor < 0)
+                speed_factor = 0;
+            else if (speed_factor > speed_span)
+                speed_factor = speed_span;
+
+            target_strength =
+                low_speed_strength +
+                scale_value(
+                    high_speed_strength - low_speed_strength,
+                    speed_factor,
+                    speed_span);
+        }
+
+        if (outrun.game_state == GS_INGAME)
+        {
+            int spring_percent = 100;
+
+            if (ocrash.crash_counter)
+            {
+                if (low_speed_crash_bump())
+                {
+                    spring_percent = spring_setting("crash_bump", 65);
+                }
+                else if (!ocrash.is_flip())
+                {
+                    spring_percent =
+                        ocrash.crash_state <= 4
+                            ? spring_setting("crash_spin", 35)
+                            : spring_setting("crash_recovery", 70);
+                }
+                else if (ocrash.crash_state <= 1)
+                {
+                    spring_percent = spring_setting("crash_flip_start", 45);
+                }
+                else if (ocrash.crash_state == 2)
+                {
+                    spring_percent = spring_setting("crash_flip_airborne", 10);
+                }
+                else if (ocrash.crash_state <= 4)
+                {
+                    spring_percent = spring_setting("crash_flip_transition", 25);
+                }
+                else if (ocrash.crash_state == 5)
+                {
+                    spring_percent = spring_setting("crash_flip_landing", 45);
+                }
+                else
+                {
+                    spring_percent = spring_setting("crash_flip_recovery", 70);
+                }
+            }
+            else if (ocrash.skid_counter)
+            {
+                spring_percent = spring_setting("traffic_skid", 50);
+            }
+
+            if (ocrash.crash_counter || ocrash.skid_counter)
+            {
+                target_strength = scale_value(
+                    config.controls.centering_strength,
+                    spring_percent);
+            }
+        }
+
+        return target_strength;
+    }
+
+    static int constant_force_level(int force, int gain_percent)
     {
         force = std::max(0, std::min(7, force));
+        gain_percent = std::max(0, gain_percent);
 
         // Match the exact integer order used by the previous DirectInput path.
         int legacy_magnitude =
@@ -251,7 +576,7 @@ namespace forcefeedback
 
         legacy_magnitude =
             static_cast<int>(
-                (static_cast<long long>(legacy_magnitude) * g_gain_percent) /
+                (static_cast<long long>(legacy_magnitude) * gain_percent) /
                 100);
 
         legacy_magnitude =
@@ -403,11 +728,12 @@ namespace forcefeedback
 
     static int effective_centering_percent()
     {
-        // A tyre slide deliberately unloads the steering rack. Two thirds of
-        // the current spring gives a clear loss-of-grip cue: e.g. 60% -> 40%.
-        return g_tyre_slip_active
-            ? (g_centering_percent * 2 + 1) / 3
-            : g_centering_percent;
+        if (!g_tyre_slip_active)
+            return g_centering_percent;
+
+        return scale_value(
+            g_centering_percent,
+            g_tyre_slip_spring_percent);
     }
 
     static SDL_HapticEffect make_spring_effect(int percent)
@@ -462,6 +788,11 @@ namespace forcefeedback
         if (g_supported)
             return true;
 
+        // Materialize every documented tuning value into the shared config
+        // tree. Old configs that do not contain them therefore behave exactly
+        // like the current DX preset and gain the fields on the next save.
+        config.seed_ffb_tuning_defaults();
+
         g_init_attempted = true;
         g_max_force = std::max(0, std::min(0x7fff, max_force));
         g_min_force = std::max(0, std::min(g_max_force, min_force));
@@ -492,12 +823,18 @@ namespace forcefeedback
         return true;
     }
 
-    int set(int xdirection, int force)
+    int set(
+        int xdirection,
+        int force,
+        const std::source_location& source)
     {
         if (!ensure_initialized() || !g_enabled || g_constant_effect < 0)
             return -1;
 
-        const int magnitude = constant_force_level(force);
+        tune_offroad_command(xdirection, force, source);
+
+        const int tuned_gain = tuned_gain_for_source(source);
+        const int magnitude = constant_force_level(force, tuned_gain);
 
         int sign = 0;
         if (xdirection < 0x08)
@@ -558,9 +895,13 @@ namespace forcefeedback
         return 0;
     }
 
-    void set_centering_strength(int percent)
+    void set_centering_strength(
+        int percent,
+        const std::source_location& source)
     {
-        g_centering_percent = clamp_percent(percent);
+        g_centering_percent = std::max(
+            0,
+            tuned_centering_for_source(percent, source));
 
         if (!ensure_initialized() || !g_enabled || g_spring_effect < 0)
             return;
@@ -610,18 +951,31 @@ namespace forcefeedback
         return true;
     }
 
-    void set_tyre_slip(bool active)
+    void set_tyre_slip(
+        bool active,
+        const std::source_location& source)
     {
         if (!ensure_initialized() || !g_enabled)
             active = false;
+
+        if (active)
+        {
+            g_tyre_slip_strength_percent =
+                source_function_contains(source, "update_prestart_sine")
+                    ? effect_setting("start_rev_shake", 15)
+                    : effect_setting("tyre_slip", 15);
+            g_tyre_slip_spring_percent =
+                spring_setting("sliding", 67);
+        }
 
         if (active == g_tyre_slip_active)
             return;
 
         g_tyre_slip_active = active;
 
-        // Rebuild the spring immediately so a slide drops steering weight to
-        // two thirds, then restores the current speed-based value on recovery.
+        // Rebuild the spring immediately so a slide uses the configured
+        // steering-unload percentage, then restores the speed-based value when
+        // grip returns.
         set_centering_strength(g_centering_percent);
 
         if (!active)
@@ -634,11 +988,13 @@ namespace forcefeedback
         if (g_tyre_slip_effect < 0 && !create_tyre_slip_effect())
             return;
 
-        // This path was already percentage-correct between DirectInput and SDL:
-        // 15% of each API's native full scale. Do not apply legacy rescaling here.
         const int magnitude =
             std::max(0, std::min(0x7fff,
-                (0x7fff * 15 * g_gain_percent) / 10000));
+                static_cast<int>(
+                    (static_cast<long long>(0x7fff) *
+                     g_tyre_slip_strength_percent *
+                     g_gain_percent) /
+                    10000)));
 
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_SINE;
@@ -723,6 +1079,9 @@ namespace forcefeedback
         g_init_attempted = false;
         g_is_wheel = false;
         g_tyre_slip_active = false;
+        g_tyre_slip_strength_percent = 15;
+        g_tyre_slip_spring_percent = 67;
+        g_offroad_pull_direction = 0;
         g_logged_constant_update_error = false;
         g_logged_constant_run_error = false;
     }
@@ -740,11 +1099,11 @@ namespace forcefeedback
 namespace forcefeedback
 {
     bool init(int, int, int) { return false; }
-    int set(int, int) { return -1; }
+    int set(int, int, const std::source_location&) { return -1; }
     void close() {}
     bool is_supported() { return false; }
-    void set_centering_strength(int) {}
-    void set_tyre_slip(bool) {}
+    void set_centering_strength(int, const std::source_location&) {}
+    void set_tyre_slip(bool, const std::source_location&) {}
     void set_enabled(bool) {}
     void set_gain(int) {}
     void stop() {}
