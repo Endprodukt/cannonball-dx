@@ -309,17 +309,21 @@ void OOutputs::writeDigitalToConsole()
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
 
-    // OOutputs::tick() runs earlier in the frame and its normal stationary path
-    // reapplies the low-speed centering spring even on GS_MUSIC. Music Select
-    // deliberately has no continuous wheel force: stop any sine and spring now,
-    // after the normal output tick, so only main.cpp's short song-boundary pulse
-    // can run later in this frame.
+    // OOutputs::tick() runs earlier in the frame. Keep Music Select on the same
+    // low-speed centering spring used by menus, Attract Mode and a stationary
+    // car, while explicitly disabling the tyre-slip sine. The later Music
+    // Select code in main.cpp may then add only its short song-boundary pulse.
     if (music_selection &&
         config.controls.haptic &&
         forcefeedback::is_supported())
     {
+        const int low_speed_spring =
+            (config.controls.centering_strength *
+             config.ffb_spring_setting("low_speed", 40) + 50) /
+            100;
+
         forcefeedback::set_tyre_slip(false);
-        forcefeedback::set_centering_strength(0);
+        forcefeedback::set_centering_strength(low_speed_spring);
     }
 
     const bool enhanced_attract_driving =
