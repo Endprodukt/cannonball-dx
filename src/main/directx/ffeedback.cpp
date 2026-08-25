@@ -233,6 +233,7 @@ namespace forcefeedback
     static int g_min_force = 0x2fff;
     static int g_gain_percent = 100;
     static int g_centering_percent = 30;
+    static int g_applied_centering_percent = -1;
     static int g_tyre_slip_strength_percent = 15;
     static int g_tyre_slip_spring_percent = 67;
     static int g_offroad_pull_direction = 0;
@@ -281,9 +282,15 @@ namespace forcefeedback
         if (denominator <= 0)
             denominator = 100;
 
-        return static_cast<int>(
-            (static_cast<long long>(value) * percent + (denominator / 2)) /
-            denominator);
+        long long product =
+            static_cast<long long>(value) * percent;
+
+        if (product >= 0)
+            product += denominator / 2;
+        else
+            product -= denominator / 2;
+
+        return static_cast<int>(product / denominator);
     }
 
     static int master_effect_gain(int effect_percent)
@@ -474,8 +481,11 @@ namespace forcefeedback
         if (source_function_contains(source, "init"))
             return configured_low_speed_spring();
 
-        if (!source_function_contains(source, "update_centering_strength"))
+        if (!source_function_contains(source, "update_centering_strength") &&
+            !source_function_contains(source, "tick"))
+        {
             return requested_percent;
+        }
 
         const int low_speed_strength = configured_low_speed_spring();
         const int high_speed_strength = configured_high_speed_spring();
@@ -906,10 +916,16 @@ namespace forcefeedback
         if (!ensure_initialized() || !g_enabled || g_spring_effect < 0)
             return;
 
-        const int effective_percent = effective_centering_percent();
+        const int effective_percent =
+            clamp_percent(effective_centering_percent());
+
+        if (effective_percent == g_applied_centering_percent)
+            return;
+
         if (effective_percent == 0)
         {
             SDL_HapticStopEffect(g_haptic, g_spring_effect);
+            g_applied_centering_percent = 0;
             return;
         }
 
@@ -925,7 +941,10 @@ namespace forcefeedback
         {
             std::cout << "SDL FFB: unable to run spring: "
                       << SDL_GetError() << std::endl;
+            return;
         }
+
+        g_applied_centering_percent = effective_percent;
     }
 
     static bool create_tyre_slip_effect()
@@ -968,15 +987,25 @@ namespace forcefeedback
                 spring_setting("sliding", 67);
         }
 
-        if (active == g_tyre_slip_active)
-            return;
-
+        const bool state_changed = active != g_tyre_slip_active;
         g_tyre_slip_active = active;
 
-        // Rebuild the spring immediately so a slide uses the configured
-        // steering-unload percentage, then restores the speed-based value when
-        // grip returns.
-        set_centering_strength(g_centering_percent);
+        // OOutputs calls this once per game tick before its own cached spring
+        // update. Re-evaluate the configured curve here so custom speed_start /
+        // speed_full values are honoured even where the inherited 100..240
+        // spring cache would otherwise suppress an update.
+        if (source_file_contains(source, "ooutputs_base.cpp") &&
+            source_function_contains(source, "tick"))
+        {
+            set_centering_strength(g_centering_percent, source);
+        }
+        else if (state_changed)
+        {
+            set_centering_strength(g_centering_percent);
+        }
+
+        if (!state_changed)
+            return;
 
         if (!active)
         {
@@ -1023,9 +1052,11 @@ namespace forcefeedback
             if (g_tyre_slip_effect >= 0)
                 SDL_HapticStopEffect(g_haptic, g_tyre_slip_effect);
             g_tyre_slip_active = false;
+            g_applied_centering_percent = -1;
         }
         else
         {
+            g_applied_centering_percent = -1;
             set_centering_strength(g_centering_percent);
         }
     }
@@ -1079,6 +1110,7 @@ namespace forcefeedback
         g_init_attempted = false;
         g_is_wheel = false;
         g_tyre_slip_active = false;
+        g_applied_centering_percent = -1;
         g_tyre_slip_strength_percent = 15;
         g_tyre_slip_spring_percent = 67;
         g_offroad_pull_direction = 0;
