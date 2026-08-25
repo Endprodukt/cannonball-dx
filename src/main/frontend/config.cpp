@@ -561,7 +561,7 @@ void Config::load()
 
     // Do not inherit historical CannonBall-SE CRT/filter defaults on first run.
     // This deliberately overrides both the hard-coded config_base fallbacks and
-    // an outdated res/config.xml that may still be present in a build folder.
+    // any outdated resource config that may still be present in a build folder.
     if (first_run)
     {
         video.widescreen = 0;
@@ -588,13 +588,32 @@ void Config::load()
         video.hue = 0;
 
         sound.playback_device = -1;
-        controls.haptic = 0;
+
+        // Canonical CannonBall DX wheel defaults. These match the tested
+        // headroom preset materialized below by seed_ffb_tuning_defaults().
+        controls.haptic = 1;
+        controls.ffb_strength = 50;
+        controls.centering_strength = 60;
+
+        // Ensure an old resource config cannot leak previous FFB values into
+        // a freshly generated config.xml.
+        cfg.erase("controls.analog.haptic.effects");
+        cfg.erase("controls.analog.haptic.spring");
+        cfg.put_int("controls.analog.haptic.<xmlattr>.enabled", 1);
+        cfg.put_int("controls.analog.haptic.strength", 50);
+        cfg.put_int("controls.analog.haptic.centering_strength", 60);
 
         // Mark the standard Xbox/SDL profile even if an old resource config
         // was loaded. It will be materialized to the physical pad after SDL
         // has initialized and the config is next saved.
         cfg.put_int("controls.default_gamepad", 1);
         apply_default_gamepad_legacy_bindings(controls);
+    }
+    else if (cfg.get_int("controls.analog.haptic.centering_strength", -1) == -1)
+    {
+        // Existing configs that never had the basic Spring value use the new
+        // CannonBall DX default without changing any explicitly stored value.
+        controls.centering_strength = 60;
     }
 
     // engine.car_pal remains the live/runtime Ferrari colour. Keep a separate
