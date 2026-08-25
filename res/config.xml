@@ -144,16 +144,16 @@
                  A good Logitech Racing wheel should not need this -->
 			<dead>0</dead>
 		</wheel>
-		<!-- Force Feedback / Haptic Support: disabled by default. Strength and
-		     centering_strength remain the simple in-game controls. Every value in
-		     effects/spring below is optional tuning; these defaults reproduce the
-		     current CannonBall DX wheel feel exactly. No advanced-mode switch is
-		     required. Higher values are allowed and will naturally clip at the
-		     backend/wheel limit where necessary. -->
+		<!-- Force Feedback / Haptic Support: disabled by default.
+		     strength and centering_strength are the simple in-game controls.
+		     The values below expose the current CannonBall DX tuning directly.
+		     Effect strengths and spring percentages use 0-100, where 0 disables
+		     that force and 100 is its configured maximum. -->
 		<haptic enabled="0">
 			<strength>50</strength>
 			<centering_strength>30</centering_strength>
 			<effects>
+				<!-- Individual effect strength: 0-100. -->
 				<sand>4</sand>
 				<tyre_slip>15</tyre_slip>
 				<offroad_rumble_one_wheel>50</offroad_rumble_one_wheel>
@@ -165,22 +165,29 @@
 				<traffic_skid>100</traffic_skid>
 				<crash_bump>100</crash_bump>
 				<crash_spin_impact>100</crash_spin_impact>
-				<crash_spin>115</crash_spin>
+				<crash_spin>100</crash_spin>
 				<crash_flip_impact>100</crash_flip_impact>
-				<crash_flip>115</crash_flip>
+				<crash_flip>100</crash_flip>
 				<crash_flip_landing>100</crash_flip_landing>
 				<start_steering>100</start_steering>
 				<start_rev_shake>15</start_rev_shake>
 			</effects>
 			<spring>
-				<!-- Percentages are relative to the normal Spring menu value. -->
+				<!-- Spring strength percentages: 0-100, relative to the normal
+				     Spring value selected in the in-game Controls menu. -->
 				<low_speed>40</low_speed>
 				<high_speed>100</high_speed>
 				<sliding>67</sliding>
-				<!-- Vehicle-speed points for the normal low -> high spring ramp. -->
+
+				<!-- Spring speed thresholds: these are VEHICLE SPEED values, NOT percentages.
+				     Valid range: 0-294. The normal car's maximum vehicle-speed value is 294.
+				     speed_start = spring begins increasing from low_speed.
+				     speed_full  = spring reaches high_speed and stays there up to 294.
+				     Defaults: ramp starts at 100 and reaches full strength at 240. -->
 				<speed_start>100</speed_start>
 				<speed_full>240</speed_full>
-				<!-- Temporary spring levels during loss-of-control states. -->
+
+				<!-- Temporary spring strength during loss-of-control states: 0-100. -->
 				<traffic_skid>50</traffic_skid>
 				<crash_bump>65</crash_bump>
 				<crash_spin>35</crash_spin>
