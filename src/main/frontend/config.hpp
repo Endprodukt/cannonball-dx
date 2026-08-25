@@ -307,6 +307,81 @@ public:
     void inc_time();
     void inc_traffic();
 
+    // Per-effect wheel FFB tuning lives directly in config.xml. These are
+    // deliberately simple values: the defaults reproduce CannonBall DX's
+    // current tuning, while users may raise/lower individual effects without
+    // enabling a separate advanced mode. Values above 100 are accepted; the
+    // actual haptic backend/device performs the final clipping.
+    int ffb_effect_setting(const char* name, int default_value)
+    {
+        const std::string path =
+            std::string("controls.analog.haptic.effects.") + name;
+        int value = cfg.get_int(path, default_value);
+        return value < 0 ? 0 : value;
+    }
+
+    int ffb_spring_setting(const char* name, int default_value)
+    {
+        const std::string path =
+            std::string("controls.analog.haptic.spring.") + name;
+        int value = cfg.get_int(path, default_value);
+        return value < 0 ? 0 : value;
+    }
+
+    // Seed missing FFB tuning entries into the in-memory XML tree when the
+    // wheel backend starts. Existing config files therefore keep the exact DX
+    // defaults until edited, and the values are persisted by the next normal
+    // Config::save().
+    void seed_ffb_tuning_defaults()
+    {
+        auto seed_effect = [&](const char* name, int default_value)
+        {
+            const std::string path =
+                std::string("controls.analog.haptic.effects.") + name;
+            cfg.put_int(path, ffb_effect_setting(name, default_value));
+        };
+
+        auto seed_spring = [&](const char* name, int default_value)
+        {
+            const std::string path =
+                std::string("controls.analog.haptic.spring.") + name;
+            cfg.put_int(path, ffb_spring_setting(name, default_value));
+        };
+
+        seed_effect("sand", 4);
+        seed_effect("tyre_slip", 15);
+        seed_effect("offroad_rumble_one_wheel", 50);
+        seed_effect("offroad_rumble_full", 100);
+        seed_effect("offroad_pull_one_wheel", 43);
+        seed_effect("offroad_pull_full", 29);
+        seed_effect("gear_shift", 85);
+        seed_effect("music_selector", 80);
+        seed_effect("traffic_skid", 100);
+        seed_effect("crash_bump", 100);
+        seed_effect("crash_spin_impact", 100);
+        seed_effect("crash_spin", 115);
+        seed_effect("crash_flip_impact", 100);
+        seed_effect("crash_flip", 115);
+        seed_effect("crash_flip_landing", 100);
+        seed_effect("start_steering", 100);
+        seed_effect("start_rev_shake", 15);
+
+        seed_spring("low_speed", 40);
+        seed_spring("high_speed", 100);
+        seed_spring("sliding", 67);
+        seed_spring("speed_start", 100);
+        seed_spring("speed_full", 240);
+        seed_spring("traffic_skid", 50);
+        seed_spring("crash_bump", 65);
+        seed_spring("crash_spin", 35);
+        seed_spring("crash_recovery", 70);
+        seed_spring("crash_flip_start", 45);
+        seed_spring("crash_flip_airborne", 10);
+        seed_spring("crash_flip_transition", 25);
+        seed_spring("crash_flip_landing", 45);
+        seed_spring("crash_flip_recovery", 70);
+    }
+
     // Shared Music Select / Time Trial selector duration. 0 disables the
     // automatic selection, otherwise the supported values are 15 or 30 seconds.
     // The previous ON/OFF implementation stored 1 for ON; treat that legacy
