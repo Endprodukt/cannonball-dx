@@ -175,7 +175,7 @@ Device bindings store a persistent device signature so assignments survive chang
 | `controls.analog.haptic.centering_strength` | `0`-`100` | Maximum high-speed centering spring strength |
 | `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level |
 
-The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the normal centering level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available, and the supplied defaults reproduce the standard CannonBall DX tuning. Values can be increased beyond 100 where useful; the final haptic output naturally clips at the backend or wheel limit.
+The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the normal centering level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available, and the supplied defaults reproduce the standard CannonBall DX tuning. Effect strengths and spring percentages use a clear **0-100** range.
 
 #### Per-effect tuning in config.xml
 
@@ -194,41 +194,41 @@ The effect names describe the physical cue they control. Changing one value does
 | `traffic_skid` | 100 | Steering yank after a traffic collision |
 | `crash_bump` | 100 | Low-speed scenery impact |
 | `crash_spin_impact` | 100 | Initial medium-speed spin impact |
-| `crash_spin` | 115 | Repeated side loads during a scenery spin |
+| `crash_spin` | 100 | Repeated side loads during a scenery spin |
 | `crash_flip_impact` | 100 | Initial high-speed flip impact |
-| `crash_flip` | 115 | Repeated / sustained side loads during the flip |
+| `crash_flip` | 100 | Repeated / sustained side loads during the flip |
 | `crash_flip_landing` | 100 | Landing impact after a flip |
 | `start_steering` | 100 | Automatic steering load as the Ferrari drives onto the start line |
 | `start_rev_shake` | 15 | Throttle-dependent engine/rev shake before the start |
 
-The supplied numbers are the actual CannonBall DX defaults, not a second preset layer. For example, `sand=4` is the current restrained grit setting; changing it to `80` deliberately makes that effect dramatically stronger.
+The supplied numbers are the actual CannonBall DX defaults, not a second preset layer. For example, `sand=4` is the current restrained grit setting; changing it to `80` deliberately makes that effect dramatically stronger. Values are limited to **0-100** so every strength entry has the same meaning.
 
 #### Speed-dependent centering spring
 
-The normal **Spring** menu option remains the reference value. The entries below define how much of that setting is used in different driving states.
+The normal **Spring** menu option remains the reference value. The percentage entries below use **0-100**. The two speed thresholds are different: they use the game's vehicle-speed values, with a valid range of **0-294**. The standard car's maximum is **294**.
 
-| XML value under `haptic.spring` | DX default | Controls |
-|---|---:|---|
-| `low_speed` | 40 | Spring percentage in menus, Attract Mode, stationary driving and low speed |
-| `high_speed` | 100 | Spring percentage at high speed |
-| `sliding` | 67 | Percentage of the currently active spring retained during on-road tyre slip |
-| `speed_start` | 100 | Vehicle-speed point where the spring begins increasing |
-| `speed_full` | 240 | Vehicle-speed point where the high-speed spring is reached |
-| `traffic_skid` | 50 | Spring level during a traffic-collision skid |
-| `crash_bump` | 65 | Spring level during a low-speed scenery bump |
-| `crash_spin` | 35 | Spring level during the active scenery spin |
-| `crash_recovery` | 70 | Spring level during spin recovery |
-| `crash_flip_start` | 45 | Spring level at the start of a flip |
-| `crash_flip_airborne` | 10 | Spring level while airborne |
-| `crash_flip_transition` | 25 | Spring level through the flip transition |
-| `crash_flip_landing` | 45 | Spring level at landing |
-| `crash_flip_recovery` | 70 | Spring level during post-flip recovery |
+| XML value under `haptic.spring` | DX default | Valid range | Controls |
+|---|---:|---:|---|
+| `low_speed` | 40 | 0-100 | Spring percentage in menus, Attract Mode, stationary driving and low speed |
+| `high_speed` | 100 | 0-100 | Spring percentage at high speed |
+| `sliding` | 67 | 0-100 | Percentage of the currently active spring retained during on-road tyre slip |
+| `speed_start` | 100 | 0-294 | Vehicle-speed point where the spring begins increasing |
+| `speed_full` | 240 | 0-294 | Vehicle-speed point where the high-speed spring is reached |
+| `traffic_skid` | 50 | 0-100 | Spring level during a traffic-collision skid |
+| `crash_bump` | 65 | 0-100 | Spring level during a low-speed scenery bump |
+| `crash_spin` | 35 | 0-100 | Spring level during the active scenery spin |
+| `crash_recovery` | 70 | 0-100 | Spring level during spin recovery |
+| `crash_flip_start` | 45 | 0-100 | Spring level at the start of a flip |
+| `crash_flip_airborne` | 10 | 0-100 | Spring level while airborne |
+| `crash_flip_transition` | 25 | 0-100 | Spring level through the flip transition |
+| `crash_flip_landing` | 45 | 0-100 | Spring level at landing |
+| `crash_flip_recovery` | 70 | 0-100 | Spring level during post-flip recovery |
 
 With the default values, normal on-road steering behaves as follows:
 
-- **Menu, Attract Mode, stationary driving and speeds up to 100:** 40% of the configured Spring value
+- **Menu, Attract Mode, stationary driving and vehicle speeds up to 100:** 40% of the configured Spring value
 - **100-240:** spring strength rises continuously from 40% to 100% of the configured value
-- **240 and above:** the configured Spring value is used as the maximum
+- **240-294:** the configured Spring value remains at its maximum
 - **Tyre slip / on-road sliding:** the currently active spring is reduced to 67%, then restored when grip returns
 
 Examples with the default spring curve:
