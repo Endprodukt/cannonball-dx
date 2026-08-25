@@ -169,20 +169,14 @@ void OMusic::enable()
     music_select_deadline_ms = 0;
     enable_base();
 
-    // Music Select must never inherit a directional ConstantForce from Attract
-    // Mode or the preserved virtual-detent implementation. Keep only the same
-    // low-speed centering spring used by menus, Attract Mode and a stationary
-    // car. Song changes themselves are short pulses handled in main.cpp.
+    // Music Select is intentionally free between songs: no directional pull
+    // and no continuous centering spring. Only the short boundary-step pulses
+    // in main.cpp are active while choosing a song. disable() restores the
+    // normal low-speed spring when leaving the selector.
     if (config.controls.haptic && forcefeedback::is_supported())
     {
         forcefeedback::stop();
-
-        const int low_speed_percent =
-            config.ffb_spring_setting("low_speed", 40);
-        const int low_speed_strength =
-            (config.controls.centering_strength * low_speed_percent + 50) / 100;
-
-        forcefeedback::set_centering_strength(low_speed_strength);
+        forcefeedback::set_centering_strength(0);
     }
 
     // Do not use Outrun's generic countdown to own Music Select. It jumps
