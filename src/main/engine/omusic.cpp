@@ -29,7 +29,9 @@
 #define check_start check_start_base
 #define tick tick_base
 #define cycle_music cycle_music_base
+#define get_music_selected get_music_selected_base
 #include "omusic_palette_base.cpp"
+#undef get_music_selected
 #undef cycle_music
 #undef tick
 #undef check_start
@@ -142,6 +144,15 @@ namespace
     }
 }
 
+int OMusic::get_music_selected()
+{
+    // The Music Select screen no longer holds the wheel at virtual song
+    // positions with a continuous ConstantForce. main.cpp only needs the real
+    // selection index so it can fire a short resistance/snap pulse when the
+    // selected song changes, then stop the force again.
+    return music_selected;
+}
+
 void OMusic::enable()
 {
     // A fresh Music Select always starts from the persistent attract/default
@@ -157,6 +168,22 @@ void OMusic::enable()
 
     music_select_deadline_ms = 0;
     enable_base();
+
+    // Music Select must never inherit a directional ConstantForce from Attract
+    // Mode or the preserved virtual-detent implementation. Keep only the same
+    // low-speed centering spring used by menus, Attract Mode and a stationary
+    // car. Song changes themselves are short pulses handled in main.cpp.
+    if (config.controls.haptic && forcefeedback::is_supported())
+    {
+        forcefeedback::stop();
+
+        const int low_speed_percent =
+            config.ffb_spring_setting("low_speed", 40);
+        const int low_speed_strength =
+            (config.controls.centering_strength * low_speed_percent + 50) / 100;
+
+        forcefeedback::set_centering_strength(low_speed_strength);
+    }
 
     // Do not use Outrun's generic countdown to own Music Select. It jumps
     // straight to GS_INIT_GAME and therefore bypasses the DX game-mode logic.
