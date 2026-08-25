@@ -339,11 +339,28 @@ public:
     }
 
     // Seed missing FFB tuning entries into the in-memory XML tree when the
-    // wheel backend starts. Existing config files therefore keep the exact DX
-    // defaults until edited, and the values are persisted by the next normal
-    // Config::save().
+    // wheel backend starts. Existing config files therefore keep their values,
+    // while missing entries receive the tested DX headroom preset.
     void seed_ffb_tuning_defaults()
     {
+        if (cfg.get_int("controls.analog.haptic.<xmlattr>.enabled", -1) < 0)
+        {
+            controls.haptic = 1;
+            cfg.put_int("controls.analog.haptic.<xmlattr>.enabled", 1);
+        }
+
+        if (cfg.get_int("controls.analog.haptic.strength", -1) < 0)
+        {
+            controls.ffb_strength = 50;
+            cfg.put_int("controls.analog.haptic.strength", 50);
+        }
+
+        if (cfg.get_int("controls.analog.haptic.centering_strength", -1) < 0)
+        {
+            controls.centering_strength = 60;
+            cfg.put_int("controls.analog.haptic.centering_strength", 60);
+        }
+
         auto seed_effect = [&](const char* name, int default_value)
         {
             const std::string path =
@@ -358,38 +375,38 @@ public:
             cfg.put_int(path, ffb_spring_setting(name, default_value));
         };
 
-        seed_effect("sand", 4);
-        seed_effect("tyre_slip", 15);
-        seed_effect("offroad_rumble_one_wheel", 50);
-        seed_effect("offroad_rumble_full", 100);
-        seed_effect("offroad_pull_one_wheel", 43);
-        seed_effect("offroad_pull_full", 29);
-        seed_effect("gear_shift", 85);
-        seed_effect("music_selector", 80);
-        seed_effect("traffic_skid", 100);
-        seed_effect("crash_bump", 100);
-        seed_effect("crash_spin_impact", 100);
-        seed_effect("crash_spin", 100);
-        seed_effect("crash_flip_impact", 100);
-        seed_effect("crash_flip", 100);
-        seed_effect("crash_flip_landing", 100);
-        seed_effect("start_steering", 100);
-        seed_effect("start_rev_shake", 15);
+        seed_effect("sand", 3);
+        seed_effect("tyre_slip", 11);
+        seed_effect("offroad_rumble_one_wheel", 20);
+        seed_effect("offroad_rumble_full", 30);
+        seed_effect("offroad_pull_one_wheel", 35);
+        seed_effect("offroad_pull_full", 21);
+        seed_effect("gear_shift", 49);
+        seed_effect("music_selector", 7);
+        seed_effect("traffic_skid", 70);
+        seed_effect("crash_bump", 70);
+        seed_effect("crash_spin_impact", 70);
+        seed_effect("crash_spin", 70);
+        seed_effect("crash_flip_impact", 70);
+        seed_effect("crash_flip", 70);
+        seed_effect("crash_flip_landing", 70);
+        seed_effect("start_steering", 70);
+        seed_effect("start_rev_shake", 11);
 
-        seed_spring("low_speed", 40);
-        seed_spring("high_speed", 100);
-        seed_spring("sliding", 67);
+        seed_spring("low_speed", 28);
+        seed_spring("high_speed", 70);
+        seed_spring("sliding", 47);
         seed_spring("speed_start", 100);
         seed_spring("speed_full", 240);
-        seed_spring("traffic_skid", 50);
-        seed_spring("crash_bump", 65);
-        seed_spring("crash_spin", 35);
-        seed_spring("crash_recovery", 70);
-        seed_spring("crash_flip_start", 45);
-        seed_spring("crash_flip_airborne", 10);
-        seed_spring("crash_flip_transition", 25);
-        seed_spring("crash_flip_landing", 45);
-        seed_spring("crash_flip_recovery", 70);
+        seed_spring("traffic_skid", 35);
+        seed_spring("crash_bump", 46);
+        seed_spring("crash_spin", 25);
+        seed_spring("crash_recovery", 49);
+        seed_spring("crash_flip_start", 32);
+        seed_spring("crash_flip_airborne", 7);
+        seed_spring("crash_flip_transition", 18);
+        seed_spring("crash_flip_landing", 32);
+        seed_spring("crash_flip_recovery", 49);
     }
 
     // Shared Music Select / Time Trial selector duration. 0 disables the
