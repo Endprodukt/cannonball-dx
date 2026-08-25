@@ -55,7 +55,6 @@ Major DX additions include:
 - START, BRAKE, VIEW, VIEW1, VIEW2 and VIEW3 cabinet outputs
 - MAME network output, Windows MAMEOutput / MAMEHooker and SmartyPi output
 - Direct MAME ROM ZIP loading
-- WAV, MP3 and YM custom music support
 
 CannonBall already contained steering-wheel force feedback. CannonBall DX extends
 that existing implementation with additional effects and modern wheel handling;
