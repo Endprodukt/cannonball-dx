@@ -38,7 +38,7 @@ public:
     bool finalize_frame();
     void draw_frame(uint16_t* pixels, int fastpass);
 
-private:
+protected:
     // SDL2 window
     SDL_Window* window = 0;
 
