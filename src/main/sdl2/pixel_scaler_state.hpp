@@ -121,35 +121,17 @@ namespace pixel_scaler
             last_mode.store(value, std::memory_order_relaxed);
     }
 
-    // Select the cheapest safe restart path for a scaler transition.
-    //
-    // Active scaler -> active scaler only changes the CPU scale algorithm and
-    // GL game-texture dimensions, so PixelScalerRenderer can reconfigure that
-    // in-place without recreating the window/GL context.
-    //
-    // OFF <-> active scaler is fundamentally different: it crosses between
-    // the stock SE RGB555/Blargg renderer and the DX pre-scaled RGBA path.
-    // Rebuilding only PixelScalerRenderer at swap_buffers() left parts of the
-    // video/GL/buffer state alive across that boundary and could produce a
-    // persistent black screen after cycling HQX 4X -> OFF -> XBRZ 4X.
-    // Use CannonBall-SE's normal full video restart for this transition. The
-    // main loop performs it only after the render workers have completed.
+    // Every scaler transition is now handled inside the already-live
+    // PixelScalerRenderer. In particular OFF <-> ON must not destroy or
+    // recreate the SDL window, GLES context or shader program. Those context
+    // restarts proved inherently fragile while the threaded video pipeline was
+    // active. The renderer consumes this request at the normal frame boundary
+    // and only changes CPU scaler buffers / game texture storage in place.
     inline void request_transition_restart(int previous, int next)
     {
-        previous = normalize(previous);
-        next = normalize(next);
-
-        if (active(previous) != active(next))
-        {
-            // Do not also let PixelScalerRenderer perform its renderer-only
-            // restart for the same transition.
-            renderer_restart_requested.store(false, std::memory_order_release);
-            config.videoRestartRequired = true;
-        }
-        else
-        {
-            renderer_restart_requested.store(true, std::memory_order_release);
-        }
+        (void) previous;
+        (void) next;
+        renderer_restart_requested.store(true, std::memory_order_release);
     }
 
     // Full menu cycle. 3x stays available for users who prefer the lower-cost
