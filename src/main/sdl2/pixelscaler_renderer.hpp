@@ -42,6 +42,13 @@ public:
         scaler_path = pixel_scaler::active(active_mode);
         base_renderer_initialized = false;
 
+        // A full video restart creates a brand-new GL program. Cached uniform
+        // state from the previous context must never survive that boundary:
+        // newly linked GLSL uniforms start at zero (notably brightboost), which
+        // otherwise leaves the re-enabled CRT/scaler path permanently black.
+        scaler_last_config = -1;
+        scaler_ticks = 3;
+
         src_width = source_width;
         src_height = source_height;
         scale = std::max(1, source_scale);
@@ -247,9 +254,6 @@ public:
                     scaled_height);
             }
         }
-
-        static long scaler_last_config = 0;
-        static int scaler_ticks = 3;
 
         long this_config = get_video_config();
         if ((this_config != scaler_last_config) && scaler_ticks)
@@ -799,6 +803,12 @@ private:
     int scaler_input_height = 0;
     int scaled_width = 0;
     int scaled_height = 0;
+
+    // Per-renderer/per-GL-context cache. Do not make these function statics:
+    // the same PixelScalerRenderer object is re-initialised after OFF/ON video
+    // restarts, and a newly linked shader program has all uniforms reset to 0.
+    long scaler_last_config = -1;
+    int scaler_ticks = 3;
 
     std::mutex upload_mutex;
     std::vector<uint32_t> source_pixels;
