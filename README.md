@@ -29,7 +29,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **True multi-device input** - wheel, pedals, shifter and buttons can come from different USB devices
 - **Unified binding matrix** - separate Keyboard, Gamepad and Wheel assignments
 - **Direct VIEW1 / VIEW2 / VIEW3 controls** plus the original view-cycle button
-- **Expanded DirectInput force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
+- **Expanded force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
 - **Gamepad rumble** with separate enable and strength settings
 
 ### Fixed Keyboard Hotkeys
@@ -104,7 +104,7 @@ CannonBall already included steering-wheel force feedback. CannonBall DX **exten
 - x86/x64 PCs running Ubuntu
 - Windows 11 PCs
 
-The expanded DirectInput force-feedback implementation is primarily intended for **Windows**. Linux retains the existing evdev-based FFB path.
+The expanded Windows force-feedback implementation is primarily intended for **Windows**. Linux retains the existing evdev-based FFB path.
 
 ---
 
@@ -172,12 +172,33 @@ Device bindings store a persistent device signature so assignments survive chang
 |---|---:|---|
 | `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback |
 | `controls.analog.haptic.strength` | `10`-`100` | Overall FFB strength in percent |
-| `controls.analog.haptic.centering_strength` | `0`-`100` | Base centering spring strength |
+| `controls.analog.haptic.centering_strength` | `0`-`100` | Maximum high-speed centering spring strength |
 | `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level |
 
 The individual driving effects are automatic.
 
-If multiple DirectInput FFB devices are connected on Windows, a specific device can optionally be selected with the `FF_TARGET_VIDPID` environment variable.
+#### Speed-dependent centering spring
+
+The **Spring** option is a maximum value, not a fixed centering force. Normal on-road steering uses a speed-dependent spring so the wheel becomes progressively heavier with speed without introducing a separate force step when entering a curve.
+
+- **Menu, Attract Mode, stationary driving and speeds up to 100 km/h:** 40% of the configured Spring value
+- **100-240 km/h:** spring strength rises continuously from 40% to 100% of the configured value
+- **240 km/h and above:** the configured Spring value is used as the maximum
+- **Tyre slip / on-road sliding:** the currently active spring is reduced to approximately two thirds, then restored when grip returns
+- **Crashes and collision spins:** use their own temporary spring reductions to make loss of control physically distinct
+
+Examples:
+
+| Spring setting | Low speed / Menu / Attract | High speed maximum | During tyre slip at maximum |
+|---:|---:|---:|---:|
+| 100% | 40% | 100% | ~67% |
+| 80% | 32% | 80% | ~53% |
+| 60% | 24% | 60% | 40% |
+| 50% | 20% | 50% | ~33% |
+
+The Music Select screen temporarily replaces the normal driving spring with its own steering detents. Leaving Music Select restores the same low-speed spring used by the menu, Attract Mode and a stationary car.
+
+If multiple FFB devices are connected on Windows, a specific device can optionally be selected with the `FF_TARGET_VIDPID` environment variable.
 
 Example:
 
