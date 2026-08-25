@@ -484,7 +484,7 @@ namespace
             { "controls.analog.haptic.effects.gear_shift",
               "Gear-change kick and rebound." },
             { "controls.analog.haptic.effects.music_selector",
-              "Short Music Select step impulse between songs; no continuous pull is used." },
+              "Short Music Select step impulse between songs." },
             { "controls.analog.haptic.effects.traffic_skid",
               "Steering yank after a traffic collision / skid." },
             { "controls.analog.haptic.effects.crash_bump",
