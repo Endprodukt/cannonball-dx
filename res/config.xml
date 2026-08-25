@@ -144,10 +144,53 @@
                  A good Logitech Racing wheel should not need this -->
 			<dead>0</dead>
 		</wheel>
-		<!-- Force Feedback / Haptic Support: disabled by default, values below are retained for when enabled. -->
+		<!-- Force Feedback / Haptic Support: disabled by default. Strength and
+		     centering_strength remain the simple in-game controls. Every value in
+		     effects/spring below is optional tuning; these defaults reproduce the
+		     current CannonBall DX wheel feel exactly. No advanced-mode switch is
+		     required. Higher values are allowed and will naturally clip at the
+		     backend/wheel limit where necessary. -->
 		<haptic enabled="0">
 			<strength>50</strength>
 			<centering_strength>30</centering_strength>
+			<effects>
+				<sand>4</sand>
+				<tyre_slip>15</tyre_slip>
+				<offroad_rumble_one_wheel>50</offroad_rumble_one_wheel>
+				<offroad_rumble_full>100</offroad_rumble_full>
+				<offroad_pull_one_wheel>43</offroad_pull_one_wheel>
+				<offroad_pull_full>29</offroad_pull_full>
+				<gear_shift>85</gear_shift>
+				<music_selector>80</music_selector>
+				<traffic_skid>100</traffic_skid>
+				<crash_bump>100</crash_bump>
+				<crash_spin_impact>100</crash_spin_impact>
+				<crash_spin>115</crash_spin>
+				<crash_flip_impact>100</crash_flip_impact>
+				<crash_flip>115</crash_flip>
+				<crash_flip_landing>100</crash_flip_landing>
+				<start_steering>100</start_steering>
+				<start_rev_shake>15</start_rev_shake>
+			</effects>
+			<spring>
+				<!-- Percentages are relative to the normal Spring menu value. -->
+				<low_speed>40</low_speed>
+				<high_speed>100</high_speed>
+				<sliding>67</sliding>
+				<!-- Vehicle-speed points for the normal low -> high spring ramp. -->
+				<speed_start>100</speed_start>
+				<speed_full>240</speed_full>
+				<!-- Temporary spring levels during loss-of-control states. -->
+				<traffic_skid>50</traffic_skid>
+				<crash_bump>65</crash_bump>
+				<crash_spin>35</crash_spin>
+				<crash_recovery>70</crash_recovery>
+				<crash_flip_start>45</crash_flip_start>
+				<crash_flip_airborne>10</crash_flip_airborne>
+				<crash_flip_transition>25</crash_flip_transition>
+				<crash_flip_landing>45</crash_flip_landing>
+				<crash_flip_recovery>70</crash_flip_recovery>
+			</spring>
 		</haptic>
 	</analog>
 	<rumble>1.25</rumble>
