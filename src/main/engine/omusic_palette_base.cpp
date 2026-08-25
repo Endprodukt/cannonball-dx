@@ -266,8 +266,8 @@ void OMusic::apply_music_detent_ffb()
 
     // More tracks means closer virtual switch positions. Strengthen the menu
     // spring progressively so those positions remain mechanically distinct.
-    // Three tracks retain roughly the current feel; the boost is capped so a
-    // large custom playlist cannot make the selector excessively heavy.
+    // Then trim the complete detent system to 80% so both the spring and its
+    // balancing ConstantForce stay proportional but less dominant.
     int spring_strength = config.controls.centering_strength;
 
     if (spring_strength < 30)
@@ -278,6 +278,9 @@ void OMusic::apply_music_detent_ffb()
 
     if (spring_strength > 80)
         spring_strength = 80;
+
+    spring_strength =
+        (spring_strength * 80 + 50) / 100;
 
     if (spring_strength != ffb_detent_spring_applied)
     {
@@ -325,8 +328,15 @@ void OMusic::reset_music_detent_ffb()
     {
         forcefeedback::stop();
         forcefeedback::set_gain(config.controls.ffb_strength);
+
+        // Leaving Music Select returns to the same low-speed spring used by
+        // menus, attract mode and a stationary car. The configured option is
+        // the high-speed maximum, not the value that should be applied here.
+        const int low_speed_strength =
+            (config.controls.centering_strength * 40 + 50) / 100;
+
         forcefeedback::set_centering_strength(
-            config.controls.centering_strength);
+            low_speed_strength);
     }
 
     ffb_detent_spring_applied = -1;
