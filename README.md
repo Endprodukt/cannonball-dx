@@ -18,7 +18,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 ### Game Modes
 
-**All game modes are selected directly in-game from the Music Select screen with the VIEW controls - no mode switching through settings menus.**
+**All game modes are selected directly in-game from the Music Select Screen with the VIEW controls - no mode switching through settings menus.**
 
 - **Original OutRun** - classic branching five-stage game
 - **Original Japanese** - alternate early/Japanese program ROMs and course layout
@@ -123,37 +123,6 @@ You are expected to legally own the original ROMs; usage may be restricted by lo
 
 ---
 
-## Quick Start - Linux (Untested)
-
-> **CannonBall DX is not tested on Linux.** The following build path is inherited from the upstream project and is retained for convenience only. It should not be interpreted as an official CannonBall DX compatibility statement.
-
-```bash
-git clone https://github.com/Endprodukt/cannonball-dx.git
-cd cannonball-dx
-chmod +x install.sh
-./install.sh
-```
-
-Then copy either the extracted OutRun Revision B ROMs or a suitable `outrun.zip` into `./roms/` and run:
-
-```bash
-build/cannonball-dx
-```
-
----
-
-## Quick Start - Windows
-
-CannonBall DX can be compiled with Visual Studio.
-
-See:
-
-`docs/Compiling-On-Windows.txt`
-
-The features documented here are included in the **`master`** branch.
-
----
-
 ## Controls and Multiple Devices
 
 Controls are configured through:
@@ -220,7 +189,7 @@ The effect names describe the physical cue they control. Changing one value does
 | `offroad_pull_one_wheel` | 35 | Outward steering pull with one side off-road |
 | `offroad_pull_full` | 21 | Outward steering pull when fully off-road |
 | `gear_shift` | 49 | Gear-change kick and rebound |
-| `music_selector` | 7 | Short Music Select step impulse between songs |
+| `music_selector` | 7 | Short step impulse between songs on the Music Select Screen |
 | `traffic_skid` | 70 | Steering yank after a traffic collision |
 | `crash_bump` | 70 | Low-speed scenery impact |
 | `crash_spin_impact` | 70 | Initial medium-speed spin impact |
@@ -256,7 +225,7 @@ The normal **Spring** menu option remains the reference value. The percentage en
 
 With the default values, normal on-road steering behaves as follows:
 
-- **Menu, Attract Mode, Music Select, stationary driving and vehicle speeds up to 100:** 28% of the configured Spring reference value
+- **Menu, Attract Mode, Music Select Screen, stationary driving and vehicle speeds up to 100:** 28% of the configured Spring reference value
 - **100-240:** spring strength rises continuously from 28% to 70% of the configured value
 - **240-294:** spring remains at 70% of the configured value
 - **Tyre slip / on-road sliding:** the currently active spring is reduced to 47%, then restored when grip returns
@@ -270,7 +239,7 @@ Examples with the default spring curve:
 | 60% | ~17% | 42% | ~20% |
 | 50% | 14% | 35% | ~16% |
 
-The Music Select screen keeps the configured low-speed spring and adds only short step impulses when moving between songs.
+The Music Select Screen keeps the configured low-speed spring and adds only short step impulses when moving between songs.
 
 If multiple FFB devices are connected on Windows, a specific device can optionally be selected with the `FF_TARGET_VIDPID` environment variable.
 
@@ -282,9 +251,9 @@ FF_TARGET_VIDPID=0x046d:0xc24f
 
 ---
 
-## Music Select
+## Music Select Screen
 
-Game mode selection is integrated directly into the Music Select screen:
+Game mode selection is integrated directly into the Music Select Screen:
 
 - **VIEW** cycles through the available game modes
 - **VIEW1** selects Original / Original Japanese
@@ -293,7 +262,7 @@ Game mode selection is integrated directly into the Music Select screen:
 - **LOW / HIGH gear** changes Ferrari colour
 - **START** confirms the selection
 
-Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**. The Music Select colour applies **only to the next race** and does not replace the saved default. After the run, Attract Mode returns to the default colour selected with **F10**.
+Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**. The Music Select Screen colour applies **only to the next race** and does not replace the saved default. After the run, Attract Mode returns to the default colour selected with **F10**.
 
 Custom music files can still be placed in `./res/` using:
 
@@ -330,6 +299,37 @@ See `EXTERNAL_OUTPUTS.md` for configuration details.
 - `-x` - Disable single-core Raspberry Pi detection
 - `-1` - Use single-core mode
 - `-perftest` - Maximum frame-rate performance test
+
+---
+
+## Build Information
+
+### Windows
+
+CannonBall DX is developed and tested on **Windows 10/11 (64-bit)** and can be compiled with Visual Studio.
+
+See:
+
+`docs/Compiling-On-Windows.txt`
+
+The features documented here are included in the **`master`** branch.
+
+### Linux (Untested)
+
+> **CannonBall DX is not tested on Linux.** The following build path is inherited from the upstream project and is retained for convenience only. It should not be interpreted as an official CannonBall DX compatibility statement.
+
+```bash
+git clone https://github.com/Endprodukt/cannonball-dx.git
+cd cannonball-dx
+chmod +x install.sh
+./install.sh
+```
+
+Then copy either the extracted OutRun Revision B ROMs or a suitable `outrun.zip` into `./roms/` and run:
+
+```bash
+build/cannonball-dx
+```
 
 ---
 
