@@ -536,15 +536,20 @@ void OOutputs::init()
     reset_crash_ffb_tracking();
     reset_start_sequence_ffb_tracking();
 
-    // Always restore the configured base spring when outputs are reset,
-    // for example when returning to the menu after a high-speed curve.
+    // The Spring option is the maximum high-speed spring. At rest and low
+    // speed use 40% of that value, matching the normal driving curve below.
     if (mode == MODE_FFEEDBACK && forcefeedback::is_supported())
     {
+        const int max_strength =
+            config.controls.centering_strength;
+        const int low_speed_strength =
+            (max_strength * 40 + 50) / 100;
+
         forcefeedback::set_tyre_slip(false);
         forcefeedback::set_centering_strength(
-            config.controls.centering_strength);
+            low_speed_strength);
         ffb_centering_strength =
-            config.controls.centering_strength;
+            low_speed_strength;
     }
 }
 
@@ -558,16 +563,19 @@ void OOutputs::update_centering_strength()
     if (!forcefeedback::is_supported())
         return;
 
-    const int base_strength =
+    // The menu value is the maximum spring at high speed, not the baseline.
+    // Low-speed steering starts at 40% of that maximum and rises continuously
+    // to 100% of the configured value as vehicle speed increases.
+    const int max_strength =
         config.controls.centering_strength;
+    const int low_speed_strength =
+        (max_strength * 40 + 50) / 100;
 
     int target_strength =
-        base_strength;
+        low_speed_strength;
 
-    // Normal on-road steering weight is now driven only by speed. Removing
-    // road_curve from this calculation avoids the perceptible spring step when
-    // entering or leaving a bend: the wheel simply becomes progressively
-    // heavier as speed increases, on straights and curves alike.
+    // Normal on-road steering weight is driven only by speed. Keeping road
+    // curvature out avoids a perceptible force step when entering a bend.
     if (outrun.game_state == GS_INGAME &&
         !ocrash.crash_counter &&
         !ocrash.skid_counter &&
@@ -588,24 +596,17 @@ void OOutputs::update_centering_strength()
         else if (speed_factor > speed_span)
             speed_factor = speed_span;
 
-        // Preserve the former maximum dynamic range: at full speed the
-        // configured base spring can add the same amount again. A 30% base
-        // therefore rises smoothly from 30% to 60% instead of switching when
-        // a curve begins.
-        const int max_boost_points = base_strength;
+        const int spring_range =
+            max_strength - low_speed_strength;
 
-        const int boost_points =
-            (max_boost_points * speed_factor + (speed_span / 2)) /
-            speed_span;
-
-        target_strength += boost_points;
-
-        if (target_strength > 100)
-            target_strength = 100;
+        target_strength =
+            low_speed_strength +
+            ((spring_range * speed_factor + (speed_span / 2)) /
+             speed_span);
     }
 
-    // Accident-specific steering weight. Dynamic speed weighting is already
-    // disabled in these states, so scale from the user's base spring value.
+    // Accident-specific steering weight overrides the normal speed curve and
+    // is expressed as a percentage of the configured maximum spring.
     if (outrun.game_state == GS_INGAME)
     {
         int crash_spring_percent = 100;
@@ -645,7 +646,7 @@ void OOutputs::update_centering_strength()
         if (crash_spring_percent < 100)
         {
             target_strength =
-                (base_strength * crash_spring_percent + 50) /
+                (max_strength * crash_spring_percent + 50) /
                 100;
         }
     }
