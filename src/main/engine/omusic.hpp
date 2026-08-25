@@ -32,15 +32,14 @@ public:
     void cycle_music();
     void cycle_music_base();
 
-    // Called by the existing post-output FFB hook in main.cpp. The actual
-    // music selection is handled inside OMusic; this call refreshes the
-    // continuous selector detent and deliberately returns a stable value so
-    // the older timed music-kick code remains inactive.
+    // Called by the post-output FFB hook in main.cpp. This now exposes the
+    // real selected song without applying a continuous holding force. main.cpp
+    // uses selection changes to generate only the short detent step pulses.
     int get_music_selected();
+    int get_music_selected_base();
 
     // Read-only selector position for non-FFB consumers such as gamepad
-    // rumble. Unlike get_music_selected(), this exposes the real cursor and
-    // has no side effects on the wheel detent implementation.
+    // rumble. This exposes the real cursor and has no side effects on FFB.
     int get_music_position() const { return cursor_pos; }
 
     // Selected game mode while the music screen is active. External cabinet
@@ -102,9 +101,9 @@ private:
     bool skip_music_tick;
     int pending_music_selected;
 
-    // Music-selector FFB tracking. The spring is made progressively stronger
-    // when many tracks are present so closely spaced virtual detents remain
-    // distinguishable.
+    // Preserved legacy virtual-detent state. The active DX Music Select path no
+    // longer uses this to hold the wheel at song positions; only transient step
+    // pulses are generated when the selected song changes.
     int ffb_detent_spring_applied;
     int ffb_detent_target_applied;
 
