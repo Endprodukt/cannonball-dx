@@ -175,19 +175,63 @@ Device bindings store a persistent device signature so assignments survive chang
 | `controls.analog.haptic.centering_strength` | `0`-`100` | Maximum high-speed centering spring strength |
 | `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level |
 
-The individual driving effects are automatic.
+The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the normal centering level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available, and the supplied defaults reproduce the standard CannonBall DX tuning. Values can be increased beyond 100 where useful; the final haptic output naturally clips at the backend or wheel limit.
+
+#### Per-effect tuning in config.xml
+
+The effect names describe the physical cue they control. Changing one value does not enable a different FFB mode or replace the normal master setting.
+
+| XML value under `haptic.effects` | DX default | Controls |
+|---|---:|---|
+| `sand` | 4 | Fine sand / rough-surface grit taps |
+| `tyre_slip` | 15 | Sine vibration while the tyres slide on-road |
+| `offroad_rumble_one_wheel` | 50 | Off-road vibration with one side of the car off the road |
+| `offroad_rumble_full` | 100 | Off-road vibration with the whole car off the road |
+| `offroad_pull_one_wheel` | 43 | Outward steering pull with one side off-road |
+| `offroad_pull_full` | 29 | Outward steering pull when fully off-road |
+| `gear_shift` | 85 | Gear-change kick and rebound |
+| `music_selector` | 80 | Music Select steering detents, including their spring balance |
+| `traffic_skid` | 100 | Steering yank after a traffic collision |
+| `crash_bump` | 100 | Low-speed scenery impact |
+| `crash_spin_impact` | 100 | Initial medium-speed spin impact |
+| `crash_spin` | 115 | Repeated side loads during a scenery spin |
+| `crash_flip_impact` | 100 | Initial high-speed flip impact |
+| `crash_flip` | 115 | Repeated / sustained side loads during the flip |
+| `crash_flip_landing` | 100 | Landing impact after a flip |
+| `start_steering` | 100 | Automatic steering load as the Ferrari drives onto the start line |
+| `start_rev_shake` | 15 | Throttle-dependent engine/rev shake before the start |
+
+The supplied numbers are the actual CannonBall DX defaults, not a second preset layer. For example, `sand=4` is the current restrained grit setting; changing it to `80` deliberately makes that effect dramatically stronger.
 
 #### Speed-dependent centering spring
 
-The **Spring** option is a maximum value, not a fixed centering force. Normal on-road steering uses a speed-dependent spring so the wheel becomes progressively heavier with speed without introducing a separate force step when entering a curve.
+The normal **Spring** menu option remains the reference value. The entries below define how much of that setting is used in different driving states.
 
-- **Menu, Attract Mode, stationary driving and speeds up to 100 km/h:** 40% of the configured Spring value
-- **100-240 km/h:** spring strength rises continuously from 40% to 100% of the configured value
-- **240 km/h and above:** the configured Spring value is used as the maximum
-- **Tyre slip / on-road sliding:** the currently active spring is reduced to approximately two thirds, then restored when grip returns
-- **Crashes and collision spins:** use their own temporary spring reductions to make loss of control physically distinct
+| XML value under `haptic.spring` | DX default | Controls |
+|---|---:|---|
+| `low_speed` | 40 | Spring percentage in menus, Attract Mode, stationary driving and low speed |
+| `high_speed` | 100 | Spring percentage at high speed |
+| `sliding` | 67 | Percentage of the currently active spring retained during on-road tyre slip |
+| `speed_start` | 100 | Vehicle-speed point where the spring begins increasing |
+| `speed_full` | 240 | Vehicle-speed point where the high-speed spring is reached |
+| `traffic_skid` | 50 | Spring level during a traffic-collision skid |
+| `crash_bump` | 65 | Spring level during a low-speed scenery bump |
+| `crash_spin` | 35 | Spring level during the active scenery spin |
+| `crash_recovery` | 70 | Spring level during spin recovery |
+| `crash_flip_start` | 45 | Spring level at the start of a flip |
+| `crash_flip_airborne` | 10 | Spring level while airborne |
+| `crash_flip_transition` | 25 | Spring level through the flip transition |
+| `crash_flip_landing` | 45 | Spring level at landing |
+| `crash_flip_recovery` | 70 | Spring level during post-flip recovery |
 
-Examples:
+With the default values, normal on-road steering behaves as follows:
+
+- **Menu, Attract Mode, stationary driving and speeds up to 100:** 40% of the configured Spring value
+- **100-240:** spring strength rises continuously from 40% to 100% of the configured value
+- **240 and above:** the configured Spring value is used as the maximum
+- **Tyre slip / on-road sliding:** the currently active spring is reduced to 67%, then restored when grip returns
+
+Examples with the default spring curve:
 
 | Spring setting | Low speed / Menu / Attract | High speed maximum | During tyre slip at maximum |
 |---:|---:|---:|---:|
@@ -196,7 +240,7 @@ Examples:
 | 60% | 24% | 60% | 40% |
 | 50% | 20% | 50% | ~33% |
 
-The Music Select screen temporarily replaces the normal driving spring with its own steering detents. Leaving Music Select restores the same low-speed spring used by the menu, Attract Mode and a stationary car.
+The Music Select screen temporarily replaces the normal driving spring with its own steering detents. Leaving Music Select restores the configured low-speed spring.
 
 If multiple FFB devices are connected on Windows, a specific device can optionally be selected with the `FF_TARGET_VIDPID` environment variable.
 
