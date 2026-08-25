@@ -564,23 +564,18 @@ void OOutputs::update_centering_strength()
     int target_strength =
         base_strength;
 
-    // Dynamic spring is only an on-road cornering effect.
-    // Do not stack it with skid, crash or off-road constant-force effects.
-    const int road_curve =
-        std::abs(static_cast<int>(oinitengine.road_curve));
-
+    // Normal on-road steering weight is now driven only by speed. Removing
+    // road_curve from this calculation avoids the perceptible spring step when
+    // entering or leaving a bend: the wheel simply becomes progressively
+    // heavier as speed increases, on straights and curves alike.
     if (outrun.game_state == GS_INGAME &&
         !ocrash.crash_counter &&
         !ocrash.skid_counter &&
-        oferrari.wheel_state == OFerrari::WHEELS_ON &&
-        road_curve > 0 &&
-        road_curve <= 0x5A)
+        oferrari.wheel_state == OFerrari::WHEELS_ON)
     {
         const uint16_t car_inc =
             oinitengine.car_increment >> 16;
 
-        // Scale continuously instead of using discrete speed/curve bands.
-        // This keeps the response immediate while avoiding noticeable steps.
         const int speed_start = 0x64;
         const int speed_full  = 0xF0;
         const int speed_span  = speed_full - speed_start;
@@ -593,25 +588,15 @@ void OOutputs::update_centering_strength()
         else if (speed_factor > speed_span)
             speed_factor = speed_span;
 
-        // Preserve some extra weight even in gentle curves, while sharper
-        // curves progressively approach the full boost.
-        int curve_percent =
-            50 + ((0x5A - road_curve) * 50) / 0x59;
-
-        if (curve_percent < 50)
-            curve_percent = 50;
-        else if (curve_percent > 100)
-            curve_percent = 100;
-
-        // Scale the dynamic cornering load with the configured spring.
-        // At 30% this preserves the current maximum (+30 points), while
-        // lower spring settings reduce both centering and cornering load.
+        // Preserve the former maximum dynamic range: at full speed the
+        // configured base spring can add the same amount again. A 30% base
+        // therefore rises smoothly from 30% to 60% instead of switching when
+        // a curve begins.
         const int max_boost_points = base_strength;
 
         const int boost_points =
-            (max_boost_points * speed_factor * curve_percent +
-             (speed_span * 50)) /
-            (speed_span * 100);
+            (max_boost_points * speed_factor + (speed_span / 2)) /
+            speed_span;
 
         target_strength += boost_points;
 
@@ -619,8 +604,8 @@ void OOutputs::update_centering_strength()
             target_strength = 100;
     }
 
-    // Accident-specific steering weight. Dynamic cornering is already disabled
-    // in these states, so scale from the user's base spring value.
+    // Accident-specific steering weight. Dynamic speed weighting is already
+    // disabled in these states, so scale from the user's base spring value.
     if (outrun.game_state == GS_INGAME)
     {
         int crash_spring_percent = 100;
@@ -653,7 +638,7 @@ void OOutputs::update_centering_strength()
         else if (ocrash.skid_counter)
         {
             // Traffic collision / spin: keep some steering weight, but make
-            // the loss of control clearly different from normal cornering.
+            // the loss of control clearly different from normal driving.
             crash_spring_percent = 50;
         }
 
@@ -665,7 +650,7 @@ void OOutputs::update_centering_strength()
         }
     }
 
-    // Avoid sending identical DirectInput parameter updates every frame.
+    // Avoid sending identical haptic parameter updates every frame.
     if (target_strength == ffb_centering_strength)
         return;
 
