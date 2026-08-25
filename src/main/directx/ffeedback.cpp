@@ -403,8 +403,10 @@ namespace forcefeedback
 
     static int effective_centering_percent()
     {
+        // A tyre slide deliberately unloads the steering rack. Two thirds of
+        // the current spring gives a clear loss-of-grip cue: e.g. 60% -> 40%.
         return g_tyre_slip_active
-            ? (g_centering_percent * 80 + 50) / 100
+            ? (g_centering_percent * 2 + 1) / 3
             : g_centering_percent;
     }
 
@@ -618,7 +620,8 @@ namespace forcefeedback
 
         g_tyre_slip_active = active;
 
-        // Preserve the existing DX behaviour: tyre slip lightens centering by 20%.
+        // Rebuild the spring immediately so a slide drops steering weight to
+        // two thirds, then restores the current speed-based value on recovery.
         set_centering_strength(g_centering_percent);
 
         if (!active)
