@@ -227,9 +227,41 @@ namespace forcefeedback
     static int g_gain_percent = 100;
     static int g_centering_percent = 30;
 
+    // DirectInput constant-force magnitude is nominally 0..10000, whereas
+    // SDL_HapticConstant uses the full signed 16-bit range. The legacy DX
+    // backend generated its force value from the 0x7fff/0x2fff table and then
+    // clamped it to DI_FFNOMINALMAX (10000). Preserve that effective strength
+    // before converting to SDL's 0..32767 range. Without this conversion small
+    // effects are only ~30% of their previous physical strength.
+    static const int LEGACY_DI_NOMINAL_MAX = 10000;
+
     static int clamp_percent(int percent)
     {
         return std::max(0, std::min(100, percent));
+    }
+
+    static int constant_force_level(int force)
+    {
+        force = std::max(0, std::min(7, force));
+
+        // Match the exact integer order used by the previous DirectInput path.
+        int legacy_magnitude =
+            g_max_force -
+            (((g_max_force - g_min_force) / 7) * force);
+
+        legacy_magnitude =
+            static_cast<int>(
+                (static_cast<long long>(legacy_magnitude) * g_gain_percent) /
+                100);
+
+        legacy_magnitude =
+            std::max(0, std::min(LEGACY_DI_NOMINAL_MAX, legacy_magnitude));
+
+        // Convert the old 0..10000 DirectInput percentage to SDL's 0..32767.
+        return static_cast<int>(
+            (static_cast<long long>(legacy_magnitude) * 0x7fff +
+             (LEGACY_DI_NOMINAL_MAX / 2)) /
+            LEGACY_DI_NOMINAL_MAX);
     }
 
     static bool read_target_vidpid(Uint16& target_vid, Uint16& target_pid)
@@ -274,8 +306,6 @@ namespace forcefeedback
         //  2. any SDL-classified wheel
         //  3. requested VID:PID even if SDL did not classify it as a wheel
         //  4. any constant-force capable haptic joystick
-        // This prevents a rumble-capable gamepad selected as pad_id from stealing
-        // wheel FFB in a multi-device setup.
         for (int pass = 0; pass < 4; ++pass)
         {
             const bool require_target = pass == 0 || pass == 2;
@@ -465,12 +495,7 @@ namespace forcefeedback
         if (!ensure_initialized() || !g_enabled || g_constant_effect < 0)
             return -1;
 
-        force = std::max(0, std::min(7, force));
-
-        int magnitude =
-            g_max_force - (((g_max_force - g_min_force) * force) / 7);
-        magnitude = (magnitude * g_gain_percent) / 100;
-        magnitude = std::max(0, std::min(0x7fff, magnitude));
+        const int magnitude = constant_force_level(force);
 
         int sign = 0;
         if (xdirection < 0x08)
@@ -606,6 +631,8 @@ namespace forcefeedback
         if (g_tyre_slip_effect < 0 && !create_tyre_slip_effect())
             return;
 
+        // This path was already percentage-correct between DirectInput and SDL:
+        // 15% of each API's native full scale. Do not apply legacy rescaling here.
         const int magnitude =
             std::max(0, std::min(0x7fff,
                 (0x7fff * 15 * g_gain_percent) / 10000));
@@ -699,9 +726,8 @@ namespace forcefeedback
 
     bool is_supported()
     {
-        // The legacy input code only called the old DirectInput backend when
-        // SDL rumble was unavailable. For this test backend, probe lazily so a
-        // rumble-capable gamepad can coexist with a separate FFB wheel.
+        // Probe lazily so a rumble-capable gamepad can coexist with a separate
+        // FFB wheel. Wheel haptics and gamepad rumble are independent paths.
         return g_supported || ensure_initialized();
     }
 }
