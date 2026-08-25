@@ -24,7 +24,6 @@ No compatibility outside Windows is claimed or guaranteed.
 Development of the additional CannonBall DX work was carried out with assistance
 from ChatGPT by OpenAI, using GPT-5.6 Sol.
 
-
 -------------------------------------
 1. About CannonBall DX
 -------------------------------------
@@ -41,7 +40,7 @@ multi-device PC setups.
 Major DX additions include:
 
 - Original, Original Japanese, Continuous, Endless and Time Trial game modes
-- Music Select based game-mode selection using the VIEW controls
+- Game-mode selection on the Music Select Screen using the VIEW controls
 - True multi-device input for wheel, pedals, shifter and buttons
 - Separate Keyboard, Gamepad and Wheel bindings
 - Persistent device identification
@@ -59,7 +58,6 @@ Major DX additions include:
 CannonBall already contained steering-wheel force feedback. CannonBall DX extends
 that existing implementation with additional effects and modern wheel handling;
 it is not a replacement for a rumble-only system.
-
 
 -------------------------------------
 2. ROMs - Required
@@ -120,7 +118,6 @@ order:
 No manual PCM patch is required when the official corrected Sega/M2 ROM is
 available.
 
-
 -------------------------------------
 3. Installation & Usage
 -------------------------------------
@@ -135,7 +132,6 @@ The Microsoft Visual C++ Redistributable may be required on Windows systems.
 
 CannonBall DX is tested only on Windows 10/11 64-bit. Other operating systems are
 not part of the tested DX release target.
-
 
 -------------------------------------
 4. Controls & Fixed Keyboard Hotkeys
@@ -176,10 +172,24 @@ The following function keys are fixed and cannot be redefined:
 While the car is driving in Attract Mode, F10 cycles the Ferrari colour. The
 selected colour is saved as the default and restored on future starts.
 
+-------------------------------------
+5. Bugs & Development
+-------------------------------------
+
+For source code, development information, bugs and feature requests:
+
+https://github.com/Endprodukt/cannonball-dx
+
+The actively developed branch is master.
 
 -------------------------------------
-5. Source Code
+6. Build & Source Information
 -------------------------------------
+
+CannonBall DX is developed and tested on Windows 10/11 (64-bit).
+Windows build instructions are provided in:
+
+docs\Compiling-On-Windows.txt
 
 CannonBall DX is a modified derivative of CannonBall and CannonBall-SE.
 
@@ -192,13 +202,8 @@ Source repository:
 
 https://github.com/Endprodukt/cannonball-dx
 
-Windows build information:
-
-docs\Compiling-On-Windows.txt
-
-
 -------------------------------------
-6. Credits
+7. Credits
 -------------------------------------
 
 CannonBall DX builds directly on the work of the original projects and their
@@ -277,9 +282,8 @@ Further third-party information is available in:
 
 docs\THIRD-PARTY-NOTICES.md
 
-
 -------------------------------------
-7. Third-Party Libraries
+8. Third-Party Libraries
 -------------------------------------
 
 CannonBall DX uses or interfaces with open-source components including SDL2,
@@ -307,9 +311,8 @@ See:
 
 docs\THIRD-PARTY-NOTICES.md
 
-
 -------------------------------------
-8. License
+9. License
 -------------------------------------
 
 CannonBall DX remains subject to all applicable upstream license conditions.
@@ -349,9 +352,8 @@ those permitted by the applicable upstream licenses.
 Third-party components, including xBRZ and HQx, remain licensed under their own
 respective terms as documented in docs\THIRD-PARTY-NOTICES.md.
 
-
 -------------------------------------
-9. Sega / OutRun Notice
+10. Sega / OutRun Notice
 -------------------------------------
 
 OutRun is a trademark of SEGA Corporation.
@@ -361,9 +363,8 @@ licensed, endorsed or affiliated with SEGA Corporation.
 
 No Sega ROM data is distributed with CannonBall DX.
 
-
 -------------------------------------
-10. Warranty
+11. Warranty
 -------------------------------------
 
 This software is provided without warranty.
@@ -372,18 +373,6 @@ Any and all use of CannonBall DX is entirely at your own risk.
 
 For the legally controlling terms, refer to the license files supplied with the
 project.
-
-
--------------------------------------
-11. Bugs & Development
--------------------------------------
-
-For source code, development information, bugs and feature requests:
-
-https://github.com/Endprodukt/cannonball-dx
-
-The actively developed branch is master.
-
 
 CannonBall DX
 DX fork and additional development: Endprodukt
