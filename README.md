@@ -52,13 +52,12 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **SmartyPi** output support
 - **Automatic VIEW lamp effects** tied to Attract Mode camera changes
 
-### ROM & Audio Features
+### ROM Features
 
 - **Direct MAME ROM ZIP loading** - current merged `outrun.zip` can be used without extraction
 - **Full backwards compatibility with traditional loose CannonBall ROM files**
 - **Early/Japanese program-ROM data** detected by CRC when present
 - **Corrected Sega/M2 PCM ROM preferred automatically**, with historical CannonBall patch and original ROM fallbacks
-- **WAV, MP3 and YM custom music support**
 - **FFB detents in the music selector** on supported Windows wheels
 
 ---
