@@ -308,3 +308,12 @@ namespace gamepad_rumble
 // before this macro is defined, so it remains the final hardware call.
 #define SDL_GameControllerRumble(controller, low, high, duration) \
     gamepad_rumble::dispatch((controller), (low), (high), (duration))
+
+#ifdef _WIN32
+// Windows wheel FFB is owned by the dedicated SDL haptic backend. The legacy
+// input_base.cpp path used SDL_HapticRumbleInit() on pad_id before wheel FFB was
+// created. On wheels that can allocate/compete for an effect slot and prevent
+// constant-force effects from playing. Gamepad rumble is unaffected because it
+// uses SDL_GameControllerRumble above, not SDL's generic haptic-rumble helper.
+#define SDL_HapticRumbleSupported(haptic) 0
+#endif
