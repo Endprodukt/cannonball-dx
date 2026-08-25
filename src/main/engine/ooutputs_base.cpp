@@ -97,10 +97,9 @@ namespace
             return;
         }
 
-        // Lower the individual peak further, while increasing cadence.
-        // The result should feel like finer, quicker grit rather than a harder
-        // shake: more frequent single-tick taps, each one noticeably weaker.
-        const int rattle_gain = 5;
+        // Keep the finer, quicker grit cadence but trim each tap slightly so
+        // the texture remains tactile without overpowering normal steering.
+        const int rattle_gain = 4;
         const int force = 6;
 
         const int phase =
@@ -897,7 +896,6 @@ void OOutputs::diag_right(int16_t input_motor, uint8_t hw_motor_limit)
     counter      = COUNTER_RESET;
 }
 
-
 void OOutputs::diag_centre(int16_t input_motor, uint8_t hw_motor_limit)
 {
     if (hw_motor_limit & BIT_4)
@@ -1497,7 +1495,6 @@ void OOutputs::do_motor_offroad()
     // Keep the original vibration pattern and add a constant force that
     // pulls the wheel further away from the road.
     // ---------------------------------------------------------------------
-
     const uint8_t cmd =
         table[(index << 3) + (counter & 7)];
 
