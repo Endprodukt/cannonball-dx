@@ -57,6 +57,11 @@ namespace
         return value.rfind(label, 0) == 0;
     }
 
+    int low_speed_spring_strength()
+    {
+        return (config.controls.centering_strength * 40 + 50) / 100;
+    }
+
     std::string gamepad_rumble_menu_text()
     {
         return std::string(GAMEPAD_RUMBLE_LABEL) +
@@ -254,6 +259,34 @@ void Menu::tick()
 
     MenuBase::tick();
     oinputs.input_steering = steering_before;
+
+    // The Spring option is a high-speed maximum. The frontend must always use
+    // the same 40% low-speed value as a stationary car, never the configured
+    // maximum itself. Re-sync only on menu entry, FFB enable, or value change.
+    static bool menu_spring_active = false;
+    static int menu_spring_strength = -1;
+
+    const bool frontend_menu =
+        cannonball::state == cannonball::STATE_MENU &&
+        state == STATE_MENU;
+
+    if (!frontend_menu || !config.controls.haptic)
+    {
+        menu_spring_active = false;
+        menu_spring_strength = -1;
+        return;
+    }
+
+    const int desired_strength = low_speed_spring_strength();
+    if (!menu_spring_active || desired_strength != menu_spring_strength)
+    {
+        if (forcefeedback::is_supported())
+        {
+            forcefeedback::set_centering_strength(desired_strength);
+            menu_spring_active = true;
+            menu_spring_strength = desired_strength;
+        }
+    }
 }
 
 void Menu::populate_controls()
