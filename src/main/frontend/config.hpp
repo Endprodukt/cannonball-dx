@@ -312,9 +312,30 @@ public:
     // thresholds use the game's vehicle-speed units instead (0..294).
     int ffb_effect_setting(const char* name, int default_value)
     {
+        const std::string setting = name ? name : "";
+        int canonical_default = default_value;
+
+        if      (setting == "sand")                     canonical_default = 3;
+        else if (setting == "tyre_slip")                canonical_default = 11;
+        else if (setting == "offroad_rumble_one_wheel") canonical_default = 20;
+        else if (setting == "offroad_rumble_full")      canonical_default = 30;
+        else if (setting == "offroad_pull_one_wheel")   canonical_default = 35;
+        else if (setting == "offroad_pull_full")        canonical_default = 21;
+        else if (setting == "gear_shift")               canonical_default = 49;
+        else if (setting == "music_selector")           canonical_default = 7;
+        else if (setting == "traffic_skid")             canonical_default = 70;
+        else if (setting == "crash_bump")               canonical_default = 70;
+        else if (setting == "crash_spin_impact")        canonical_default = 70;
+        else if (setting == "crash_spin")               canonical_default = 70;
+        else if (setting == "crash_flip_impact")        canonical_default = 70;
+        else if (setting == "crash_flip")               canonical_default = 70;
+        else if (setting == "crash_flip_landing")       canonical_default = 70;
+        else if (setting == "start_steering")           canonical_default = 70;
+        else if (setting == "start_rev_shake")          canonical_default = 11;
+
         const std::string path =
-            std::string("controls.analog.haptic.effects.") + name;
-        int value = cfg.get_int(path, default_value);
+            std::string("controls.analog.haptic.effects.") + setting;
+        int value = cfg.get_int(path, canonical_default);
         if (value < 0)
             return 0;
         if (value > 100)
@@ -324,10 +345,27 @@ public:
 
     int ffb_spring_setting(const char* name, int default_value)
     {
-        const std::string path =
-            std::string("controls.analog.haptic.spring.") + name;
-        int value = cfg.get_int(path, default_value);
         const std::string setting = name ? name : "";
+        int canonical_default = default_value;
+
+        if      (setting == "low_speed")             canonical_default = 28;
+        else if (setting == "high_speed")            canonical_default = 70;
+        else if (setting == "sliding")               canonical_default = 47;
+        else if (setting == "speed_start")           canonical_default = 100;
+        else if (setting == "speed_full")            canonical_default = 240;
+        else if (setting == "traffic_skid")          canonical_default = 35;
+        else if (setting == "crash_bump")            canonical_default = 46;
+        else if (setting == "crash_spin")            canonical_default = 25;
+        else if (setting == "crash_recovery")        canonical_default = 49;
+        else if (setting == "crash_flip_start")      canonical_default = 32;
+        else if (setting == "crash_flip_airborne")   canonical_default = 7;
+        else if (setting == "crash_flip_transition") canonical_default = 18;
+        else if (setting == "crash_flip_landing")    canonical_default = 32;
+        else if (setting == "crash_flip_recovery")   canonical_default = 49;
+
+        const std::string path =
+            std::string("controls.analog.haptic.spring.") + setting;
+        int value = cfg.get_int(path, canonical_default);
         const int maximum =
             (setting == "speed_start" || setting == "speed_full") ? 294 : 100;
 
