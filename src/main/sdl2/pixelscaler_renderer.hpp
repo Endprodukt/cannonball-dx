@@ -7,6 +7,7 @@
 #include "hqx.h"
 
 #include <SDL.h>
+#include <SDL_opengles2.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -18,7 +19,10 @@
 #include <utility>
 #include <vector>
 
-// xBRZ/HQx rendering path. OFF delegates to the original RenderSurface.
+// xBRZ/HQx are only a pre-processing stage.
+// The complete stock CannonBall-SE RenderSurface post-processing stack remains
+// responsible for the final image: scanline look, CRT shader, vignette,
+// shadow-mask, curvature/warp and CRT aperture overlay all run afterwards.
 class PixelScalerRenderer final : public RenderSurface
 {
 public:
@@ -36,9 +40,8 @@ public:
     {
         active_mode = pixel_scaler::mode.load(std::memory_order_relaxed);
         scaler_path = pixel_scaler::active(active_mode);
+        base_renderer_initialized = false;
 
-        // Keep these values in both paths. They are required for a safe
-        // renderer-only switch between the stock GL renderer and the scaler.
         src_width = source_width;
         src_height = source_height;
         scale = std::max(1, source_scale);
@@ -60,34 +63,23 @@ public:
 
     void swap_buffers() override
     {
-        // This point is reached only after the render workers completed.
         if (pixel_scaler::consume_renderer_restart_request())
         {
             const int requested_mode =
                 pixel_scaler::mode.load(std::memory_order_acquire);
 
-            // Scaler -> scaler does NOT need a new window or SDL_Renderer.
-            // Replacing those for every F6 press caused needless driver churn
-            // and could crash intermittently. Only the output texture/buffer
-            // depends on xBRZ/HQx mode and factor.
             if (scaler_path && pixel_scaler::active(requested_mode))
             {
                 if (!reconfigure_scaler_output(requested_mode))
                 {
-                    std::cerr
-                        << "Pixel scaler reconfiguration failed; keeping "
-                        << pixel_scaler::name(active_mode)
-                        << std::endl;
-
-                    // Keep state consistent with the renderer that survived.
+                    std::cerr << "Pixel scaler reconfiguration failed; keeping "
+                              << pixel_scaler::name(active_mode)
+                              << std::endl;
                     pixel_scaler::set(active_mode);
                 }
                 return;
             }
 
-            // OFF <-> scaler crosses renderer backends and therefore still
-            // needs one full renderer-only rebuild. The emulated video state,
-            // tile RAM, text RAM, road and game framebuffers remain untouched.
             const int restart_width = src_width;
             const int restart_height = src_height;
             const int restart_scale = scale;
@@ -104,12 +96,11 @@ public:
             else
                 RenderSurface::disable();
 
-            if (!init(
-                    restart_width,
-                    restart_height,
-                    restart_scale,
-                    restart_video_mode,
-                    restart_scanlines))
+            if (!init(restart_width,
+                      restart_height,
+                      restart_scale,
+                      restart_video_mode,
+                      restart_scanlines))
             {
                 std::cerr << "Pixel scaler renderer restart failed." << std::endl;
             }
@@ -127,7 +118,6 @@ public:
             RenderSurface::disable();
             return;
         }
-
         disable_scaler();
     }
 
@@ -152,21 +142,14 @@ public:
             return;
         }
 
-        // xBRZ/HQx need the complete frame. Worker 0 owns this operation;
-        // worker 1 returns instead of writing the same output concurrently.
         if (fastpass == 1)
             return;
 
-        // Hi-Res is a 2x CannonBall rendering pass. Decimate it back to the
-        // native arcade pixel grid before xBRZ/HQx. Do not average: the scaler
-        // must receive hard pixel edges like the xBRZ reference tools.
         for (int y = 0; y < scaler_input_height; ++y)
         {
             const int source_y = y * input_step;
-            const size_t dst_row =
-                static_cast<size_t>(y) * scaler_input_width;
-            const size_t src_row =
-                static_cast<size_t>(source_y) * src_width;
+            const size_t dst_row = static_cast<size_t>(y) * scaler_input_width;
+            const size_t src_row = static_cast<size_t>(source_y) * src_width;
 
             for (int x = 0; x < scaler_input_width; ++x)
             {
@@ -182,12 +165,11 @@ public:
                 const uint32_t b5 = raw & 0x1Fu;
 
                 const auto& table = shadow ? SHADOW_DAC : STANDARD_DAC;
-                const uint32_t r = table[r5];
-                const uint32_t g = table[g5];
-                const uint32_t b = table[b5];
-
                 source_pixels[dst_row + x] =
-                    0xFF000000u | (r << 16) | (g << 8) | b;
+                    0xFF000000u |
+                    (table[r5] << 16) |
+                    (table[g5] << 8) |
+                    table[b5];
             }
         }
 
@@ -212,7 +194,6 @@ public:
                         scaler_input_width,
                         scaler_input_height);
                     break;
-
                 default:
                     hq4x_32(
                         source_pixels.data(),
@@ -224,7 +205,8 @@ public:
         }
 
         apply_low_factor_detail_preserve();
-        apply_scanlines_if_enabled();
+        apply_se_scanlines_after_scaler();
+        prepare_rgba_upload();
     }
 
     bool finalize_frame() override
@@ -237,69 +219,125 @@ public:
         if (!scaler_path)
             return RenderSurface::finalize_frame();
 
-        if (!sdl_renderer || !texture || scaled_pixels.empty())
+        if (!base_renderer_initialized || !window || !glContext ||
+            upload_pixels.empty())
             return false;
 
-        if (SDL_UpdateTexture(
-                texture,
-                nullptr,
-                scaled_pixels.data(),
-                scaled_width * static_cast<int>(sizeof(uint32_t))) != 0)
+        if (shutting_down.load(std::memory_order_acquire))
+            return true;
+
+        activity_counter.fetch_add(1, std::memory_order_acq_rel);
+        std::lock_guard<std::mutex> gpulock(gpuMutex);
+
+        int offscreen_rendering = 0;
+        if (FrameCounter++ == 60)
+            FrameCounter = 0;
+
+        glb::update_game_texture(
+            upload_pixels.data(),
+            scaled_width * static_cast<int>(sizeof(uint32_t)),
+            scaled_width,
+            scaled_height);
+
+        static long scaler_last_config = 0;
+        static int scaler_ticks = 3;
+
+        long this_config = get_video_config();
+        if ((this_config != scaler_last_config) && scaler_ticks)
         {
-            std::cerr << "Pixel scaler texture upload failed: "
-                      << SDL_GetError() << std::endl;
-            return false;
-        }
+            glb::set_uniform("warpX", float(config.video.warpX) / 200.0f);
+            glb::set_uniform("warpY", float(config.video.warpY) / 100.0f);
 
-        int output_width = scn_width;
-        int output_height = scn_height;
-        SDL_GetRendererOutputSize(
-            sdl_renderer,
-            &output_width,
-            &output_height);
-
-        SDL_Rect destination{0, 0, output_width, output_height};
-
-        if (video_mode != video_settings_t::MODE_STRETCH)
-        {
-            const double source_aspect =
-                static_cast<double>(scaler_input_width) /
-                static_cast<double>(scaler_input_height);
-            const double output_aspect =
-                static_cast<double>(output_width) /
-                static_cast<double>(output_height);
-
-            if (output_aspect > source_aspect)
-            {
-                destination.h = output_height;
-                destination.w = static_cast<int>(
-                    static_cast<double>(output_height) * source_aspect);
-                destination.x = (output_width - destination.w) / 2;
-            }
+            float invExpandX;
+            if (config.video.hires == 0)
+                invExpandX = 1 / 1.03f;
             else
             {
-                destination.w = output_width;
-                destination.h = static_cast<int>(
-                    static_cast<double>(output_width) / source_aspect);
-                destination.y = (output_height - destination.h) / 2;
+#if SNES_NTSC_HAVE_SIMD
+                invExpandX = 1 / 1.01f;
+#else
+                invExpandX = 1 / 1.03f;
+#endif
+            }
+
+            glb::set_uniform2("invExpand", invExpandX, 1.0f);
+            glb::set_uniform(
+                "brightboost",
+                1 + (float(config.video.brightboost) / 100.0f));
+            glb::set_uniform(
+                "noiseIntensity",
+                float(config.video.noise) / 100.0f);
+
+            float vignette =
+                (config.video.shadow_mask < 2)
+                    ? 0.0f
+                    : float(config.video.vignette) / 100.0f;
+            glb::set_uniform("vignette", vignette);
+
+            float desat_val = float(config.video.desaturate) / 100.0f;
+            glb::set_uniform("desat_inv0", 1.0f / (1.0f + desat_val));
+            desat_val += float(config.video.desaturate_edges) / 100.0f;
+            glb::set_uniform("desat_inv1", 1.0f / (1.0f + desat_val));
+
+            glb::set_uniform(
+                "baseOff",
+                config.video.shadow_mask == 2
+                    ? (config.video.maskDim / 100.0f)
+                    : 1.0f);
+            glb::set_uniform(
+                "baseOn",
+                config.video.shadow_mask == 2
+                    ? (config.video.maskBoost / 100.0f)
+                    : 1.0f);
+
+            int this_mask_size = std::max(3, config.video.mask_size);
+            glb::set_uniform("invMaskPitch", 1.0f / float(this_mask_size));
+            glb::set_uniform(
+                "inv2MaskPitch", 1.0f / (2 * float(this_mask_size)));
+            glb::set_uniform(
+                "inv2Height", 1.0f / (2 * float(this_mask_size - 2)));
+
+            glb::set_uniform2(
+                "OutputSize", float(dst_rect.w), float(dst_rect.h));
+            glb::clear(0.f, 0.f, 0.f, 1.f);
+
+            if (--scaler_ticks == 0)
+            {
+                scaler_last_config = this_config;
+                scaler_ticks = 3;
             }
         }
 
-        destination.x += config.video.x_offset;
-        destination.y += config.video.y_offset;
+        glb::set_uniform2(
+            "u_Time", float(FrameCounter) / 60.0f, 0.0f);
 
-#if SDL_VERSION_ATLEAST(2, 0, 12)
-        const bool final_downscale =
-            destination.w < scaled_width || destination.h < scaled_height;
-        SDL_SetTextureScaleMode(
-            texture,
-            final_downscale ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
-#endif
+        int this_crt_shape_config =
+            config.video.crt_shape + config.video.warpX + config.video.warpY;
 
-        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
-        SDL_RenderClear(sdl_renderer);
-        SDL_RenderCopy(sdl_renderer, texture, nullptr, &destination);
-        SDL_RenderPresent(sdl_renderer);
+        if (((config.video.vignette != last_vignette) &&
+             (config.video.shader_mode < 2)) ||
+            (this_crt_shape_config != last_crt_shape_config))
+        {
+            init_overlay();
+        }
+
+        int x0 = anchor_x + config.video.x_offset;
+        int y0 = anchor_y + config.video.y_offset;
+        glb::set_present_rect_pixels_top_left(
+            x0, y0, dst_rect.w, dst_rect.h);
+        glb::set_overlay_rect_pixels_top_left(
+            x0, y0, dst_rect.w, dst_rect.h);
+
+        glb::draw(
+            offscreen_rendering == 1,
+            (config.video.crt_shape != 0) ||
+            (config.video.shadow_mask == 1));
+        glb::present();
+
+        activity_counter.fetch_sub(1, std::memory_order_acq_rel);
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.notify_all();
+
         return true;
     }
 
@@ -354,83 +392,40 @@ private:
             return false;
         }
 
-        if (!sdl_screen_size())
+        if (!reconfigure_scaler_output(active_mode, true, false))
         {
             scaler_path = false;
             return false;
         }
 
-        if (video_mode == video_settings_t::MODE_WINDOW)
+        if (!RenderSurface::init(
+                src_width,
+                src_height,
+                scale,
+                video_mode,
+                scanlines))
         {
-            scn_width = src_width * scale;
-            scn_height = src_height * scale;
-        }
-        else
-        {
-            scn_width = orig_width;
-            scn_height = orig_height;
-        }
-
-        window = SDL_CreateWindow(
-            "Cannonball",
-            SDL_WINDOWPOS_CENTERED,
-            SDL_WINDOWPOS_CENTERED,
-            scn_width,
-            scn_height,
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-
-        if (!window)
-        {
-            std::cerr << "Pixel scaler window creation failed: "
-                      << SDL_GetError() << std::endl;
             scaler_path = false;
             return false;
         }
 
-        if (video_mode != video_settings_t::MODE_WINDOW)
-        {
-            if (SDL_SetWindowFullscreen(
-                    window,
-                    SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
-            {
-                std::cerr << "Pixel scaler fullscreen failed: "
-                          << SDL_GetError() << std::endl;
-            }
-            SDL_ShowCursor(SDL_DISABLE);
-        }
-        else
-        {
-            SDL_ShowCursor(SDL_ENABLE);
-        }
+        base_renderer_initialized = true;
+        glb::set_game_pixel_format(glb::State::PixFmt::RGBA);
+        reallocate_gl_game_texture();
 
-        Uint32 renderer_flags = SDL_RENDERER_ACCELERATED;
-        if (config.video.vsync)
-            renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
-
-        sdl_renderer = SDL_CreateRenderer(window, -1, renderer_flags);
-        if (!sdl_renderer)
-            sdl_renderer = SDL_CreateRenderer(window, -1, 0);
-
-        if (!sdl_renderer)
-        {
-            std::cerr << "Pixel scaler renderer creation failed: "
-                      << SDL_GetError() << std::endl;
-            disable_scaler();
-            return false;
-        }
-
-        if (!reconfigure_scaler_output(active_mode, true))
-        {
-            disable_scaler();
-            return false;
-        }
-
+        std::cout << "Pixel scaler + stock SE post-process enabled: "
+                  << pixel_scaler::name(active_mode)
+                  << " | scaler " << scaled_width << "x" << scaled_height
+                  << " | SE output " << dst_rect.w << "x" << dst_rect.h
+                  << std::endl;
         return true;
     }
 
-    bool reconfigure_scaler_output(int requested_mode, bool initial = false)
+    bool reconfigure_scaler_output(int requested_mode,
+                                   bool initial = false,
+                                   bool resize_gl = true)
     {
-        if (!pixel_scaler::active(requested_mode) || !sdl_renderer)
+        if (!pixel_scaler::active(requested_mode))
             return false;
 
         if (pixel_scaler::is_hqx(requested_mode))
@@ -445,13 +440,13 @@ private:
         const int new_width = scaler_input_width * new_factor;
         const int new_height = scaler_input_height * new_factor;
 
-        // Allocate the replacement CPU buffer before touching the live output.
         std::vector<uint32_t> new_scaled_pixels;
+        std::vector<uint32_t> new_upload_pixels;
         try
         {
-            new_scaled_pixels.assign(
-                static_cast<size_t>(new_width) * new_height,
-                0xFF000000u);
+            const size_t count = static_cast<size_t>(new_width) * new_height;
+            new_scaled_pixels.assign(count, 0xFF000000u);
+            new_upload_pixels.assign(count, 0x000000FFu);
         }
         catch (const std::bad_alloc&)
         {
@@ -461,64 +456,46 @@ private:
             return false;
         }
 
-        // Create the replacement texture before destroying the old one. This
-        // makes a failed mode change non-destructive.
-        SDL_Texture* new_texture = SDL_CreateTexture(
-            sdl_renderer,
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            new_width,
-            new_height);
-
-        if (!new_texture)
-        {
-            std::cerr << "Pixel scaler texture creation failed for "
-                      << pixel_scaler::name(requested_mode)
-                      << ": " << SDL_GetError() << std::endl;
-            return false;
-        }
-
-        SDL_SetTextureBlendMode(new_texture, SDL_BLENDMODE_NONE);
-
         const int previous_mode = active_mode;
-
-        if (texture)
-            SDL_DestroyTexture(texture);
-
-        texture = new_texture;
         scaled_pixels.swap(new_scaled_pixels);
+        upload_pixels.swap(new_upload_pixels);
         active_mode = requested_mode;
         factor = new_factor;
         scaled_width = new_width;
         scaled_height = new_height;
         scaler_path = true;
 
-        if (initial)
-        {
-            std::cout << "Pixel scaler enabled: "
-                      << pixel_scaler::name(active_mode)
-                      << " | frame " << src_width << "x" << src_height
-                      << " | scaler input " << scaler_input_width << "x"
-                      << scaler_input_height
-                      << " | output " << scaled_width << "x"
-                      << scaled_height;
+        if (resize_gl && base_renderer_initialized && glContext)
+            reallocate_gl_game_texture();
 
-            if (input_step == 2)
-                std::cout << " (Hi-Res decimated to native arcade pixels)";
-
-            std::cout << std::endl;
-        }
-        else
+        if (!initial)
         {
             std::cout << "Pixel scaler texture switch: "
                       << pixel_scaler::name(previous_mode)
                       << " -> " << pixel_scaler::name(active_mode)
                       << " | " << scaled_width << "x" << scaled_height
-                      << " (window/renderer preserved)"
+                      << " (stock SE renderer preserved)"
                       << std::endl;
         }
-
         return true;
+    }
+
+    void reallocate_gl_game_texture()
+    {
+        glb::G.gameW = scaled_width;
+        glb::G.gameH = scaled_height;
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, glb::G.texGame);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            scaled_width,
+            scaled_height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            nullptr);
     }
 
     void handle_cycle_hotkey()
@@ -531,12 +508,10 @@ private:
             const int next = pixel_scaler::cycle_hotkey();
             notification_mode = next;
             notification_until_ms = SDL_GetTicks() + 1500;
-
             std::cout << "Pixel scaler: "
                       << pixel_scaler::name(next)
                       << std::endl;
         }
-
         f6_was_down = down;
     }
 
@@ -544,7 +519,6 @@ private:
     {
         if (notification_until_ms == 0)
             return false;
-
         return static_cast<Sint32>(
             notification_until_ms - SDL_GetTicks()) > 0;
     }
@@ -598,14 +572,12 @@ private:
                 darkest_luma = luma;
                 darkest = static_cast<uint16_t>(i);
             }
-
             if (luma > brightest_luma)
             {
                 brightest_luma = luma;
                 brightest = static_cast<uint16_t>(i);
             }
         }
-
         return {darkest, brightest};
     }
 
@@ -626,15 +598,13 @@ private:
         const int box_x = std::max(0, (src_width - box_width) / 2);
         const int box_y = 4 * ui_scale;
 
-        const auto [background, foreground] =
-            notification_palette_indices();
+        const auto [background, foreground] = notification_palette_indices();
 
         for (int y = 0; y < box_height; ++y)
         {
             const int py = box_y + y;
             if (py < 0 || py >= src_height)
                 continue;
-
             for (int x = 0; x < box_width; ++x)
             {
                 const int px = box_x + x;
@@ -649,7 +619,6 @@ private:
         for (char c : text)
         {
             const auto rows = glyph(c);
-
             for (int row = 0; row < 7; ++row)
             {
                 for (int col = 0; col < 5; ++col)
@@ -659,13 +628,11 @@ private:
 
                     const int x0 = cursor_x + col * ui_scale;
                     const int y0 = text_y + row * ui_scale;
-
                     for (int sy = 0; sy < ui_scale; ++sy)
                     {
                         const int py = y0 + sy;
                         if (py < 0 || py >= src_height)
                             continue;
-
                         for (int sx = 0; sx < ui_scale; ++sx)
                         {
                             const int px = x0 + sx;
@@ -675,24 +642,17 @@ private:
                     }
                 }
             }
-
             cursor_x += advance;
         }
     }
 
     void apply_low_factor_detail_preserve()
     {
-        // 3x still devotes a comparatively large share of each source-pixel
-        // block to blended edge colours. High-frequency content such as
-        // OutRun's road can therefore look softer than 4x+. Blend 25% of the
-        // exact nearest-neighbour source colour back in. 4x+ remains untouched.
         const int nearest_weight = (factor == 3) ? 25 : 0;
-
         if (nearest_weight == 0 || source_pixels.empty() || scaled_pixels.empty())
             return;
 
         const int scaler_weight = 100 - nearest_weight;
-
         for (int y = 0; y < scaled_height; ++y)
         {
             const int source_y = y / factor;
@@ -723,74 +683,95 @@ private:
         }
     }
 
-    void apply_scanlines_if_enabled()
+    void apply_se_scanlines_after_scaler()
     {
-        if (scanlines <= 0)
+        const int configured = config.video.scanlines;
+        if (configured <= 0)
             return;
 
-        const int shift = std::clamp(scanlines, 1, 3);
-        for (int y = 1; y < scaled_height; y += 2)
+        const int shift = std::clamp(configured, 1, 3);
+        for (int source_y = 1;
+             source_y < scaler_input_height;
+             source_y += 2)
         {
-            uint32_t* row =
-                scaled_pixels.data() +
-                static_cast<size_t>(y) * scaled_width;
-
-            for (int x = 0; x < scaled_width; ++x)
+            const int first_y = source_y * factor;
+            const int last_y = std::min(first_y + factor, scaled_height);
+            for (int y = first_y; y < last_y; ++y)
             {
-                const uint32_t p = row[x];
-                const uint32_t a = p & 0xFF000000u;
-                const uint32_t r = ((p >> 16) & 0xFFu) >> shift;
-                const uint32_t g = ((p >> 8) & 0xFFu) >> shift;
-                const uint32_t b = (p & 0xFFu) >> shift;
-                row[x] = a | (r << 16) | (g << 8) | b;
+                uint32_t* row =
+                    scaled_pixels.data() +
+                    static_cast<size_t>(y) * scaled_width;
+
+                for (int x = 0; x < scaled_width; ++x)
+                {
+                    const uint32_t p = row[x];
+                    const uint32_t a = p & 0xFF000000u;
+                    const uint32_t r = (p >> 16) & 0xFFu;
+                    const uint32_t g = (p >> 8) & 0xFFu;
+                    const uint32_t b = p & 0xFFu;
+                    const uint32_t lum =
+                        (77u * r + 150u * g + 29u * b) >> 8;
+                    const uint32_t rd = r >> shift;
+                    const uint32_t gd = g >> shift;
+                    const uint32_t bd = b >> shift;
+                    const uint32_t out_r =
+                        (rd * (255u - lum) + r * lum) >> 8;
+                    const uint32_t out_g =
+                        (gd * (255u - lum) + g * lum) >> 8;
+                    const uint32_t out_b =
+                        (bd * (255u - lum) + b * lum) >> 8;
+                    row[x] =
+                        a | (out_r << 16) | (out_g << 8) | out_b;
+                }
             }
+        }
+    }
+
+    void prepare_rgba_upload()
+    {
+        if (upload_pixels.size() != scaled_pixels.size())
+            upload_pixels.resize(scaled_pixels.size());
+
+        for (size_t i = 0; i < scaled_pixels.size(); ++i)
+        {
+            const uint32_t p = scaled_pixels[i];
+            upload_pixels[i] =
+                (p & 0xFF00FF00u) |
+                ((p & 0x00FF0000u) >> 16) |
+                ((p & 0x000000FFu) << 16);
         }
     }
 
     void disable_scaler()
     {
-        if (texture)
+        if (base_renderer_initialized)
         {
-            SDL_DestroyTexture(texture);
-            texture = nullptr;
-        }
-
-        if (sdl_renderer)
-        {
-            SDL_DestroyRenderer(sdl_renderer);
-            sdl_renderer = nullptr;
-        }
-
-        if (window)
-        {
-            SDL_DestroyWindow(window);
-            window = nullptr;
+            RenderSurface::disable();
+            base_renderer_initialized = false;
         }
 
         source_pixels.clear();
         scaled_pixels.clear();
+        upload_pixels.clear();
         scaled_width = 0;
         scaled_height = 0;
         scaler_path = false;
     }
 
     bool scaler_path = false;
+    bool base_renderer_initialized = false;
     bool f6_was_down = false;
     int active_mode = pixel_scaler::OFF;
     int notification_mode = pixel_scaler::OFF;
     Uint32 notification_until_ms = 0;
     int factor = 1;
-    int scale = 1;
     int input_step = 1;
     int scaler_input_width = 0;
     int scaler_input_height = 0;
     int scaled_width = 0;
     int scaled_height = 0;
 
-    SDL_Window* window = nullptr;
-    SDL_Renderer* sdl_renderer = nullptr;
-    SDL_Texture* texture = nullptr;
-
     std::vector<uint32_t> source_pixels;
     std::vector<uint32_t> scaled_pixels;
+    std::vector<uint32_t> upload_pixels;
 };
