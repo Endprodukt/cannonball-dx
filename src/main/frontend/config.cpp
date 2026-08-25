@@ -450,9 +450,11 @@ namespace
         if (parent_has_comment(parent, text))
             return;
 
-        parent->InsertBeforeChild(
-            element,
-            cfg.doc.NewComment(text));
+        tinyxml2::XMLNode* comment = cfg.doc.NewComment(text);
+        if (tinyxml2::XMLNode* previous = element->PreviousSibling())
+            parent->InsertAfterChild(previous, comment);
+        else
+            parent->InsertFirstChild(comment);
     }
 
     void add_ffb_config_comments(xml_parser::ptree& cfg)
