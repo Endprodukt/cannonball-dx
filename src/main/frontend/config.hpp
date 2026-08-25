@@ -307,17 +307,19 @@ public:
     void inc_time();
     void inc_traffic();
 
-    // Per-effect wheel FFB tuning lives directly in config.xml. These are
-    // deliberately simple values: the defaults reproduce CannonBall DX's
-    // current tuning, while users may raise/lower individual effects without
-    // enabling a separate advanced mode. Values above 100 are accepted; the
-    // actual haptic backend/device performs the final clipping.
+    // Per-effect wheel FFB tuning lives directly in config.xml. Effect and
+    // spring strength values use a clear 0..100 range. The two spring speed
+    // thresholds use the game's vehicle-speed units instead (0..294).
     int ffb_effect_setting(const char* name, int default_value)
     {
         const std::string path =
             std::string("controls.analog.haptic.effects.") + name;
         int value = cfg.get_int(path, default_value);
-        return value < 0 ? 0 : value;
+        if (value < 0)
+            return 0;
+        if (value > 100)
+            return 100;
+        return value;
     }
 
     int ffb_spring_setting(const char* name, int default_value)
@@ -325,7 +327,15 @@ public:
         const std::string path =
             std::string("controls.analog.haptic.spring.") + name;
         int value = cfg.get_int(path, default_value);
-        return value < 0 ? 0 : value;
+        const std::string setting = name ? name : "";
+        const int maximum =
+            (setting == "speed_start" || setting == "speed_full") ? 294 : 100;
+
+        if (value < 0)
+            return 0;
+        if (value > maximum)
+            return maximum;
+        return value;
     }
 
     // Seed missing FFB tuning entries into the in-memory XML tree when the
@@ -359,9 +369,9 @@ public:
         seed_effect("traffic_skid", 100);
         seed_effect("crash_bump", 100);
         seed_effect("crash_spin_impact", 100);
-        seed_effect("crash_spin", 115);
+        seed_effect("crash_spin", 100);
         seed_effect("crash_flip_impact", 100);
-        seed_effect("crash_flip", 115);
+        seed_effect("crash_flip", 100);
         seed_effect("crash_flip_landing", 100);
         seed_effect("start_steering", 100);
         seed_effect("start_rev_shake", 15);
