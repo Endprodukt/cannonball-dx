@@ -218,6 +218,8 @@ namespace forcefeedback
     static bool g_enabled = true;
     static bool g_is_wheel = false;
     static bool g_tyre_slip_active = false;
+    static bool g_logged_constant_update_error = false;
+    static bool g_logged_constant_run_error = false;
 
     static unsigned int g_haptic_caps = 0;
     static int g_max_force = 0x7fff;
@@ -328,6 +330,8 @@ namespace forcefeedback
                     << std::dec
                     << " | wheel=" << (g_is_wheel ? "yes" : "no")
                     << " | caps=0x" << std::hex << g_haptic_caps << std::dec
+                    << " | effects=" << SDL_HapticNumEffects(g_haptic)
+                    << " | playing=" << SDL_HapticNumEffectsPlaying(g_haptic)
                     << std::endl;
 
                 return true;
@@ -351,6 +355,7 @@ namespace forcefeedback
         effect.type = SDL_HAPTIC_CONSTANT;
         effect.constant.direction = steering_direction();
         effect.constant.length = SDL_HAPTIC_INFINITY;
+        effect.constant.delay = 0;
         effect.constant.level = 0;
 
         g_constant_effect = SDL_HapticNewEffect(g_haptic, &effect);
@@ -361,6 +366,8 @@ namespace forcefeedback
             return false;
         }
 
+        std::cout << "SDL FFB: constant-force effect id="
+                  << g_constant_effect << std::endl;
         return true;
     }
 
@@ -402,9 +409,8 @@ namespace forcefeedback
             return false;
         }
 
-        if (effective_centering_percent() > 0)
-            SDL_HapticRunEffect(g_haptic, g_spring_effect, 1);
-
+        // Match Flycast's lifecycle: create the spring here, but do not start
+        // it until CannonBall explicitly applies its configured centering load.
         return true;
     }
 
@@ -475,6 +481,7 @@ namespace forcefeedback
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_CONSTANT;
         effect.constant.length = SDL_HAPTIC_INFINITY;
+        effect.constant.delay = 0;
 
         if (g_is_wheel)
         {
@@ -491,7 +498,17 @@ namespace forcefeedback
         }
 
         if (SDL_HapticUpdateEffect(g_haptic, g_constant_effect, &effect) < 0)
+        {
+            if (!g_logged_constant_update_error)
+            {
+                std::cout << "SDL FFB: constant-force update failed: "
+                          << SDL_GetError() << std::endl;
+                g_logged_constant_update_error = true;
+            }
             return -1;
+        }
+
+        g_logged_constant_update_error = false;
 
         if (sign == 0)
         {
@@ -499,7 +516,19 @@ namespace forcefeedback
             return 0;
         }
 
-        return SDL_HapticRunEffect(g_haptic, g_constant_effect, 1) < 0 ? -1 : 0;
+        if (SDL_HapticRunEffect(g_haptic, g_constant_effect, 1) < 0)
+        {
+            if (!g_logged_constant_run_error)
+            {
+                std::cout << "SDL FFB: constant-force run failed: "
+                          << SDL_GetError() << std::endl;
+                g_logged_constant_run_error = true;
+            }
+            return -1;
+        }
+
+        g_logged_constant_run_error = false;
+        return 0;
     }
 
     void set_centering_strength(int percent)
@@ -524,7 +553,11 @@ namespace forcefeedback
             return;
         }
 
-        SDL_HapticRunEffect(g_haptic, g_spring_effect, 1);
+        if (SDL_HapticRunEffect(g_haptic, g_spring_effect, 1) < 0)
+        {
+            std::cout << "SDL FFB: unable to run spring: "
+                      << SDL_GetError() << std::endl;
+        }
     }
 
     static bool create_tyre_slip_effect()
@@ -660,6 +693,8 @@ namespace forcefeedback
         g_init_attempted = false;
         g_is_wheel = false;
         g_tyre_slip_active = false;
+        g_logged_constant_update_error = false;
+        g_logged_constant_run_error = false;
     }
 
     bool is_supported()
