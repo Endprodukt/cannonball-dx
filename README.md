@@ -6,6 +6,8 @@
 
 The additional work in this fork was developed with the assistance of **ChatGPT by OpenAI, using GPT-5.6 Sol**.
 
+> **Platform status:** CannonBall DX is currently developed and tested **only on Windows 10/11 (64-bit)**. Linux, Raspberry Pi and other platforms have **not been tested with the DX changes**. The upstream CannonBall and CannonBall-SE projects support additional platforms, but no compatibility with CannonBall DX or its added features is claimed or guaranteed outside Windows.
+
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
 ![CannonBall DX Start Line](screenshots/CannonBall-DX-Startline.jpg)
@@ -98,13 +100,21 @@ CannonBall already included steering-wheel force feedback. CannonBall DX **exten
 
 ---
 
-## Supported Platforms
+## Platform Support
 
-- Raspberry Pi systems running Raspberry Pi OS
-- x86/x64 PCs running Ubuntu
-- Windows 11 PCs
+### Tested
 
-The expanded Windows force-feedback implementation is primarily intended for **Windows**. Linux retains the existing evdev-based FFB path.
+- **Windows 10/11 (64-bit)**
+
+### Not tested with CannonBall DX
+
+- Linux
+- Raspberry Pi / Raspberry Pi OS
+- Other platforms supported by upstream CannonBall or CannonBall-SE
+
+The upstream projects contain support for additional operating systems and hardware, and some of that code remains present in CannonBall DX. However, **the DX fork and its added features are only tested on Windows**. Linux, Raspberry Pi and other builds may work fully, partially or not at all. No compatibility outside Windows should be assumed.
+
+The expanded force-feedback implementation and modern wheel work in CannonBall DX are likewise tested only on Windows.
 
 ---
 
@@ -127,7 +137,9 @@ You are expected to legally own the original ROMs; usage may be restricted by lo
 
 ---
 
-## Quick Start - Linux
+## Quick Start - Linux (Untested)
+
+> **CannonBall DX is not tested on Linux.** The following build path is inherited from the upstream project and is retained for convenience only. It should not be interpreted as an official CannonBall DX compatibility statement.
 
 ```bash
 git clone https://github.com/Endprodukt/cannonball-dx.git
