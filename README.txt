@@ -139,7 +139,47 @@ not part of the tested DX release target.
 
 
 -------------------------------------
-4. Source Code
+4. Controls & Fixed Keyboard Hotkeys
+-------------------------------------
+
+Controls are configured through:
+
+Menu -> Settings -> Controls
+
+The binding editor provides separate Keyboard, Gamepad and Wheel columns.
+Steering, accelerator, brake, shifter and buttons can be assigned independently,
+including controls from separate USB devices.
+
+Default keyboard controls:
+
+- Start: S
+- Coin: C
+- Accelerate: A
+- Brake: Z
+- Low / High Gear: G / H
+- Steer: Left / Right arrows
+- Change View: V
+- Menu: M
+- Quit: Esc
+
+The following function keys are fixed and cannot be redefined:
+
+- F1  Pause
+- F2  Frame step
+- F3  Freeze timer
+- F5  Menu
+- F6  Pixel-scaler quick cycle
+- F7  Hi-res sprites
+- F8  Video-processing toggle
+- F9  Shadow-mask toggle
+- F10 Ferrari colour
+
+While the car is driving in Attract Mode, F10 cycles the Ferrari colour. The
+selected colour is saved as the default and restored on future starts.
+
+
+-------------------------------------
+5. Source Code
 -------------------------------------
 
 CannonBall DX is a modified derivative of CannonBall and CannonBall-SE.
@@ -159,7 +199,7 @@ docs\Compiling-On-Windows.txt
 
 
 -------------------------------------
-5. Credits
+6. Credits
 -------------------------------------
 
 CannonBall DX builds directly on the work of the original projects and their
@@ -202,6 +242,20 @@ Shay Green (Blargg)
 Author of the snes_ntsc video filter used for NTSC/composite-style processing.
 The component is licensed under the GNU Lesser General Public License v2.1.
 
+Zenju
+Author of xBRZ, used for CannonBall DX 3x, 4x, 5x and 6x pixel-scaling modes.
+The HqMAME-derived implementation used by DX is obtained from the pinned Mesen2
+source snapshot used by the build.
+
+Maxim Stepin and Cameron Zemek
+Authors/contributors of the HQx implementation used for CannonBall DX 3x and 4x
+pixel-scaling modes. HQx is licensed under the GNU Lesser General Public License
+v2.1 or later.
+
+SourMesen / Mesen2 contributors
+Mesen2 provides the pinned HqMAME-derived xBRZ and HQx source implementations
+used by the CannonBall DX build.
+
 Rich Geldreich and miniz contributors
 Authors and contributors to miniz, used by CannonBall DX for direct ZIP ROM
 loading. miniz is provided under its public-domain / Unlicense terms.
@@ -226,20 +280,37 @@ docs\THIRD-PARTY-NOTICES.md
 
 
 -------------------------------------
-6. Third-Party Libraries
+7. Third-Party Libraries
 -------------------------------------
 
 CannonBall DX uses or interfaces with open-source components including SDL2,
-TinyXML2, mpg123, ANGLE, zlib, snes_ntsc and miniz, depending on platform and
-build configuration.
+TinyXML2, mpg123, ANGLE, zlib, snes_ntsc, xBRZ, HQx and miniz, depending on
+platform and build configuration.
+
+xBRZ
+----
+Copyright © Zenju.
+The HqMAME-derived implementation used by CannonBall DX is distributed under the
+GNU General Public License v3 with the exception text retained in the upstream
+source.
+
+HQx
+---
+Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek.
+Licensed under the GNU Lesser General Public License v2.1 or later.
 
 Each component remains subject to its respective copyright and license terms.
-Relevant license and notice files are supplied with the project. Copyright and
-license notices must not be removed when redistributing CannonBall DX.
+Relevant license and notice files are supplied with the project where applicable.
+Copyright and license notices must not be removed when redistributing CannonBall
+DX.
+
+See:
+
+docs\THIRD-PARTY-NOTICES.md
 
 
 -------------------------------------
-7. License
+8. License
 -------------------------------------
 
 CannonBall DX remains subject to all applicable upstream license conditions.
@@ -276,11 +347,12 @@ docs\CannonBall-SE-license.txt
 DX-specific modifications do not grant any additional commercial rights beyond
 those permitted by the applicable upstream licenses.
 
-Third-party components remain licensed under their own respective terms.
+Third-party components, including xBRZ and HQx, remain licensed under their own
+respective terms as documented in docs\THIRD-PARTY-NOTICES.md.
 
 
 -------------------------------------
-8. Sega / OutRun Notice
+9. Sega / OutRun Notice
 -------------------------------------
 
 OutRun is a trademark of SEGA Corporation.
@@ -292,7 +364,7 @@ No Sega ROM data is distributed with CannonBall DX.
 
 
 -------------------------------------
-9. Warranty
+10. Warranty
 -------------------------------------
 
 This software is provided without warranty.
@@ -304,7 +376,7 @@ project.
 
 
 -------------------------------------
-10. Bugs & Development
+11. Bugs & Development
 -------------------------------------
 
 For source code, development information, bugs and feature requests:
