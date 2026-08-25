@@ -9,17 +9,48 @@ licenses are included where required.
 
 - **Component:** `snes_ntsc`
 - **Author:** Shay Green ('Blargg') <gblargg@gmail.com>
-- **License:** GNU Lesser General Public License (LGPL) — see `licenses/LGPL-2.1.txt`
-- **Docs:** `docs/snes_ntsc.txt`
+- **License:** GNU Lesser General Public License (LGPL) v2.1
+- **License text:** `docs/LGPL-2.1.txt`
+- **Docs:** `docs/Blargg-NTSC-Filter-Concepts-and-Implementation.txt`
 
 ### Notes
 
-This library provides composite-video style NTSC filtering. When statically linking
-LGPL code into binaries, ensure recipients can relink with a modified version (for
-example, by providing relinkable object files); when dynamically linking, ensure users
-can swap in a compatible modified library. Preserve copyright and license notices.
+This library provides composite-video style NTSC filtering. Preserve its copyright
+and license notices when redistributing CannonBall DX.
 
-For the full terms, see `licenses/LGPL-2.1.txt`.
+---
+
+## xBRZ
+
+- **Component:** `xBRZ`
+- **Author:** Zenju
+- **Copyright:** Copyright (C) Zenju
+- **License:** GNU General Public License v3 with the exception text contained in the upstream HqMAME-derived source
+- **Source used by CannonBall DX:** pinned Mesen2 snapshot fetched at build time
+- **Upstream source:** `SourMesen/Mesen2`, `Utilities/xBRZ`
+
+### Notes
+
+CannonBall DX uses xBRZ for its 3x, 4x, 5x and 6x pixel-scaling modes. The build
+fetches the scaler source from a pinned Mesen2 revision and retains the upstream
+copyright and license headers.
+
+---
+
+## HQx
+
+- **Component:** `HQx`
+- **Authors / Copyright:** Copyright (C) 2003 Maxim Stepin; Copyright (C) 2010 Cameron Zemek
+- **License:** GNU Lesser General Public License v2.1 or later
+- **License text:** `docs/LGPL-2.1.txt`
+- **Source used by CannonBall DX:** pinned Mesen2 snapshot fetched at build time
+- **Upstream source:** `SourMesen/Mesen2`, `Utilities/HQX`
+
+### Notes
+
+CannonBall DX uses HQx for its 3x and 4x pixel-scaling modes. The build fetches
+the scaler source from the same pinned Mesen2 revision used for xBRZ and retains
+the upstream copyright and license headers.
 
 ---
 
