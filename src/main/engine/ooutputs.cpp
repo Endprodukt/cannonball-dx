@@ -25,6 +25,7 @@
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
 #include "sdl2/input.hpp"
+#include "directx/ffeedback.hpp"
 
 namespace
 {
@@ -307,6 +308,19 @@ void OOutputs::writeDigitalToConsole()
 
     // Preserve the original SmartyPi console output path exactly as before.
     writeDigitalToConsole_base();
+
+    // OOutputs::tick() runs earlier in the frame and its normal stationary path
+    // reapplies the low-speed centering spring even on GS_MUSIC. Music Select
+    // deliberately has no continuous wheel force: stop any sine and spring now,
+    // after the normal output tick, so only main.cpp's short song-boundary pulse
+    // can run later in this frame.
+    if (music_selection &&
+        config.controls.haptic &&
+        forcefeedback::is_supported())
+    {
+        forcefeedback::set_tyre_slip(false);
+        forcefeedback::set_centering_strength(0);
+    }
 
     const bool enhanced_attract_driving =
         cannonball::state == cannonball::STATE_GAME &&
