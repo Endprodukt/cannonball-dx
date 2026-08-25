@@ -58,7 +58,6 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Full backwards compatibility with traditional loose CannonBall ROM files**
 - **Early/Japanese program-ROM data** detected by CRC when present
 - **Corrected Sega/M2 PCM ROM preferred automatically**, with historical CannonBall patch and original ROM fallbacks
-- **FFB detents in the music selector** on supported Windows wheels
 
 ---
 
