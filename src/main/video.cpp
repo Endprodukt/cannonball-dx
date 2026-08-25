@@ -207,6 +207,7 @@ void Video::prepare_frame()
 
         sprite_layer->render(pixels, 8);
         tile_layer->render_text_layer(pixels, 1);
+        tile_layer->render_text_scroll_overlay(pixels, 1);
     }
 }
 
@@ -238,6 +239,7 @@ bool Video::supports_vsync()
 
 void Video::clear_text_ram()
 {
+    tile_layer->clear_text_scroll_overlay();
     for (uint32_t i = 0; i <= 0xFFF; i++)
         tile_layer->text_ram[i] = 0;
 }
@@ -488,7 +490,6 @@ void Video::write_pal32(uint32_t* palAddr, const uint32_t data)
 
     refresh_palette(adr);
     refresh_palette(adr+2);
-
     *palAddr += 4;
 }
 */
@@ -627,3 +628,219 @@ void Video::refresh_palette(uint32_t palAddr)
     renderer->convert_palette(palAddr, r, g, b);
 }
 */
+
+// ---------------------------------------------------------------------------
+// CannonBall DX clipped smooth text overlay
+// ---------------------------------------------------------------------------
+
+void hwtiles::clear_text_scroll_overlay()
+{
+    text_scroll_active = false;
+    text_scroll_top_y = 0;
+    text_scroll_bottom_y = 0;
+    text_scroll_first_row_y = 0;
+    text_scroll_row_spacing = 16;
+    text_scroll_row_count = 0;
+    text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
+    std::memset(text_scroll_overlay, 0, sizeof(text_scroll_overlay));
+}
+
+void hwtiles::configure_text_scroll_overlay(
+    int16_t top_y,
+    int16_t bottom_y,
+    int16_t first_row_y,
+    int16_t row_spacing,
+    int16_t row_count)
+{
+    text_scroll_top_y = top_y;
+    text_scroll_bottom_y = bottom_y;
+    text_scroll_first_row_y = first_row_y;
+    text_scroll_row_spacing = row_spacing > 0 ? row_spacing : 16;
+    text_scroll_row_count = row_count;
+
+    if (text_scroll_row_count < 0)
+        text_scroll_row_count = 0;
+    if (text_scroll_row_count > TEXT_SCROLL_MAX_ROWS)
+        text_scroll_row_count = TEXT_SCROLL_MAX_ROWS;
+
+    text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
+    text_scroll_active =
+        text_scroll_row_count > 0 &&
+        text_scroll_bottom_y > text_scroll_top_y;
+}
+
+void hwtiles::set_text_scroll_overlay_row(
+    int16_t row,
+    const uint16_t* data,
+    int16_t count)
+{
+    if (row < 0 || row >= TEXT_SCROLL_MAX_ROWS)
+        return;
+
+    std::memset(
+        text_scroll_overlay[row],
+        0,
+        sizeof(text_scroll_overlay[row]));
+
+    if (!data || count <= 0)
+        return;
+
+    if (count > TEXT_SCROLL_COLUMNS)
+        count = TEXT_SCROLL_COLUMNS;
+
+    std::memcpy(
+        text_scroll_overlay[row],
+        data,
+        static_cast<std::size_t>(count) * sizeof(uint16_t));
+}
+
+void hwtiles::set_text_scroll_overlay_offset(int16_t offset)
+{
+    text_scroll_offset = offset < 0 ? 0 : offset;
+    text_scroll_offset_fp = static_cast<int32_t>(text_scroll_offset) << 16;
+    text_scroll_speed = 0;
+}
+
+void hwtiles::set_text_scroll_overlay_motion(
+    int16_t pixels_per_second,
+    int16_t max_offset)
+{
+    text_scroll_speed = pixels_per_second > 0 ? pixels_per_second : 0;
+    text_scroll_max_offset = max_offset > 0 ? max_offset : 0;
+
+    if (text_scroll_offset >= text_scroll_max_offset)
+    {
+        text_scroll_offset = text_scroll_max_offset;
+        text_scroll_offset_fp =
+            static_cast<int32_t>(text_scroll_offset) << 16;
+        text_scroll_speed = 0;
+    }
+}
+
+int16_t hwtiles::get_text_scroll_overlay_offset() const
+{
+    return text_scroll_offset;
+}
+
+void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw)
+{
+    if (!text_scroll_active || !buf)
+        return;
+
+    // Advance at the DISPLAY frame rate, not the game-logic tick rate. This is
+    // what makes a 60 FPS / 30 Hz CannonBall configuration genuinely smooth.
+    if (text_scroll_speed > 0 &&
+        text_scroll_offset < text_scroll_max_offset)
+    {
+        const int frame_rate = config.fps > 0 ? config.fps : 60;
+        int32_t delta_fp =
+            (static_cast<int32_t>(text_scroll_speed) << 16) /
+            frame_rate;
+        if (delta_fp < 1)
+            delta_fp = 1;
+
+        text_scroll_offset_fp += delta_fp;
+        int32_t next_offset = text_scroll_offset_fp >> 16;
+
+        if (next_offset >= text_scroll_max_offset)
+        {
+            next_offset = text_scroll_max_offset;
+            text_scroll_offset_fp =
+                static_cast<int32_t>(text_scroll_max_offset) << 16;
+            text_scroll_speed = 0;
+        }
+
+        text_scroll_offset = static_cast<int16_t>(next_offset);
+    }
+
+    const bool hires = config.video.hires != 0;
+    const int logical_width = s16_width_noscale;
+    const int logical_height = S16_HEIGHT;
+
+    for (int row = 0; row < text_scroll_row_count; row++)
+    {
+        const int start_y =
+            text_scroll_first_row_y +
+            (row * text_scroll_row_spacing) -
+            text_scroll_offset;
+
+        if (start_y >= text_scroll_bottom_y ||
+            start_y + 8 <= text_scroll_top_y)
+        {
+            continue;
+        }
+
+        for (int col = 0; col < TEXT_SCROLL_COLUMNS; col++)
+        {
+            uint16_t raw = text_scroll_overlay[row][col];
+            if (!raw)
+                continue;
+
+            const uint8_t priority = (raw >> 15) & 1;
+            if (priority != priority_draw)
+                continue;
+
+            const uint16_t colour = (raw >> 9) & 0x07;
+            uint16_t code = raw & 0x01FF;
+            code += (tile_banks[0] << 12);
+            code &= (NUM_TILES - 1);
+
+            if (!code)
+                continue;
+
+            const int start_x = (col * 8) + config.s16_x_off;
+            const uint32_t* tile_data = tiles + (code << 3);
+
+            for (int py = 0; py < 8; py++)
+            {
+                const int sy = start_y + py;
+                if (sy < text_scroll_top_y ||
+                    sy >= text_scroll_bottom_y ||
+                    sy < 0 || sy >= logical_height)
+                {
+                    continue;
+                }
+
+                const uint32_t packed = tile_data[py];
+
+                for (int px = 0; px < 8; px++)
+                {
+                    const uint16_t pixel = static_cast<uint16_t>(
+                        (packed >> ((7 - px) * 4)) & 0x0F);
+                    if (!pixel)
+                        continue;
+
+                    const int sx = start_x + px;
+                    if (sx < 0 || sx >= logical_width)
+                        continue;
+
+                    const uint16_t palette_pixel =
+                        static_cast<uint16_t>((colour << 3) | pixel);
+
+                    if (!hires)
+                    {
+                        buf[(sy * config.s16_width) + sx] = palette_pixel;
+                    }
+                    else
+                    {
+                        const int physical_x = sx << 1;
+                        const int physical_y = sy << 1;
+                        uint16_t* dst =
+                            buf + (physical_y * config.s16_width) + physical_x;
+
+                        dst[0] = palette_pixel;
+                        dst[1] = palette_pixel;
+                        dst[config.s16_width] = palette_pixel;
+                        dst[config.s16_width + 1] = palette_pixel;
+                    }
+                }
+            }
+        }
+    }
+}
