@@ -219,8 +219,7 @@ public:
         if (!scaler_path)
             return RenderSurface::finalize_frame();
 
-        if (!base_renderer_initialized || !window || !glContext ||
-            upload_pixels.empty())
+        if (!base_renderer_initialized || !window || !glContext)
             return false;
 
         if (shutting_down.load(std::memory_order_acquire))
@@ -233,11 +232,21 @@ public:
         if (FrameCounter++ == 60)
             FrameCounter = 0;
 
-        glb::update_game_texture(
-            upload_pixels.data(),
-            scaled_width * static_cast<int>(sizeof(uint32_t)),
-            scaled_width,
-            scaled_height);
+        // CannonBall's main loop presents while the render worker is already
+        // building the next frame. Upload only the last fully completed scaler
+        // result. The render thread swaps a staging buffer into upload_pixels
+        // atomically under this short mutex once conversion has finished.
+        {
+            std::lock_guard<std::mutex> frame_lock(upload_mutex);
+            if (!upload_pixels.empty())
+            {
+                glb::update_game_texture(
+                    upload_pixels.data(),
+                    scaled_width * static_cast<int>(sizeof(uint32_t)),
+                    scaled_width,
+                    scaled_height);
+            }
+        }
 
         static long scaler_last_config = 0;
         static int scaler_ticks = 3;
@@ -442,11 +451,13 @@ private:
 
         std::vector<uint32_t> new_scaled_pixels;
         std::vector<uint32_t> new_upload_pixels;
+        std::vector<uint32_t> new_staging_upload_pixels;
         try
         {
             const size_t count = static_cast<size_t>(new_width) * new_height;
             new_scaled_pixels.assign(count, 0xFF000000u);
             new_upload_pixels.assign(count, 0x000000FFu);
+            new_staging_upload_pixels.assign(count, 0x000000FFu);
         }
         catch (const std::bad_alloc&)
         {
@@ -458,7 +469,11 @@ private:
 
         const int previous_mode = active_mode;
         scaled_pixels.swap(new_scaled_pixels);
-        upload_pixels.swap(new_upload_pixels);
+        {
+            std::lock_guard<std::mutex> frame_lock(upload_mutex);
+            upload_pixels.swap(new_upload_pixels);
+            staging_upload_pixels.swap(new_staging_upload_pixels);
+        }
         active_mode = requested_mode;
         factor = new_factor;
         scaled_width = new_width;
@@ -686,60 +701,70 @@ private:
     void apply_se_scanlines_after_scaler()
     {
         const int configured = config.video.scanlines;
-        if (configured <= 0)
+        if (configured <= 0 || scaled_height <= 0 || src_height <= 0)
             return;
 
         const int shift = std::clamp(configured, 1, 3);
-        for (int source_y = 1;
-             source_y < scaler_input_height;
-             source_y += 2)
-        {
-            const int first_y = source_y * factor;
-            const int last_y = std::min(first_y + factor, scaled_height);
-            for (int y = first_y; y < last_y; ++y)
-            {
-                uint32_t* row =
-                    scaled_pixels.data() +
-                    static_cast<size_t>(y) * scaled_width;
 
-                for (int x = 0; x < scaled_width; ++x)
-                {
-                    const uint32_t p = row[x];
-                    const uint32_t a = p & 0xFF000000u;
-                    const uint32_t r = (p >> 16) & 0xFFu;
-                    const uint32_t g = (p >> 8) & 0xFFu;
-                    const uint32_t b = p & 0xFFu;
-                    const uint32_t lum =
-                        (77u * r + 150u * g + 29u * b) >> 8;
-                    const uint32_t rd = r >> shift;
-                    const uint32_t gd = g >> shift;
-                    const uint32_t bd = b >> shift;
-                    const uint32_t out_r =
-                        (rd * (255u - lum) + r * lum) >> 8;
-                    const uint32_t out_g =
-                        (gd * (255u - lum) + g * lum) >> 8;
-                    const uint32_t out_b =
-                        (bd * (255u - lum) + b * lum) >> 8;
-                    row[x] =
-                        a | (out_r << 16) | (out_g << 8) | out_b;
-                }
+        // Reproduce the original SE scanline raster, not the xBRZ block size.
+        // src_height is the real RenderSurface input height: 224 in normal
+        // mode and 448 in Hi-Res. Mapping every scaled row back onto that
+        // logical raster means Hi-Res keeps its much thinner 448-line pattern
+        // instead of turning one dark row into an entire 3x/4x/5x/6x block.
+        for (int y = 0; y < scaled_height; ++y)
+        {
+            const int se_y = static_cast<int>(
+                (static_cast<int64_t>(y) * src_height) / scaled_height);
+            if ((se_y & 1) == 0)
+                continue;
+
+            uint32_t* row =
+                scaled_pixels.data() +
+                static_cast<size_t>(y) * scaled_width;
+
+            for (int x = 0; x < scaled_width; ++x)
+            {
+                const uint32_t p = row[x];
+                const uint32_t a = p & 0xFF000000u;
+                const uint32_t r = (p >> 16) & 0xFFu;
+                const uint32_t g = (p >> 8) & 0xFFu;
+                const uint32_t b = p & 0xFFu;
+                const uint32_t lum =
+                    (77u * r + 150u * g + 29u * b) >> 8;
+                const uint32_t rd = r >> shift;
+                const uint32_t gd = g >> shift;
+                const uint32_t bd = b >> shift;
+                const uint32_t out_r =
+                    (rd * (255u - lum) + r * lum) >> 8;
+                const uint32_t out_g =
+                    (gd * (255u - lum) + g * lum) >> 8;
+                const uint32_t out_b =
+                    (bd * (255u - lum) + b * lum) >> 8;
+                row[x] =
+                    a | (out_r << 16) | (out_g << 8) | out_b;
             }
         }
     }
 
     void prepare_rgba_upload()
     {
-        if (upload_pixels.size() != scaled_pixels.size())
-            upload_pixels.resize(scaled_pixels.size());
+        if (staging_upload_pixels.size() != scaled_pixels.size())
+            staging_upload_pixels.resize(scaled_pixels.size());
 
         for (size_t i = 0; i < scaled_pixels.size(); ++i)
         {
             const uint32_t p = scaled_pixels[i];
-            upload_pixels[i] =
+            staging_upload_pixels[i] =
                 (p & 0xFF00FF00u) |
                 ((p & 0x00FF0000u) >> 16) |
                 ((p & 0x000000FFu) << 16);
         }
+
+        // Publish only a completely converted frame. finalize_frame() can
+        // continue presenting the previous complete frame while xBRZ/HQx is
+        // working, matching CannonBall-SE's existing double-buffer behaviour.
+        std::lock_guard<std::mutex> frame_lock(upload_mutex);
+        upload_pixels.swap(staging_upload_pixels);
     }
 
     void disable_scaler()
@@ -752,7 +777,11 @@ private:
 
         source_pixels.clear();
         scaled_pixels.clear();
-        upload_pixels.clear();
+        {
+            std::lock_guard<std::mutex> frame_lock(upload_mutex);
+            upload_pixels.clear();
+            staging_upload_pixels.clear();
+        }
         scaled_width = 0;
         scaled_height = 0;
         scaler_path = false;
@@ -771,7 +800,9 @@ private:
     int scaled_width = 0;
     int scaled_height = 0;
 
+    std::mutex upload_mutex;
     std::vector<uint32_t> source_pixels;
     std::vector<uint32_t> scaled_pixels;
     std::vector<uint32_t> upload_pixels;
+    std::vector<uint32_t> staging_upload_pixels;
 };
