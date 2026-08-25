@@ -121,14 +121,29 @@ namespace pixel_scaler
             last_mode.store(value, std::memory_order_relaxed);
     }
 
+    // Every scaler transition is now handled inside the already-live
+    // PixelScalerRenderer. In particular OFF <-> ON must not destroy or
+    // recreate the SDL window, GLES context or shader program. Those context
+    // restarts proved inherently fragile while the threaded video pipeline was
+    // active. The renderer consumes this request at the normal frame boundary
+    // and only changes CPU scaler buffers / game texture storage in place.
+    inline void request_transition_restart(int previous, int next)
+    {
+        (void) previous;
+        (void) next;
+        renderer_restart_requested.store(true, std::memory_order_release);
+    }
+
     // Full menu cycle. 3x stays available for users who prefer the lower-cost
     // mode or its look, even though the quick F6 cycle focuses on the stronger
     // 4x+ modes.
     inline int cycle()
     {
+        const int previous = normalize(
+            mode.load(std::memory_order_relaxed));
         int next = OFF;
 
-        switch (normalize(mode.load(std::memory_order_relaxed)))
+        switch (previous)
         {
             case OFF:      next = XBRZ_3X; break;
             case XBRZ_3X: next = XBRZ_4X; break;
@@ -141,7 +156,7 @@ namespace pixel_scaler
         }
 
         set(next);
-        renderer_restart_requested.store(true, std::memory_order_release);
+        request_transition_restart(previous, next);
         return next;
     }
 
@@ -149,9 +164,11 @@ namespace pixel_scaler
     // leaving them accessible from Enhancements.
     inline int cycle_hotkey()
     {
+        const int previous = normalize(
+            mode.load(std::memory_order_relaxed));
         int next = OFF;
 
-        switch (normalize(mode.load(std::memory_order_relaxed)))
+        switch (previous)
         {
             case OFF:      next = XBRZ_4X; break;
             case XBRZ_3X:  next = XBRZ_4X; break;
@@ -164,7 +181,7 @@ namespace pixel_scaler
         }
 
         set(next);
-        renderer_restart_requested.store(true, std::memory_order_release);
+        request_transition_restart(previous, next);
 
         // F6 changes the scaler outside the frontend's normal save flow.
         // Persist it immediately because CannonBall-SE exits via _Exit() and
