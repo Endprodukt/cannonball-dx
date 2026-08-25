@@ -414,6 +414,129 @@ namespace
 
         return encoded.str();
     }
+
+    bool parent_has_comment(
+        tinyxml2::XMLNode* parent,
+        const std::string& text)
+    {
+        if (!parent)
+            return false;
+
+        for (tinyxml2::XMLNode* node = parent->FirstChild();
+             node;
+             node = node->NextSibling())
+        {
+            if (const tinyxml2::XMLComment* comment = node->ToComment())
+            {
+                const char* value = comment->Value();
+                if (value && text == value)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    void add_config_comment_before(
+        xml_parser::ptree& cfg,
+        const char* path,
+        const char* text)
+    {
+        tinyxml2::XMLElement* element = cfg.find_node(path);
+        if (!element || !element->Parent() || !text || !*text)
+            return;
+
+        tinyxml2::XMLNode* parent = element->Parent();
+        if (parent_has_comment(parent, text))
+            return;
+
+        parent->InsertBeforeChild(
+            element,
+            cfg.doc.NewComment(text));
+    }
+
+    void add_ffb_config_comments(xml_parser::ptree& cfg)
+    {
+        struct ConfigComment
+        {
+            const char* path;
+            const char* text;
+        };
+
+        static const ConfigComment COMMENTS[] =
+        {
+            { "controls.analog.haptic.effects.sand",
+              "FFB effect strengths use 0-100. 0 disables the individual effect; 100 is maximum configured strength." },
+            { "controls.analog.haptic.effects.sand",
+              "Sand / rough-surface grit taps." },
+            { "controls.analog.haptic.effects.tyre_slip",
+              "Tyre-slip vibration while sliding on the road." },
+            { "controls.analog.haptic.effects.offroad_rumble_one_wheel",
+              "Off-road vibration when one side of the car leaves the road." },
+            { "controls.analog.haptic.effects.offroad_rumble_full",
+              "Off-road vibration when the whole car is off the road." },
+            { "controls.analog.haptic.effects.offroad_pull_one_wheel",
+              "Outward steering pull when one side of the car is off-road." },
+            { "controls.analog.haptic.effects.offroad_pull_full",
+              "Outward steering pull when the whole car is off-road." },
+            { "controls.analog.haptic.effects.gear_shift",
+              "Gear-change kick and rebound." },
+            { "controls.analog.haptic.effects.music_selector",
+              "Short Music Select step impulse between songs; no continuous pull is used." },
+            { "controls.analog.haptic.effects.traffic_skid",
+              "Steering yank after a traffic collision / skid." },
+            { "controls.analog.haptic.effects.crash_bump",
+              "Low-speed scenery impact." },
+            { "controls.analog.haptic.effects.crash_spin_impact",
+              "Initial impact that starts a scenery spin." },
+            { "controls.analog.haptic.effects.crash_spin",
+              "Repeated side loads while the car spins." },
+            { "controls.analog.haptic.effects.crash_flip_impact",
+              "Initial impact that starts a high-speed flip." },
+            { "controls.analog.haptic.effects.crash_flip",
+              "Repeated / sustained side loads during a flip." },
+            { "controls.analog.haptic.effects.crash_flip_landing",
+              "Landing impact after a flip." },
+            { "controls.analog.haptic.effects.start_steering",
+              "Automatic steering load while the Ferrari drives onto the start line." },
+            { "controls.analog.haptic.effects.start_rev_shake",
+              "Throttle-dependent engine / rev shake before the start." },
+
+            { "controls.analog.haptic.spring.low_speed",
+              "Spring strength percentages use 0-100 and are relative to the Spring value selected in the in-game Controls menu." },
+            { "controls.analog.haptic.spring.low_speed",
+              "Low-speed spring percentage used in menus, Attract Mode, stationary driving and low speed." },
+            { "controls.analog.haptic.spring.high_speed",
+              "High-speed spring percentage reached at speed_full." },
+            { "controls.analog.haptic.spring.sliding",
+              "Percentage of the currently active spring retained during on-road tyre slip." },
+            { "controls.analog.haptic.spring.speed_start",
+              "Vehicle-speed threshold, NOT a percentage. Valid range 0-294; spring starts increasing here." },
+            { "controls.analog.haptic.spring.speed_full",
+              "Vehicle-speed threshold, NOT a percentage. Valid range 0-294; spring reaches high_speed here and stays there up to the normal maximum speed of 294." },
+            { "controls.analog.haptic.spring.traffic_skid",
+              "Spring percentage during a traffic-collision skid." },
+            { "controls.analog.haptic.spring.crash_bump",
+              "Spring percentage during a low-speed scenery bump." },
+            { "controls.analog.haptic.spring.crash_spin",
+              "Spring percentage during the active scenery spin." },
+            { "controls.analog.haptic.spring.crash_recovery",
+              "Spring percentage during spin recovery." },
+            { "controls.analog.haptic.spring.crash_flip_start",
+              "Spring percentage at the start of a flip." },
+            { "controls.analog.haptic.spring.crash_flip_airborne",
+              "Spring percentage while the car is airborne." },
+            { "controls.analog.haptic.spring.crash_flip_transition",
+              "Spring percentage through the flip transition." },
+            { "controls.analog.haptic.spring.crash_flip_landing",
+              "Spring percentage at landing." },
+            { "controls.analog.haptic.spring.crash_flip_recovery",
+              "Spring percentage during post-flip recovery." },
+        };
+
+        for (const ConfigComment& entry : COMMENTS)
+            add_config_comment_before(cfg, entry.path, entry.text);
+    }
 }
 
 void Config::load()
@@ -584,6 +707,13 @@ bool Config::save()
     cfg.put_string(
         "controls.device_bindings",
         encode_device_bindings(controls.device_bindings));
+
+    // Always materialize the current DX wheel-tuning defaults in the generated
+    // config, even when haptics are disabled on first launch. Then attach the
+    // English documentation directly to the real XML tree that save_base()
+    // writes to config.xml.
+    seed_ffb_tuning_defaults();
+    add_ffb_config_comments(cfg);
 
     // A colour changed in the frontend settings menu is a real default change.
     // While the engine is running, car_pal is runtime state: Music Select and
