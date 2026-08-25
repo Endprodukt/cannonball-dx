@@ -34,18 +34,6 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Expanded force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
 - **Gamepad rumble** with separate enable and strength settings
 
-### Fixed Keyboard Hotkeys
-
-- **F1** Pause
-- **F2** Frame step
-- **F3** Freeze timer
-- **F5** Menu
-- **F6** Pixel-scaler quick cycle
-- **F7** Hi-res sprites
-- **F8** Video-processing toggle
-- **F9** Shadow-mask toggle
-- **F10** Ferrari colour
-
 ### Display & Presentation
 
 - **4:3, 16:9 and 21:9 ultrawide support**
@@ -178,6 +166,36 @@ The binding editor provides separate **Keyboard**, **Gamepad** and **Wheel** col
 
 Device bindings store a persistent device signature so assignments survive changes in SDL device order.
 
+### Default Keyboard Controls
+
+- **Start:** `S`
+- **Coin:** `C`
+- **Accelerate:** `A`
+- **Brake:** `Z`
+- **Low / High Gear:** `G` / `H`
+- **Steer:** Left / Right arrows
+- **Change View:** `V`
+- **Menu:** `M`
+- **Quit:** `Esc`
+
+Controls can be remapped in the in-game menu.
+
+### Fixed Keyboard Hotkeys
+
+These function keys are fixed and are not redefinable:
+
+- **F1** Pause
+- **F2** Frame step
+- **F3** Freeze timer
+- **F5** Menu
+- **F6** Pixel-scaler quick cycle
+- **F7** Hi-res sprites
+- **F8** Video-processing toggle
+- **F9** Shadow-mask toggle
+- **F10** Ferrari colour
+
+While the car is driving in Attract Mode, press **F10** to cycle the Ferrari colour. The selected colour is saved as the new default and is restored on future starts.
+
 ### Force Feedback settings
 
 | XML option | Values | Description |
@@ -266,26 +284,6 @@ FF_TARGET_VIDPID=0x046d:0xc24f
 
 ---
 
-## Default Keyboard Controls
-
-- **Start:** `S`
-- **Coin:** `C`
-- **Accelerate:** `A`
-- **Brake:** `Z`
-- **Low / High Gear:** `G` / `H`
-- **Steer:** Left / Right arrows
-- **Change View:** `V`
-- **Menu:** `M`
-- **Quit:** `Esc`
-
-Fixed function keys are not redefinable: **F1 Pause, F2 Frame Step, F3 Freeze Timer, F5 Menu, F6 Pixel Scaler, F7 Hi-Res Sprites, F8 Video Processing, F9 Shadow Mask and F10 Ferrari Colour**.
-
-While the car is driving in Attract Mode, press **F10** to cycle the Ferrari colour. The selected colour is saved as the new default and is restored on future starts.
-
-Controls can be remapped in the in-game menu.
-
----
-
 ## Music Select
 
 Game mode selection is integrated directly into the Music Select screen:
@@ -344,6 +342,9 @@ CannonBall DX builds directly on the work of the original projects and their con
 - **Chris White** - creator of the original **CannonBall** engine and core OutRun recreation
 - **James Pearce (J1mbo)** - creator and maintainer of **CannonBall-SE**, including its cabinet, video, performance, audio and gameplay enhancements
 - **Shay Green (Blargg)** - `snes_ntsc` NTSC filter library
+- **Zenju** - author of **xBRZ**, used for the 3x/4x/5x/6x pixel-scaling modes
+- **Maxim Stepin** and **Cameron Zemek** - authors/contributors of the **HQx** implementation used for the 3x/4x pixel-scaling modes
+- **SourMesen / Mesen2 contributors** - source of the pinned HqMAME-derived xBRZ and HQx implementations used by the CannonBall DX build
 - **Rich Geldreich and miniz contributors** - `miniz` ZIP/DEFLATE library used for direct ROM archive loading
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
@@ -354,14 +355,19 @@ Upstream projects:
 
 - CannonBall: https://github.com/djyt/cannonball
 - CannonBall-SE: https://github.com/J1mbo/cannonball-se
+- Mesen2 scaler source: https://github.com/SourMesen/Mesen2
 
 ---
 
 ## License
 
-- **Upstream CannonBall license:** non-commercial use; modified redistributions must include full source; warranty disclaimer. See `license.txt`.
-- **CannonBall-SE additional terms:** SE enhancements © 2020-2025 James Pearce; provided "as is"; not for sale / monetisation; preserve notices. See `CannonBall-SE-license.txt`.
-- **Third-party notices:** includes Blargg's `snes_ntsc` under **LGPL-2.1** and `miniz` under its public-domain / Unlicense terms. See `THIRD-PARTY-NOTICES.md` and `licenses/`.
+- **Upstream CannonBall license:** non-commercial use; modified redistributions must include full source; warranty disclaimer. See `docs/license.txt`.
+- **CannonBall-SE additional terms:** SE enhancements © 2020-2025 James Pearce; provided "as is"; not for sale / monetisation; preserve notices. See `docs/CannonBall-SE-license.txt`.
+- **xBRZ:** Copyright © Zenju; the HqMAME-derived implementation used by CannonBall DX is distributed under the **GNU GPL v3** with the exception text retained in the upstream source.
+- **HQx:** Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek; licensed under the **GNU LGPL v2.1 or later**.
+- **Blargg `snes_ntsc`:** licensed under **GNU LGPL v2.1**.
+- **miniz:** public-domain / Unlicense terms.
+- **Third-party notices:** see `docs/THIRD-PARTY-NOTICES.md`. The LGPL v2.1 text is included at `docs/LGPL-2.1.txt`.
 
 *OutRun is a trademark of SEGA Corporation. This project is not affiliated with SEGA.*
 
