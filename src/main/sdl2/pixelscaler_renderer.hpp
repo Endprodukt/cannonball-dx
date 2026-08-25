@@ -223,10 +223,10 @@ public:
         if (config.videoRestartRequired)
             return true;
 
-        if (!scaler_path)
-            return RenderSurface::finalize_frame();
+        if (!window || !glContext)
+            return false;
 
-        if (!base_renderer_initialized || !window || !glContext)
+        if (scaler_path && !base_renderer_initialized)
             return false;
 
         if (shutting_down.load(std::memory_order_acquire))
@@ -239,11 +239,12 @@ public:
         if (FrameCounter++ == 60)
             FrameCounter = 0;
 
-        // CannonBall's main loop presents while the render worker is already
-        // building the next frame. Upload only the last fully completed scaler
-        // result. The render thread swaps a staging buffer into upload_pixels
-        // atomically under this short mutex once conversion has finished.
+        if (scaler_path)
         {
+            // CannonBall's main loop presents while the render worker is already
+            // building the next frame. Upload only the last fully completed scaler
+            // result. The render thread swaps a staging buffer into upload_pixels
+            // atomically under this short mutex once conversion has finished.
             std::lock_guard<std::mutex> frame_lock(upload_mutex);
             if (!upload_pixels.empty())
             {
@@ -252,6 +253,32 @@ public:
                     scaled_width * static_cast<int>(sizeof(uint32_t)),
                     scaled_width,
                     scaled_height);
+            }
+        }
+        else
+        {
+            // OFF must remain the exact stock SE CPU image path (RGB555 or
+            // Blargg + stock scanlines), but do not call RenderSurface's own
+            // finalize_frame(). That function keeps function-static uniform
+            // cache values across GL context destruction/recreation. Returning
+            // to OFF after a scaler restart can therefore leave a newly linked
+            // shader with zero-valued uniforms and a permanently black image.
+            // Upload the stock completed GameSurface here and use the same
+            // per-context uniform/presentation path as the scaler below.
+            SDL_Surface* localGameSurface = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(drawFrameMutex);
+                const int idx = current_game_surface ^ 1;
+                localGameSurface = GameSurface[idx];
+            }
+
+            if (localGameSurface)
+            {
+                glb::update_game_texture(
+                    localGameSurface->pixels,
+                    localGameSurface->pitch,
+                    src_rect.w,
+                    src_rect.h);
             }
         }
 
@@ -559,7 +586,7 @@ private:
             case 'Q': return {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D};
             case 'R': return {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11};
             case 'S': return {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E};
-            case 'X': return {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11};
+            case 'X': return {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11, 0x11};
             case 'Z': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F};
             case '2': return {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F};
             case '3': return {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E};
