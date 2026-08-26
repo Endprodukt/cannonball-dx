@@ -159,7 +159,7 @@ namespace forcefeedback
 
     void set_gain(int percent)
     {
-        g_gain_percent = std::max(1, std::min(100, percent));
+        g_gain_percent = std::max(0, std::min(100, percent));
         (void)g_gain_percent;
     }
 
@@ -229,22 +229,14 @@ namespace forcefeedback
     static bool g_logged_constant_run_error = false;
 
     static unsigned int g_haptic_caps = 0;
-    static int g_max_force = 0x7fff;
-    static int g_min_force = 0x2fff;
     static int g_gain_percent = 100;
     static int g_centering_percent = 30;
     static int g_applied_centering_percent = -1;
     static int g_tyre_slip_strength_percent = 15;
     static int g_tyre_slip_spring_percent = 67;
     static int g_offroad_pull_direction = 0;
-
-    // DirectInput constant-force magnitude is nominally 0..10000, whereas
-    // SDL_HapticConstant uses the full signed 16-bit range. The legacy DX
-    // backend generated its force value from the 0x7fff/0x2fff table and then
-    // clamped it to DI_FFNOMINALMAX (10000). Preserve that effective strength
-    // before converting to SDL's 0..32767 range. Without this conversion small
-    // effects are only ~30% of their previous physical strength.
-    static const int LEGACY_DI_NOMINAL_MAX = 10000;
+    static bool g_offroad_level_override_active = false;
+    static int g_offroad_level_override = 0;
 
     static int clamp_percent(int percent)
     {
@@ -376,11 +368,28 @@ namespace forcefeedback
         return g_gain_percent;
     }
 
+    static int offroad_speed_percent()
+    {
+        const int car_inc =
+            static_cast<int>(oinitengine.car_increment >> 16);
+
+        if (car_inc <= 0x32)
+            return 20;
+        if (car_inc <= 0x50)
+            return 40;
+        if (car_inc <= 0x6E)
+            return 70;
+        return 100;
+    }
+
     static void tune_offroad_command(
         int& xdirection,
         int& force,
         const std::source_location& source)
     {
+        g_offroad_level_override_active = false;
+        g_offroad_level_override = 0;
+
         if (!source_function_contains(source, "motor_output") ||
             outrun.game_state != GS_INGAME ||
             oferrari.wheel_state == OFerrari::WHEELS_ON)
@@ -402,35 +411,31 @@ namespace forcefeedback
             oferrari.wheel_state == OFerrari::WHEELS_OFF;
 
         // OOutputs has already combined its alternating off-road rumble with
-        // the outward pull. Recover those two current components, rescale each
-        // independently, then combine them again. The defaults reproduce the
-        // existing 50/100% rumble and 3/7 or 2/7 pull exactly.
-        int combined_force = xdirection - 0x08;
+        // the outward pull. Recover the two components, then rebuild them in
+        // SDL's full signed 16-bit range. This avoids the old seven-step
+        // quantisation, so every configured value from 0..100 has real room.
+        const int combined_force = xdirection - 0x08;
         const int current_pull_magnitude = fully_offroad ? 2 : 3;
         const int current_pull =
             current_pull_magnitude * g_offroad_pull_direction;
         const int current_rumble =
             combined_force - current_pull;
 
-        const int default_rumble = fully_offroad ? 100 : 50;
         const int configured_rumble =
             fully_offroad
                 ? effect_setting("offroad_rumble_full", 100)
                 : effect_setting("offroad_rumble_one_wheel", 50);
 
-        int tuned_rumble =
-            scale_value(current_rumble, configured_rumble, default_rumble);
-
-        // The inherited motor command has only seven signed force steps. At
-        // low one-wheel strengths a real alternating impulse could round to
-        // zero and disappear completely. Keep the weakest signed step whenever
-        // the effect is enabled and the source rumble is actually non-zero.
-        if (configured_rumble > 0 &&
-            current_rumble != 0 &&
-            tuned_rumble == 0)
-        {
-            tuned_rumble = current_rumble < 0 ? -1 : 1;
-        }
+        // The legacy table already increases the alternating amplitude with
+        // speed. Add a broad speed envelope so low-speed shoulder contact is
+        // deliberately much softer than a high-speed excursion.
+        const int speed_percent = offroad_speed_percent();
+        int rumble_level =
+            scale_value(0x7fff, current_rumble, 7);
+        rumble_level =
+            scale_value(rumble_level, configured_rumble);
+        rumble_level =
+            scale_value(rumble_level, speed_percent);
 
         const int pull_percent =
             fully_offroad
@@ -438,16 +443,20 @@ namespace forcefeedback
                 : effect_setting("offroad_pull_one_wheel", 43);
         const int tuned_pull_magnitude =
             scale_value(7, pull_percent);
-        const int tuned_pull =
-            tuned_pull_magnitude * g_offroad_pull_direction;
+        const int pull_level =
+            scale_value(
+                0x7fff,
+                tuned_pull_magnitude * g_offroad_pull_direction,
+                7);
 
-        combined_force = tuned_rumble + tuned_pull;
-        combined_force = std::max(-7, std::min(7, combined_force));
+        g_offroad_level_override =
+            std::max(-0x7fff,
+                std::min(0x7fff, rumble_level + pull_level));
+        g_offroad_level_override_active = true;
 
-        xdirection = 0x08 + combined_force;
-        force = combined_force == 0
-            ? 7
-            : 7 - std::abs(combined_force);
+        // Keep the original command valid for callers that inspect it, even
+        // though the Windows SDL path below now uses the high-resolution level.
+        force = std::max(0, std::min(7, force));
     }
 
     static int configured_low_speed_spring()
@@ -588,26 +597,18 @@ namespace forcefeedback
     static int constant_force_level(int force, int gain_percent)
     {
         force = std::max(0, std::min(7, force));
-        gain_percent = std::max(0, gain_percent);
+        gain_percent = clamp_percent(gain_percent);
 
-        // Match the exact integer order used by the previous DirectInput path.
-        int legacy_magnitude =
-            g_max_force -
-            (((g_max_force - g_min_force) / 7) * force);
+        // Constant-force effects use a true zero-based linear range. The
+        // inherited 0..7 command still defines the effect's instantaneous
+        // shape, but there is no artificial minimum torque underneath it.
+        // force=7 is zero; force=0 at gain=100 is full SDL signed range.
+        const long long numerator =
+            static_cast<long long>(0x7fff) *
+            (7 - force) *
+            gain_percent;
 
-        legacy_magnitude =
-            static_cast<int>(
-                (static_cast<long long>(legacy_magnitude) * gain_percent) /
-                100);
-
-        legacy_magnitude =
-            std::max(0, std::min(LEGACY_DI_NOMINAL_MAX, legacy_magnitude));
-
-        // Convert the old 0..10000 DirectInput percentage to SDL's 0..32767.
-        return static_cast<int>(
-            (static_cast<long long>(legacy_magnitude) * 0x7fff +
-             (LEGACY_DI_NOMINAL_MAX / 2)) /
-            LEGACY_DI_NOMINAL_MAX);
+        return static_cast<int>((numerator + 350) / 700);
     }
 
     static bool read_target_vidpid(Uint16& target_vid, Uint16& target_pid)
@@ -801,7 +802,7 @@ namespace forcefeedback
         if (g_init_attempted)
             return false;
 
-        return init(0x7fff, 0x2fff, 50);
+        return init(0x7fff, 0, 50);
     }
 
     bool init(int max_force, int min_force, int)
@@ -815,8 +816,8 @@ namespace forcefeedback
         config.seed_ffb_tuning_defaults();
 
         g_init_attempted = true;
-        g_max_force = std::max(0, std::min(0x7fff, max_force));
-        g_min_force = std::max(0, std::min(g_max_force, min_force));
+        (void)max_force;
+        (void)min_force;
 
         if (!select_haptic_device())
         {
@@ -854,14 +855,25 @@ namespace forcefeedback
 
         tune_offroad_command(xdirection, force, source);
 
-        const int tuned_gain = tuned_gain_for_source(source);
-        const int magnitude = constant_force_level(force, tuned_gain);
+        const int tuned_gain =
+            clamp_percent(tuned_gain_for_source(source));
 
-        int sign = 0;
-        if (xdirection < 0x08)
-            sign = -1;
-        else if (xdirection > 0x08)
-            sign = 1;
+        int signed_level = 0;
+
+        if (g_offroad_level_override_active)
+        {
+            signed_level =
+                scale_value(g_offroad_level_override, tuned_gain);
+        }
+        else
+        {
+            const int magnitude = constant_force_level(force, tuned_gain);
+
+            if (xdirection < 0x08)
+                signed_level = -magnitude;
+            else if (xdirection > 0x08)
+                signed_level = magnitude;
+        }
 
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_CONSTANT;
@@ -872,14 +884,15 @@ namespace forcefeedback
         {
             // Flycast-style wheel path: fixed steering direction, signed torque.
             effect.constant.direction = steering_direction();
-            effect.constant.level = static_cast<Sint16>(sign * magnitude);
+            effect.constant.level = static_cast<Sint16>(signed_level);
         }
         else
         {
             // Generic fallback for devices SDL does not classify as a wheel.
             effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
-            effect.constant.direction.dir[0] = sign < 0 ? -1 : 1;
-            effect.constant.level = static_cast<Sint16>(sign == 0 ? 0 : magnitude);
+            effect.constant.direction.dir[0] = signed_level < 0 ? -1 : 1;
+            effect.constant.level = static_cast<Sint16>(
+                signed_level == 0 ? 0 : std::abs(signed_level));
         }
 
         if (SDL_HapticUpdateEffect(g_haptic, g_constant_effect, &effect) < 0)
@@ -895,7 +908,7 @@ namespace forcefeedback
 
         g_logged_constant_update_error = false;
 
-        if (sign == 0)
+        if (signed_level == 0)
         {
             SDL_HapticStopEffect(g_haptic, g_constant_effect);
             return 0;
@@ -1074,7 +1087,7 @@ namespace forcefeedback
 
     void set_gain(int percent)
     {
-        g_gain_percent = std::max(1, std::min(100, percent));
+        g_gain_percent = std::max(0, std::min(100, percent));
     }
 
     void stop()
@@ -1125,6 +1138,8 @@ namespace forcefeedback
         g_tyre_slip_strength_percent = 15;
         g_tyre_slip_spring_percent = 67;
         g_offroad_pull_direction = 0;
+        g_offroad_level_override_active = false;
+        g_offroad_level_override = 0;
         g_logged_constant_update_error = false;
         g_logged_constant_run_error = false;
     }
