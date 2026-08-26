@@ -25,7 +25,7 @@ public:
     int8_t crash_input;
 
     // Acceleration Input
-    int16_t input_acc;
+    int input_acc;
 
     // Steering Input
     int16_t input_steering;
@@ -87,7 +87,7 @@ private:
     const static uint8_t PEDAL_MAX = 0x90;
 
     // Brake Input
-    int16_t input_brake;
+    int input_brake;
 
     void digital_steering();
     void digital_pedals();
