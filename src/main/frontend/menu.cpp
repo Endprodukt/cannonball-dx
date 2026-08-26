@@ -52,6 +52,12 @@ namespace
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
 
+    // Menu selections are infrequent, so write immediately after the change
+    // rather than carrying a separate explicit SAVE action. Video changes that
+    // require a renderer restart are saved on the next menu tick, after the
+    // restart has promoted hires_next to the live hires value.
+    bool config_save_pending = false;
+
     bool starts_with_label(const std::string& value, const char* label)
     {
         return value.rfind(label, 0) == 0;
@@ -260,6 +266,16 @@ void Menu::tick()
     MenuBase::tick();
     oinputs.input_steering = steering_before;
 
+    // Persist every changed menu setting without requiring an explicit SAVE
+    // item. A renderer restart is completed by the outer main loop after this
+    // tick, so defer that one write until the following menu tick.
+    if (config_save_pending && !config.videoRestartRequired)
+    {
+        config_save_pending = false;
+        if (!config.save())
+            display_message("ERROR SAVING SETTINGS!");
+    }
+
     // The Spring option is a high-speed maximum. The frontend must always use
     // the same 40% low-speed value as a stationary car, never the configured
     // maximum itself. Re-sync only on menu entry, FFB enable, or value change.
@@ -287,6 +303,47 @@ void Menu::tick()
             menu_spring_strength = desired_strength;
         }
     }
+}
+
+void Menu::handle_escape()
+{
+    // Normal menu hierarchy: Escape is BACK. At the root it is deliberately a
+    // no-op, because EXIT is the only frontend action that may close CannonBall.
+    if (state == STATE_MENU)
+    {
+        if (menu_selected != &menu_main)
+        {
+            menu_back();
+            refresh_menu();
+            osoundint.queue_sound(sound::BEEP1);
+        }
+        return;
+    }
+
+    // Escape must also get out of the binding editor even while it is waiting
+    // for a new key/axis/button, where the normal MENU action is not polled.
+    if (state == STATE_REDEFINE_KEYS || state == STATE_REDEFINE_JOY)
+    {
+        input.key_press = -1;
+        input.joy_button = -1;
+        input.joy_button_device = -1;
+        input.joy_hat = -1;
+        input.joy_hat_value = SDL_HAT_CENTERED;
+        input.joy_hat_device = -1;
+        input.reset_axis_config();
+
+        redef_state = 0;
+        state = STATE_MENU;
+        refresh_menu();
+        osoundint.queue_sound(sound::BEEP1);
+        return;
+    }
+
+    // Time Trial and hardware-test screens already have their own cleanup and
+    // BACK handling on the logical MENU action. Generate a one-frame edge so
+    // those screens retain their existing teardown behaviour.
+    input.keys_old[Input::MENU] = false;
+    input.keys[Input::MENU] = true;
 }
 
 void Menu::populate_controls()
@@ -342,6 +399,11 @@ bool Menu::select_pressed()
     const bool pressed = return_pressed || MenuBase::select_pressed();
     if (!pressed)
         return false;
+
+    // The base implementation applies most setting changes only after this
+    // virtual hook returns. Mark the write now; Menu::tick saves after the base
+    // tick has completed, so the new value is what reaches config.xml.
+    config_save_pending = true;
 
     if (menu_selected == &menu_engine &&
         cursor >= 0 &&
@@ -475,6 +537,7 @@ void Menu::redefine_joystick()
         // The first implementation stored bindings against individual device
         // columns. Convert those to the new logical GAMEPAD/WHEEL grouping.
         input.normalize_device_bindings();
+        config_save_pending = true;
 
         selected_row = 0;
         selected_col = COL_KEYBOARD;
@@ -672,6 +735,7 @@ void Menu::redefine_joystick()
                     capture_after_release = false;
                 }
 
+                config_save_pending = true;
                 waiting_release = true;
                 wait_type = WAIT_KEY;
                 wait_key = captured_key;
@@ -720,6 +784,7 @@ void Menu::redefine_joystick()
                         captured_device,
                         group);
 
+                    config_save_pending = true;
                     capturing = false;
                     clear_latches();
                 }
@@ -746,6 +811,7 @@ void Menu::redefine_joystick()
                 captured_device,
                 group);
 
+            config_save_pending = true;
             capturing = false;
             waiting_release = true;
             capture_after_release = false;
@@ -777,6 +843,7 @@ void Menu::redefine_joystick()
                 captured_device,
                 group);
 
+            config_save_pending = true;
             capturing = false;
             waiting_release = true;
             capture_after_release = false;
@@ -870,6 +937,7 @@ void Menu::redefine_joystick()
             input.clear_device_bindings(ROW_TARGETS[selected_row], group);
         }
 
+        config_save_pending = true;
         input.key_press = -1;
         osoundint.queue_sound(sound::BEEP1);
     }

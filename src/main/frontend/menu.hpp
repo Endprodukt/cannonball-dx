@@ -138,13 +138,28 @@ public:
     Menu() = default;
     ~Menu() override = default;
 
-    // Populate the existing menus, then remove the now-obsolete Continuous
-    // traffic selector. Continuous traffic follows the normal OutRun DIP
-    // difficulty automatically; the legacy config value remains loadable for
-    // backwards compatibility but is no longer presented to the player.
+    // Populate the existing menus, remove legacy explicit SAVE entries and
+    // then apply the DX-specific menu additions. Settings are persisted by the
+    // menu wrapper as soon as they change, so a separate save action is no
+    // longer necessary.
     void populate()
     {
         MenuBase::populate();
+
+        auto remove_save_entry = [](std::vector<std::string>& entries)
+        {
+            for (auto it = entries.begin(); it != entries.end(); )
+            {
+                if (it->rfind("SAVE AND RETURN", 0) == 0)
+                    it = entries.erase(it);
+                else
+                    ++it;
+            }
+        };
+
+        remove_save_entry(menu_settings);
+        remove_save_entry(menu_s_dips);
+        remove_save_entry(menu_s_exsettings);
 
         if (!menu_about.empty())
             menu_about[0] = std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION;
@@ -194,6 +209,11 @@ public:
     // Wrapper hook used to keep analog steering from moving normal menu
     // cursors while leaving in-game steering untouched.
     void tick();
+
+    // Escape is reserved as frontend BACK. The main event loop calls this
+    // instead of treating Escape as the global master-break key while a menu
+    // is active.
+    void handle_escape();
 
     // Enter the existing Time Trial course selector from the in-game music
     // screen. TTrial itself still owns track/lap/traffic setup; once a track is

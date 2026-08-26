@@ -252,15 +252,34 @@ static void process_events(void)
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
             case SDL_KEYDOWN:
-                // Handle key presses.
-                if (event.key.keysym.sym == config.master_break_key)
+                // Escape is reserved as BACK while the frontend is active.
+                // The configured master-break key is allowed to quit only from
+                // the actual game, so the menu can only be exited via EXIT.
+                if (event.key.keysym.sym == SDLK_ESCAPE &&
+                    cannonball::state == STATE_MENU)
+                {
+                    if (event.key.repeat == 0 && menu)
+                        menu->handle_escape();
+                }
+                else if (event.key.keysym.sym == config.master_break_key &&
+                         cannonball::state == STATE_GAME)
+                {
                     cannonball::state = STATE_QUIT;
+                }
                 else
+                {
                     input.handle_key_down(&event.key.keysym);
+                }
                 break;
 
             case SDL_KEYUP:
-                input.handle_key_up(&event.key.keysym);
+                // A menu Escape key-down is consumed above and therefore has
+                // no matching logical key press to release.
+                if (!(event.key.keysym.sym == SDLK_ESCAPE &&
+                      cannonball::state == STATE_MENU))
+                {
+                    input.handle_key_up(&event.key.keysym);
+                }
                 break;
 
             case SDL_JOYAXISMOTION:
