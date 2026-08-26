@@ -148,18 +148,18 @@ namespace
         g_prestart_sine_applied_gain = 0;
     }
 
-    static void set_start_intro_force(int gain_percent)
+    static void set_start_intro_force(int phase_percent)
     {
-        if (gain_percent < 10)
-            gain_percent = 10;
+        // phase_percent is only the instantaneous shape of the effect. The
+        // in-game master and start_steering XML value are applied centrally by
+        // the FFB backend, so there is no hidden minimum or second strength cap.
+        if (phase_percent < 0)
+            phase_percent = 0;
+        else if (phase_percent > 100)
+            phase_percent = 100;
 
-        // Never let the automatic intro steering exceed the user's master
-        // FFB strength. This keeps the effect deliberately restrained.
-        if (gain_percent > config.controls.ffb_strength)
-            gain_percent = config.controls.ffb_strength;
-
-        forcefeedback::set_gain(gain_percent);
-        forcefeedback::set(0x07, 7);
+        forcefeedback::set_gain(phase_percent);
+        forcefeedback::set(0x07, 0);
         forcefeedback::set_gain(config.controls.ffb_strength);
     }
 
@@ -170,18 +170,13 @@ namespace
         else if (pedal > 0xFF)
             pedal = 0xFF;
 
-        // Reuse the tyre-slip sine effect, but ramp its effective gain with
-        // the throttle. At full pedal it can only reach the configured master
-        // FFB strength, so it remains lighter than the crash forces.
+        // The local ramp is a pure 0..100 throttle/envelope value. Hardware
+        // strength is applied centrally as master * start_rev_shake * envelope.
         int target_gain =
-            (pedal * config.controls.ffb_strength + 0x7F) /
+            (pedal * 100 + 0x7F) /
             0xFF;
 
-        if (target_gain < 10)
-            target_gain = 0;
-
         // Add a short mechanical build-up even if the pedal is stamped down.
-        // At the default 50% master gain this takes about a third of a second.
         if (g_prestart_sine_gain < target_gain)
         {
             g_prestart_sine_gain += 5;
@@ -195,7 +190,7 @@ namespace
                 g_prestart_sine_gain = target_gain;
         }
 
-        if (g_prestart_sine_gain < 10)
+        if (g_prestart_sine_gain <= 0)
         {
             if (g_prestart_sine_active)
             {
@@ -209,7 +204,7 @@ namespace
 
         // set_tyre_slip() only rebuilds the sine parameters when its active
         // state changes. Restart it only when the ramp actually reaches a new
-        // gain value; once the pedal is steady the effect simply keeps running.
+        // envelope value; once the pedal is steady the effect simply keeps running.
         if (!g_prestart_sine_active ||
             g_prestart_sine_gain != g_prestart_sine_applied_gain)
         {
@@ -265,8 +260,10 @@ namespace
 
             // The intro is an animation rather than normal steering physics.
             // Follow the actual Ferrari sprite position: while the car arcs in
-            // from the right, apply a restrained right-hand steering load and
-            // progressively relax it as the sprite reaches the centre line.
+            // from the right, apply a right-hand steering load and progressively
+            // relax it as the sprite reaches the centre line. Convert the old
+            // 10..18 shaping range to a true 15..100% envelope; the XML value
+            // remains the effect's actual maximum strength.
             const int sprite_x =
                 oanimseq.anim_ferrari.sprite
                 ? std::abs(static_cast<int>(oanimseq.anim_ferrari.sprite->x))
@@ -275,11 +272,14 @@ namespace
             if (oferrari.car_state == OFerrari::CAR_ANIM_SEQ &&
                 sprite_x > 4)
             {
-                int intro_gain = 10 + (sprite_x / 10);
-                if (intro_gain > 18)
-                    intro_gain = 18;
+                int intro_shape = 10 + (sprite_x / 10);
+                if (intro_shape > 18)
+                    intro_shape = 18;
 
-                set_start_intro_force(intro_gain);
+                const int intro_phase =
+                    15 + ((intro_shape - 10) * 85 + 4) / 8;
+
+                set_start_intro_force(intro_phase);
             }
             else
             {
@@ -1164,7 +1164,7 @@ const static uint8_t MOTOR_VALUES_OFFROAD3[] =
 const static uint8_t MOTOR_VALUES_OFFROAD4[] = 
 {
     0x8, 0xB, 0xB, 0x8, 0x5, 0x8, 0x0, 0x8, 0x8, 0xC, 0xC, 0x8, 0x4, 0x8, 0x0, 0x8,
-    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x8, 0x0, 0x8,
+    0x8, 0xD, 0xD, 0x8, 0x3, 0x8, 0x0, 0x8, 0x8, 0xE, 0xE, 0x8, 0x2, 0x2, 0x8, 0x0, 0x8,
 };
 
 
