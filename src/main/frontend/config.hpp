@@ -233,7 +233,6 @@ struct smartypi_settings_t
 struct engine_settings_t
 {
     int dip_time;
-    int traffic;
     int dip_traffic;
     bool freeplay;
     bool freeze_timer;
