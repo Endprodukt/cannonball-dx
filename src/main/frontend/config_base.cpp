@@ -396,9 +396,9 @@ void Config::load()
     engine.new_attract     = cfg.get_int("engine.new_attract",   1) != 0;
     engine.offroad         = cfg.get_int("engine.offroad",       0);
     engine.grippy_tyres    = cfg.get_int("engine.grippy_tyres",  0);
-    engine.bumper          = cfg.get_int("engine.bumper",        0);
-    engine.turbo           = cfg.get_int("engine.turbo",         0);
-    engine.car_pal         = cfg.get_int("engine.car_color",     0);
+    engine.bumper          = cfg.get_int("engine.bumper",         0);
+    engine.turbo           = cfg.get_int("engine.turbo",          0);
+    engine.car_pal         = cfg.get_int("engine.car_color",      0);
 
     if (!engine.hiscore_timer)
         engine.hiscore_timer = HIGHSCORE_TIMER;
@@ -448,7 +448,7 @@ bool Config::save()
     cfg.put_int("video.maskDim",            video.maskDim);       // Shadow mask Dim value (0)
     cfg.put_int("video.maskBoost",          video.maskBoost);     // Shadow mask Boost value (0)
     cfg.put_int("video.scanlines",          video.scanlines);     // Scanlines (0)
-    cfg.put_int("video.crt_shape",          video.crt_shape);      // CRT shape overlay (0)
+    cfg.put_int("video.crt_shape",          video.crt_shape);     // CRT shape overlay (0)
     cfg.put_int("video.vignette",           video.vignette);      // Vignette amount (0)
     cfg.put_int("video.noise",              video.noise);         // Noise amount (0)
     cfg.put_int("video.warpX",              video.warpX);         // Warp on X axis (0)
@@ -586,7 +586,7 @@ void Config::load_scores(bool original_mode)
         scores_file = engine.jap ? data.file_cont_jap : data.file_cont;
 
     xml_parser::ptree scores("scores");
-    if (!xml_parser::read_xml(scores_file, cfg)) {
+    if (!xml_parser::read_xml(scores_file, scores)) {
         std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
         return;
     }
@@ -652,7 +652,7 @@ void Config::load_stats()
     std::string stats_file = data.file_stats;
 
     xml_parser::ptree stats_data("playstats");
-    if (!xml_parser::read_xml(data.file_stats, stats_data)) {
+    if (!xml_parser::read_xml(stats_file, stats_data)) {
         std::cerr << "Warning: " << stats_file << " could not be loaded." << std::endl;
         stats.playcount = 0;
         stats.runtime   = 0;
@@ -674,7 +674,7 @@ void Config::save_stats()
     stats_data.put_int("runtime",   stats.runtime);
 
     if (!xml_parser::write_xml(stats_file, stats_data)) {
-        std::cerr << "Could not save settings to " << stats_file << std::endl;
+        std::cerr << "Could not save machine stats to: " << stats_file << std::endl;
     }
 }
 
