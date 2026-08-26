@@ -280,22 +280,30 @@ void Input::normalize_device_bindings()
         }
     }
 
-    // A GAMEPAD cell represents one logical control. Older versions of the
-    // matrix appended every rebind and therefore displayed MULTI and executed
-    // all old buttons. Keep only the most recently stored binding per target.
+    // Every matrix cell represents exactly one logical assignment. Older
+    // versions allowed WHEEL bindings to accumulate and could therefore show
+    // MULTI after rebinding. Keep only the most recently stored binding for
+    // each target in each logical column.
     std::vector<int> last_gamepad_binding(
+        device_binding_t::TARGET_VIEW3 + 1,
+        -1);
+    std::vector<int> last_wheel_binding(
         device_binding_t::TARGET_VIEW3 + 1,
         -1);
 
     for (int i = 0; i < static_cast<int>(bindings.size()); i++)
     {
         const auto& binding = bindings[i];
-        if (binding_is_group(binding.device, BINDING_GAMEPAD) &&
-            binding.target >= device_binding_t::TARGET_STEER &&
-            binding.target <= device_binding_t::TARGET_VIEW3)
+        if (binding.target < device_binding_t::TARGET_STEER ||
+            binding.target > device_binding_t::TARGET_VIEW3)
         {
-            last_gamepad_binding[binding.target] = i;
+            continue;
         }
+
+        if (binding_is_group(binding.device, BINDING_GAMEPAD))
+            last_gamepad_binding[binding.target] = i;
+        else if (binding_is_group(binding.device, BINDING_WHEEL))
+            last_wheel_binding[binding.target] = i;
     }
 
     std::vector<device_binding_t> normalized;
@@ -305,12 +313,20 @@ void Input::normalize_device_bindings()
     {
         const auto& binding = bindings[i];
 
-        if (binding_is_group(binding.device, BINDING_GAMEPAD) &&
-            binding.target >= device_binding_t::TARGET_STEER &&
-            binding.target <= device_binding_t::TARGET_VIEW3 &&
-            last_gamepad_binding[binding.target] != i)
+        if (binding.target >= device_binding_t::TARGET_STEER &&
+            binding.target <= device_binding_t::TARGET_VIEW3)
         {
-            continue;
+            if (binding_is_group(binding.device, BINDING_GAMEPAD) &&
+                last_gamepad_binding[binding.target] != i)
+            {
+                continue;
+            }
+
+            if (binding_is_group(binding.device, BINDING_WHEEL) &&
+                last_wheel_binding[binding.target] != i)
+            {
+                continue;
+            }
         }
 
         normalized.push_back(binding);
@@ -358,37 +374,18 @@ void Input::set_device_binding(
 
     auto& bindings = config.controls.device_bindings;
 
-    if (group == BINDING_GAMEPAD)
-    {
-        // GAMEPAD cells are single assignments. Rebinding must replace the
-        // previous button/axis instead of silently appending another one.
-        bindings.erase(
-            std::remove_if(
-                bindings.begin(),
-                bindings.end(),
-                [&](const device_binding_t& binding)
-                {
-                    return binding.target == target &&
-                        binding_is_group(binding.device, BINDING_GAMEPAD);
-                }),
-            bindings.end());
-    }
-    else
-    {
-        // WHEEL remains additive so a function can deliberately be triggered
-        // by controls on several raw devices such as a wheel and USB shifter.
-        for (const auto& existing : bindings)
-        {
-            if (existing.target == target &&
-                existing.type == type &&
-                existing.index == index &&
-                existing.value == value &&
-                existing.device == stored_device)
+    // A matrix cell is a single assignment. Rebinding always replaces the
+    // previous button, hat or axis for that target in the selected column.
+    bindings.erase(
+        std::remove_if(
+            bindings.begin(),
+            bindings.end(),
+            [&](const device_binding_t& binding)
             {
-                return;
-            }
-        }
-    }
+                return binding.target == target &&
+                    binding_is_group(binding.device, group);
+            }),
+        bindings.end());
 
     device_binding_t binding;
     binding.target = target;
