@@ -418,8 +418,19 @@ namespace forcefeedback
                 ? effect_setting("offroad_rumble_full", 100)
                 : effect_setting("offroad_rumble_one_wheel", 50);
 
-        const int tuned_rumble =
+        int tuned_rumble =
             scale_value(current_rumble, configured_rumble, default_rumble);
+
+        // The inherited motor command has only seven signed force steps. At
+        // low one-wheel strengths a real alternating impulse could round to
+        // zero and disappear completely. Keep the weakest signed step whenever
+        // the effect is enabled and the source rumble is actually non-zero.
+        if (configured_rumble > 0 &&
+            current_rumble != 0 &&
+            tuned_rumble == 0)
+        {
+            tuned_rumble = current_rumble < 0 ? -1 : 1;
+        }
 
         const int pull_percent =
             fully_offroad
