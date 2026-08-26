@@ -208,7 +208,6 @@ namespace forcefeedback
 #include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"
 #include "engine/oinitengine.hpp"
-#include "engine/oinputs.hpp"
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 
@@ -303,20 +302,6 @@ namespace forcefeedback
             (oinitengine.car_increment >> 16) == 0;
     }
 
-    static int start_intro_phase_percent()
-    {
-        // The inherited intro helper sends a small 10..18 shaping value.
-        // Reinterpret that as a phase envelope only: 18 is the effect peak,
-        // while the lower values progressively relax the wheel as the Ferrari
-        // approaches the centre. The XML value remains the actual maximum.
-        const int phase = std::max(0, std::min(18, g_gain_percent));
-        if (phase <= 0)
-            return 0;
-        if (phase <= 10)
-            return 15;
-        return 15 + ((phase - 10) * 85 + 4) / 8;
-    }
-
     static int tuned_gain_for_source(const std::source_location& source)
     {
         // Every named effect uses the same rule:
@@ -341,7 +326,7 @@ namespace forcefeedback
         {
             return scale_value(
                 master_effect_gain(effect_setting("start_steering", 70)),
-                start_intro_phase_percent());
+                clamp_percent(g_gain_percent));
         }
 
         if (source_function_contains(source, "apply_music_detent_ffb") ||
@@ -373,7 +358,8 @@ namespace forcefeedback
             return master_effect_gain(effect_setting("crash_spin_impact", 70));
         }
 
-        return clamp_percent(g_gain_percent);
+        // Unnamed constant-force paths are governed only by the in-game master.
+        return clamp_percent(config.controls.ffb_strength);
     }
 
     static int normalized_force_for_source(
@@ -1088,13 +1074,15 @@ namespace forcefeedback
         int effective_percent =
             master_effect_gain(g_tyre_slip_strength_percent);
 
+        // During the start countdown g_gain_percent is deliberately a pure
+        // 0..100 throttle/ramp envelope supplied by OOutputs. It never contains
+        // the master strength, so there is no double scaling here.
         if (g_tyre_slip_prestart)
         {
-            const int pedal_percent =
-                std::max(0, std::min(100,
-                    (oinputs.acc_adjust * 100 + 127) / 255));
             effective_percent =
-                scale_value(effective_percent, pedal_percent);
+                scale_value(
+                    effective_percent,
+                    clamp_percent(g_gain_percent));
         }
 
         const int magnitude =
