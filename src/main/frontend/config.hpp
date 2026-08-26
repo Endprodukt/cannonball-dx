@@ -216,7 +216,7 @@ struct controls_settings_t
 
     float rumble;              // Simple Controller Rumble Support
     int haptic;                // Force Feedback Enabled
-    int ffb_strength;          // FFB Effects Strength 10-100%
+    int ffb_strength;          // FFB Effects Strength 0-100%
     int centering_strength;    // Native Centering Spring Strength 0-100%
     int max_force;
     int min_force;
@@ -233,6 +233,7 @@ struct smartypi_settings_t
 struct engine_settings_t
 {
     int dip_time;
+    int traffic;
     int dip_traffic;
     bool freeplay;
     bool freeze_timer;
@@ -343,6 +344,19 @@ public:
         return value;
     }
 
+    void set_ffb_effect_setting(const char* name, int value)
+    {
+        const std::string setting = name ? name : "";
+        if (value < 0)
+            value = 0;
+        else if (value > 100)
+            value = 100;
+
+        cfg.put_int(
+            std::string("controls.analog.haptic.effects.") + setting,
+            value);
+    }
+
     int ffb_spring_setting(const char* name, int default_value)
     {
         const std::string setting = name ? name : "";
@@ -374,6 +388,22 @@ public:
         if (value > maximum)
             return maximum;
         return value;
+    }
+
+    void set_ffb_spring_setting(const char* name, int value)
+    {
+        const std::string setting = name ? name : "";
+        const int maximum =
+            (setting == "speed_start" || setting == "speed_full") ? 294 : 100;
+
+        if (value < 0)
+            value = 0;
+        else if (value > maximum)
+            value = maximum;
+
+        cfg.put_int(
+            std::string("controls.analog.haptic.spring.") + setting,
+            value);
     }
 
     // Seed missing FFB tuning entries into the in-memory XML tree when the
