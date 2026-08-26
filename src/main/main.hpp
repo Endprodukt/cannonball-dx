@@ -2,6 +2,7 @@
 
 #include "globals.hpp"
 #include "sdl2/audio.hpp"
+#include "frontend/menulabels.hpp"
 
 namespace cannonball
 {
