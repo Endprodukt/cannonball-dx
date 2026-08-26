@@ -278,6 +278,18 @@ protected:
             if (option == "CONTROLS")
             {
                 populate_controls();
+
+                // DX bindings already encode whether steering/pedals use an
+                // axis or a digital control, so the old global ANALOG mode is
+                // no longer a meaningful user setting.
+                for (auto it = menu_controls.begin(); it != menu_controls.end(); )
+                {
+                    if (it->rfind(ENTRY_ANALOG, 0) == 0)
+                        it = menu_controls.erase(it);
+                    else
+                        ++it;
+                }
+
                 set_menu(&menu_controls);
             }
             else if (option == "VIDEO")

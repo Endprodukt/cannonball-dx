@@ -26,6 +26,11 @@ OInputs::~OInputs(void)
 
 void OInputs::init()
 {
+    // DX no longer exposes a global Analog Controls mode. Keep low-level axis
+    // event processing enabled; each steering/pedal target decides at runtime
+    // whether its active binding is analog or digital.
+    input.analog = 1;
+
     input_steering  = STEERING_CENTRE;
     steering_old    = STEERING_CENTRE;
     steering_adjust = 0;
@@ -50,52 +55,145 @@ void OInputs::init()
 
 void OInputs::tick()
 {
-    // Digital-only setup: simulate all analog values as before.
-    if (!input.analog || !input.gamepad)
-    {
-        digital_steering();
-        digital_pedals();
-        return;
-    }
+    // The old global Analog Controls switch is intentionally ignored in DX.
+    // Explicit matrix bindings already tell us whether a target is an axis or
+    // a button/HAT, while keyboard bindings are inherently digital.
+    input.analog = 1;
 
-    // Hybrid steering. An analog wheel/stick remains live, but a currently
-    // pressed digital left/right binding temporarily takes control. This keeps
-    // keyboard and physical controllers usable at the same time.
-    if (input.is_pressed(Input::LEFT) || input.is_pressed(Input::RIGHT))
-        digital_steering();
-    else
+    auto has_active_axis = [&](int target, int legacy_slot)
+    {
+        bool target_has_matrix_binding = false;
+
+        const SDL_JoystickID gamepad_device = input.get_gamepad_device();
+        const std::string gamepad_signature =
+            input.get_device_signature(gamepad_device);
+
+        for (const auto& binding : config.controls.device_bindings)
+        {
+            if (binding.target != target)
+                continue;
+
+            // Once a target exists in the DX matrix, its matrix binding type
+            // owns that target. This prevents an old legacy axis from leaking
+            // through after the user deliberately rebinds e.g. GAS to a button.
+            target_has_matrix_binding = true;
+
+            if (binding.type != device_binding_t::TYPE_AXIS ||
+                binding.device.size() < 3 ||
+                binding.device[1] != ':')
+            {
+                continue;
+            }
+
+            const std::string signature = binding.device.substr(2);
+            if (signature.empty() || signature == "*")
+                continue;
+
+            if (binding.device[0] == 'G')
+            {
+                if (!gamepad_signature.empty() &&
+                    signature == gamepad_signature)
+                {
+                    return true;
+                }
+            }
+            else if (binding.device[0] == 'W')
+            {
+                for (const auto& device : input.get_devices())
+                {
+                    if (device.instance_id == gamepad_device)
+                        continue;
+
+                    if (input.get_device_signature(device.instance_id) == signature)
+                        return true;
+                }
+            }
+        }
+
+        if (target_has_matrix_binding)
+            return false;
+
+        // Compatibility fallback for first-run/legacy configs before their
+        // old axis slots are materialized into the DX binding matrix.
+        if (legacy_slot < 0 || config.controls.axis[legacy_slot] < 0)
+            return false;
+
+        const std::string& legacy_signature =
+            config.controls.axis_device[legacy_slot];
+
+        if (legacy_signature.empty())
+            return !input.get_devices().empty();
+
+        for (const auto& device : input.get_devices())
+        {
+            if (input.get_device_signature(device.instance_id) == legacy_signature)
+                return true;
+        }
+
+        return false;
+    };
+
+    const bool steering_axis =
+        has_active_axis(device_binding_t::TARGET_STEER, 0);
+    const bool accel_axis =
+        has_active_axis(device_binding_t::TARGET_ACCEL, 1);
+    const bool brake_axis =
+        has_active_axis(device_binding_t::TARGET_BRAKE, 2);
+
+    // Steering: an active axis is used directly. Keyboard/D-pad/button input
+    // always overrides it while pressed and uses DIGITAL STEER SPEED. Without
+    // an active axis the steering path is purely digital and recentres normally.
+    if (steering_axis &&
+        !input.is_pressed(Input::LEFT) &&
+        !input.is_pressed(Input::RIGHT))
+    {
         input_steering = input.a_wheel;
-
-    // Analog pedals with digital override. Keyboard or button bindings can be
-    // used without changing the global Analog Controls setting; releasing them
-    // immediately returns control to the configured pedal/trigger axis.
-    if (input.analog == 1)
-    {
-        if (input.is_pressed(Input::ACCEL))
-        {
-            input_acc += acc_inc;
-            if (input_acc > 0xFF) input_acc = 0xFF;
-        }
-        else
-        {
-            input_acc = input.a_accel;
-        }
-
-        if (input.is_pressed(Input::BRAKE))
-        {
-            input_brake += brake_inc;
-            if (input_brake > 0xFF) input_brake = 0xFF;
-        }
-        else
-        {
-            input_brake = input.a_brake;
-        }
     }
-    // Analog steering + digital pedals mode remains supported.
     else
     {
-        digital_pedals();
+        digital_steering();
     }
+
+    auto update_pedal = [&](bool axis_active,
+                            Input::presses digital_input,
+                            int analog_value,
+                            int& output,
+                            int increment)
+    {
+        if (input.is_pressed(digital_input))
+        {
+            output += increment;
+            if (output > 0xFF)
+                output = 0xFF;
+        }
+        else if (axis_active)
+        {
+            output = analog_value;
+        }
+        else
+        {
+            output -= increment;
+            if (output < 0)
+                output = 0;
+        }
+    };
+
+    // Gas and brake are decided independently, so every useful mixed setup is
+    // valid: analog wheel + buttons, wheel + separate USB pedals, gamepad stick
+    // + triggers, keyboard + one analog pedal, etc.
+    update_pedal(
+        accel_axis,
+        Input::ACCEL,
+        input.a_accel,
+        input_acc,
+        acc_inc);
+
+    update_pedal(
+        brake_axis,
+        Input::BRAKE,
+        input.a_brake,
+        input_brake,
+        brake_inc);
 }
 // DIGITAL CONTROLS: Digital Simulation of analog steering
 void OInputs::digital_steering()
