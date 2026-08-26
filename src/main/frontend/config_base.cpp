@@ -347,11 +347,11 @@ void Config::load()
     controls.direction_custom[3] = cfg.get_int("controls.direction_custom.right", 0);
 
     controls.haptic        = cfg.get_int("controls.analog.haptic.<xmlattr>.enabled",    1);
-    controls.ffb_strength  = cfg.get_int("controls.analog.haptic.strength", 50); 
-    if (controls.ffb_strength < 10)
-    controls.ffb_strength  = 10;
+    controls.ffb_strength  = cfg.get_int("controls.analog.haptic.strength", 50);
+    if (controls.ffb_strength < 0)
+        controls.ffb_strength = 0;
     else if (controls.ffb_strength > 100)
-    controls.ffb_strength = 100;
+        controls.ffb_strength = 100;
     controls.centering_strength = cfg.get_int("controls.analog.haptic.centering_strength", 30);
     if (controls.centering_strength < 0)
         controls.centering_strength = 0;
@@ -448,7 +448,7 @@ bool Config::save()
     cfg.put_int("video.maskDim",            video.maskDim);       // Shadow mask Dim value (0)
     cfg.put_int("video.maskBoost",          video.maskBoost);     // Shadow mask Boost value (0)
     cfg.put_int("video.scanlines",          video.scanlines);     // Scanlines (0)
-    cfg.put_int("video.crt_shape",          video.crt_shape);     // CRT shape overlay (0)
+    cfg.put_int("video.crt_shape",          video.crt_shape);      // CRT shape overlay (0)
     cfg.put_int("video.vignette",           video.vignette);      // Vignette amount (0)
     cfg.put_int("video.noise",              video.noise);         // Noise amount (0)
     cfg.put_int("video.warpX",              video.warpX);         // Warp on X axis (0)
@@ -586,7 +586,7 @@ void Config::load_scores(bool original_mode)
         scores_file = engine.jap ? data.file_cont_jap : data.file_cont;
 
     xml_parser::ptree scores("scores");
-    if (!xml_parser::read_xml(scores_file, scores)) {
+    if (!xml_parser::read_xml(scores_file, cfg)) {
         std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
         return;
     }
@@ -652,7 +652,7 @@ void Config::load_stats()
     std::string stats_file = data.file_stats;
 
     xml_parser::ptree stats_data("playstats");
-    if (!xml_parser::read_xml(stats_file, stats_data)) {
+    if (!xml_parser::read_xml(data.file_stats, stats_data)) {
         std::cerr << "Warning: " << stats_file << " could not be loaded." << std::endl;
         stats.playcount = 0;
         stats.runtime   = 0;
@@ -674,7 +674,7 @@ void Config::save_stats()
     stats_data.put_int("runtime",   stats.runtime);
 
     if (!xml_parser::write_xml(stats_file, stats_data)) {
-        std::cerr << "Could not save machine stats to: " << stats_file << std::endl;
+        std::cerr << "Could not save settings to " << stats_file << std::endl;
     }
 }
 
