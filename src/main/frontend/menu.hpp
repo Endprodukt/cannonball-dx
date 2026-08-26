@@ -119,7 +119,7 @@ protected:
     void tick_ui();
     void draw_menu_options();
     void draw_text(std::string);
-    void tick_menu();
+    virtual void tick_menu();
     virtual bool select_pressed();
     void set_menu(std::vector<std::string>*);
     void menu_back();
@@ -138,10 +138,9 @@ public:
     Menu() = default;
     ~Menu() override = default;
 
-    // Populate the existing menus, remove legacy explicit SAVE entries and
-    // then apply the DX-specific menu additions. Settings are persisted by the
-    // menu wrapper as soon as they change, so a separate save action is no
-    // longer necessary.
+    // Populate the preserved SE menus first, then reshape the PC frontend into
+    // the shallower DX hierarchy. Settings are saved immediately, so there is
+    // no explicit SAVE action.
     void populate()
     {
         MenuBase::populate();
@@ -176,9 +175,6 @@ public:
                 ++it;
         }
 
-        // One shared duration controls the automatic timeout on both selector
-        // screens. 30 seconds remains the default; 15 seconds and OFF are the
-        // two alternative Game Engine settings.
         const int selection_seconds = config.selection_timer_seconds();
         const std::string selection_timer_entry =
             std::string("SELECTION TIMER ") +
@@ -186,24 +182,60 @@ public:
                 ? "OFF"
                 : std::to_string(selection_seconds) + " SEC");
 
-        for (auto it = menu_engine.begin(); it != menu_engine.end(); ++it)
-        {
-            if (it->rfind("ENHANCEMENTS", 0) == 0)
-            {
-                menu_engine.insert(it, selection_timer_entry);
-                break;
-            }
-        }
-
         const int scaler_mode =
             pixel_scaler::mode.load(std::memory_order_relaxed);
         const std::string scaler_entry =
             std::string("PIXEL SCALER ") + pixel_scaler::name(scaler_mode);
 
-        if (!menu_enhancements.empty())
-            menu_enhancements.insert(menu_enhancements.end() - 1, scaler_entry);
-        else
-            menu_enhancements.push_back(scaler_entry);
+        // The real game modes are selected on Music Select. The old SE Game
+        // Modes page and its Enhanced/Original presets are therefore removed
+        // from the visible PC frontend rather than duplicated here.
+        if (!config.smartypi.enabled)
+        {
+            menu_main.clear();
+            menu_main.push_back(ENTRY_PLAYGAME);
+            menu_main.push_back(ENTRY_SETTINGS);
+            menu_main.push_back(ENTRY_ABOUT);
+            menu_main.push_back(ENTRY_EXIT);
+
+            menu_settings.clear();
+            menu_settings.push_back("CONTROLS");
+            menu_settings.push_back("VIDEO");
+#ifdef COMPILE_SOUND_CODE
+            menu_settings.push_back("AUDIO");
+#endif
+            menu_settings.push_back("GAMEPLAY");
+            menu_settings.push_back("ENHANCEMENTS");
+            menu_settings.push_back("SYSTEM");
+            menu_settings.push_back(ENTRY_BACK);
+
+            menu_video.clear();
+            menu_video.push_back(ENTRY_WIDESCREEN);
+            menu_video.push_back(scaler_entry);
+            menu_video.push_back(ENTRY_FPS_COUNTER);
+            menu_video.push_back(ENTRY_X_OFFSET);
+            menu_video.push_back(ENTRY_Y_OFFSET);
+            menu_video.push_back(ENTRY_CRT_SHADER1);
+            menu_video.push_back(ENTRY_BLARGG_FILTER);
+            menu_video.push_back(ENTRY_BACK);
+
+            menu_engine.clear();
+            menu_engine.push_back(ENTRY_TIME);
+            menu_engine.push_back(ENTRY_TRAFFIC);
+            menu_engine.push_back(ENTRY_FREEPLAY);
+            menu_engine.push_back(selection_timer_entry);
+            menu_engine.push_back(ENTRY_SUB_HANDLING);
+            menu_engine.push_back(ENTRY_BACK);
+
+            menu_enhancements.clear();
+            menu_enhancements.push_back(ENTRY_HIRES);
+            menu_enhancements.push_back(ENTRY_SPRITERES);
+            menu_enhancements.push_back(ENTRY_ATTRACT);
+            menu_enhancements.push_back(ENTRY_OBJECTS);
+            menu_enhancements.push_back(ENTRY_PROTOTYPE);
+            menu_enhancements.push_back(ENTRY_TIMER);
+            menu_enhancements.push_back(ENTRY_BACK);
+        }
     }
 
     // Wrapper hook used to keep analog steering from moving normal menu
@@ -226,6 +258,122 @@ public:
     }
 
 protected:
+    // DX-only submenu for infrequently used administrative options.
+    std::vector<std::string> menu_system;
+
+    // Route only the new shallow DX category pages here. Every ordinary option
+    // is still handled by the preserved SE implementation below this wrapper.
+    void tick_menu() override
+    {
+        if (!config.smartypi.enabled && menu_selected == &menu_settings)
+        {
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            const std::string& option = menu_settings[cursor];
+
+            if (option == "CONTROLS")
+            {
+                populate_controls();
+                set_menu(&menu_controls);
+            }
+            else if (option == "VIDEO")
+            {
+                set_menu(&menu_video);
+            }
+            else if (option == "AUDIO")
+            {
+                set_menu(&menu_sound);
+            }
+            else if (option == "GAMEPLAY")
+            {
+                set_menu(&menu_engine);
+            }
+            else if (option == "ENHANCEMENTS")
+            {
+                set_menu(&menu_enhancements);
+            }
+            else if (option == "SYSTEM")
+            {
+                menu_system.clear();
+                menu_system.push_back(
+                    std::string(ENTRY_MASTER_BREAK) +
+                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10"));
+                menu_system.push_back(ENTRY_SCORES);
+                menu_system.push_back(ENTRY_BACK);
+                set_menu(&menu_system);
+            }
+            else if (option.rfind(ENTRY_BACK, 0) == 0)
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        if (!config.smartypi.enabled && menu_selected == &menu_system)
+        {
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            const std::string& option = menu_system[cursor];
+
+            if (option.rfind(ENTRY_MASTER_BREAK, 0) == 0)
+            {
+                config.master_break_key =
+                    config.master_break_key == SDLK_ESCAPE ? SDLK_F10 : SDLK_ESCAPE;
+                menu_system[cursor] =
+                    std::string(ENTRY_MASTER_BREAK) +
+                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10");
+            }
+            else if (option.rfind(ENTRY_SCORES, 0) == 0)
+            {
+                display_message(
+                    config.clear_scores()
+                        ? "SCORES CLEARED"
+                        : "NO SAVED SCORES FOUND!");
+            }
+            else if (option.rfind(ENTRY_BACK, 0) == 0)
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        // Pixel Scaler now belongs to VIDEO. Intercept only this one entry;
+        // all other video settings continue through the original handler.
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_video &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_video.size()) &&
+            menu_video[cursor].rfind("PIXEL SCALER ", 0) == 0)
+        {
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            pixel_scaler::cycle();
+            menu_video[cursor] =
+                std::string("PIXEL SCALER ") +
+                pixel_scaler::name(
+                    pixel_scaler::mode.load(std::memory_order_relaxed));
+            return;
+        }
+
+        MenuBase::tick_menu();
+    }
+
     void populate_controls() override;
     bool select_pressed() override;
     void redefine_joystick() override;
