@@ -208,6 +208,7 @@ namespace forcefeedback
 #include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"
 #include "engine/oinitengine.hpp"
+#include "engine/oinputs.hpp"
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 
@@ -225,6 +226,7 @@ namespace forcefeedback
     static bool g_enabled = true;
     static bool g_is_wheel = false;
     static bool g_tyre_slip_active = false;
+    static bool g_tyre_slip_prestart = false;
     static bool g_logged_constant_update_error = false;
     static bool g_logged_constant_run_error = false;
 
@@ -287,7 +289,9 @@ namespace forcefeedback
 
     static int master_effect_gain(int effect_percent)
     {
-        return scale_value(config.controls.ffb_strength, effect_percent);
+        return scale_value(
+            clamp_percent(config.controls.ffb_strength),
+            clamp_percent(effect_percent));
     }
 
     static bool low_speed_crash_bump()
@@ -299,73 +303,138 @@ namespace forcefeedback
             (oinitengine.car_increment >> 16) == 0;
     }
 
+    static int start_intro_phase_percent()
+    {
+        // The inherited intro helper sends a small 10..18 shaping value.
+        // Reinterpret that as a phase envelope only: 18 is the effect peak,
+        // while the lower values progressively relax the wheel as the Ferrari
+        // approaches the centre. The XML value remains the actual maximum.
+        const int phase = std::max(0, std::min(18, g_gain_percent));
+        if (phase <= 0)
+            return 0;
+        if (phase <= 10)
+            return 15;
+        return 15 + ((phase - 10) * 85 + 4) / 8;
+    }
+
     static int tuned_gain_for_source(const std::source_location& source)
     {
-        // Rough-surface grit currently uses a small absolute gain rather than
-        // the master FFB percentage. Keeping the default at 4 reproduces the
-        // exact tested DX setting; users can raise it directly in config.xml.
+        // Every named effect uses the same rule:
+        // hardware max * in-game master * config effect * instantaneous shape.
+        // The config value is therefore the real maximum for that effect when
+        // the in-game master is 100.
         if (source_function_contains(source, "apply_surface_rattle"))
-            return effect_setting("sand", 4);
+            return master_effect_gain(effect_setting("sand", 3));
 
         if (source_function_contains(source, "set_shift_force"))
-            return master_effect_gain(effect_setting("gear_shift", 85));
+            return master_effect_gain(effect_setting("gear_shift", 49));
 
         if (source_function_contains(source, "set_crash_yank"))
         {
             return master_effect_gain(
                 ocrash.is_flip()
-                    ? effect_setting("crash_flip", 115)
-                    : effect_setting("crash_spin", 115));
+                    ? effect_setting("crash_flip", 70)
+                    : effect_setting("crash_spin", 70));
         }
 
         if (source_function_contains(source, "set_start_intro_force"))
         {
             return scale_value(
-                g_gain_percent,
-                effect_setting("start_steering", 100));
+                master_effect_gain(effect_setting("start_steering", 70)),
+                start_intro_phase_percent());
         }
 
-        // Music Select's current detent is already tuned around an 80% scale.
-        // Treat the XML value as that visible tuning number: 80 reproduces the
-        // current build, 40 halves it and 100 makes it 25% stronger.
         if (source_function_contains(source, "apply_music_detent_ffb") ||
             source_function_contains(source, "set_music_detent_force"))
         {
-            return scale_value(
-                g_gain_percent,
-                effect_setting("music_selector", 80),
-                80);
+            return master_effect_gain(effect_setting("music_selector", 7));
         }
 
         if (source_function_contains(source, "do_motors") &&
             ocrash.skid_counter)
         {
-            return master_effect_gain(effect_setting("traffic_skid", 100));
+            return master_effect_gain(effect_setting("traffic_skid", 70));
         }
 
         if (source_function_contains(source, "apply_crash_ffb_force") &&
             ocrash.crash_counter)
         {
             if (low_speed_crash_bump())
-                return master_effect_gain(effect_setting("crash_bump", 100));
+                return master_effect_gain(effect_setting("crash_bump", 70));
 
             if (ocrash.is_flip())
             {
                 if (ocrash.crash_state >= 5)
-                {
-                    return master_effect_gain(
-                        effect_setting("crash_flip_landing", 100));
-                }
+                    return master_effect_gain(effect_setting("crash_flip_landing", 70));
 
-                return master_effect_gain(
-                    effect_setting("crash_flip_impact", 100));
+                return master_effect_gain(effect_setting("crash_flip_impact", 70));
             }
 
-            return master_effect_gain(
-                effect_setting("crash_spin_impact", 100));
+            return master_effect_gain(effect_setting("crash_spin_impact", 70));
         }
 
-        return g_gain_percent;
+        return clamp_percent(g_gain_percent);
+    }
+
+    static int normalized_force_for_source(
+        int force,
+        const std::source_location& source)
+    {
+        force = std::max(0, std::min(7, force));
+
+        // These effects already have their amplitude expressed by their config
+        // percentage and their time/cadence envelope. Their old motor command
+        // was only a legacy cabinet-strength choice, so normalize the active
+        // pulse to the full configured amplitude.
+        if (source_function_contains(source, "apply_surface_rattle") ||
+            source_function_contains(source, "set_start_intro_force"))
+        {
+            return 0;
+        }
+
+        if (source_function_contains(source, "set_shift_force"))
+        {
+            // Keep a small opposite-direction rebound instead of letting the
+            // old force=7 collapse to literal zero on the new linear backend.
+            return force >= 7 ? 5 : force;
+        }
+
+        if (source_function_contains(source, "set_crash_yank"))
+        {
+            // Medium-speed spin uses force=1 for its sustained yank. That is
+            // the peak of this named effect and must reach its config maximum.
+            if (!ocrash.is_flip())
+                return 0;
+
+            // Flip uses 0/1/2 as a real shape; 0 remains the peak.
+            return force;
+        }
+
+        if (source_function_contains(source, "apply_crash_ffb_force") &&
+            ocrash.crash_counter)
+        {
+            if (low_speed_crash_bump())
+            {
+                // Bump uses force=2 for the main impact and force=7 for the
+                // rebound. Normalize the impact to 100% and retain a small
+                // rebound at about 29% of the configured value.
+                return force >= 7 ? 5 : 0;
+            }
+
+            if (!ocrash.is_flip())
+            {
+                // Spin impact uses force=1 as its strongest phase.
+                return 0;
+            }
+
+            if (ocrash.crash_state >= 5 && force >= 7)
+            {
+                // Preserve the final post-landing settle as a very small pulse.
+                return 6;
+            }
+        }
+
+        return force;
     }
 
     static int offroad_speed_percent()
@@ -410,10 +479,6 @@ namespace forcefeedback
         const bool fully_offroad =
             oferrari.wheel_state == OFerrari::WHEELS_OFF;
 
-        // OOutputs has already combined its alternating off-road rumble with
-        // the outward pull. Recover the two components, then rebuild them in
-        // SDL's full signed 16-bit range. This avoids the old seven-step
-        // quantisation, so every configured value from 0..100 has real room.
         const int combined_force = xdirection - 0x08;
         const int current_pull_magnitude = fully_offroad ? 2 : 3;
         const int current_pull =
@@ -423,15 +488,16 @@ namespace forcefeedback
 
         const int configured_rumble =
             fully_offroad
-                ? effect_setting("offroad_rumble_full", 100)
-                : effect_setting("offroad_rumble_one_wheel", 50);
+                ? effect_setting("offroad_rumble_full", 10)
+                : effect_setting("offroad_rumble_one_wheel", 10);
 
-        // The legacy table already increases the alternating amplitude with
-        // speed. Add a broad speed envelope so low-speed shoulder contact is
-        // deliberately much softer than a high-speed excursion.
+        // The legacy table reaches +/-6 at its fastest cadence. Normalize that
+        // peak to 100% so config=100 can actually reach the full configured
+        // rumble at high speed, while the speed envelope still makes low-speed
+        // shoulder contact deliberately softer.
         const int speed_percent = offroad_speed_percent();
         int rumble_level =
-            scale_value(0x7fff, current_rumble, 7);
+            scale_value(0x7fff, current_rumble, 6);
         rumble_level =
             scale_value(rumble_level, configured_rumble);
         rumble_level =
@@ -439,23 +505,21 @@ namespace forcefeedback
 
         const int pull_percent =
             fully_offroad
-                ? effect_setting("offroad_pull_full", 29)
-                : effect_setting("offroad_pull_one_wheel", 43);
-        const int tuned_pull_magnitude =
-            scale_value(7, pull_percent);
+                ? effect_setting("offroad_pull_full", 21)
+                : effect_setting("offroad_pull_one_wheel", 10);
+
+        // Pull is high-resolution too: 100 means the full constant-force range,
+        // 1 means one percent, with no seven-step quantisation.
         const int pull_level =
             scale_value(
-                0x7fff,
-                tuned_pull_magnitude * g_offroad_pull_direction,
-                7);
+                0x7fff * g_offroad_pull_direction,
+                pull_percent);
 
         g_offroad_level_override =
             std::max(-0x7fff,
                 std::min(0x7fff, rumble_level + pull_level));
         g_offroad_level_override_active = true;
 
-        // Keep the original command valid for callers that inspect it, even
-        // though the Windows SDL path below now uses the high-resolution level.
         force = std::max(0, std::min(7, force));
     }
 
@@ -477,9 +541,6 @@ namespace forcefeedback
         int requested_percent,
         const std::source_location& source)
     {
-        // The normal frontend, Attract Mode and stationary/start states all use
-        // the configured low-speed spring. This also overrides the inherited
-        // menu code that used to send centering_strength directly.
         if (source_file_contains(source, "menu.cpp") ||
             source_file_contains(source, "menu_base.cpp") ||
             source_function_contains(source, "reset_music_detent_ffb"))
@@ -489,10 +550,7 @@ namespace forcefeedback
 
         if (source_function_contains(source, "apply_music_detent_ffb"))
         {
-            return scale_value(
-                requested_percent,
-                effect_setting("music_selector", 80),
-                80);
+            return requested_percent;
         }
 
         if (!source_file_contains(source, "ooutputs_base.cpp"))
@@ -599,10 +657,6 @@ namespace forcefeedback
         force = std::max(0, std::min(7, force));
         gain_percent = clamp_percent(gain_percent);
 
-        // Constant-force effects use a true zero-based linear range. The
-        // inherited 0..7 command still defines the effect's instantaneous
-        // shape, but there is no artificial minimum torque underneath it.
-        // force=7 is zero; force=0 at gain=100 is full SDL signed range.
         const long long numerator =
             static_cast<long long>(0x7fff) *
             (7 - force) *
@@ -648,11 +702,6 @@ namespace forcefeedback
         Uint16 target_pid = 0;
         const bool have_target = read_target_vidpid(target_vid, target_pid);
 
-        // Pass order is intentional:
-        //  1. requested VID:PID if it is actually a wheel
-        //  2. any SDL-classified wheel
-        //  3. requested VID:PID even if SDL did not classify it as a wheel
-        //  4. any constant-force capable haptic joystick
         for (int pass = 0; pass < 4; ++pass)
         {
             const bool require_target = pass == 0 || pass == 2;
@@ -789,8 +838,6 @@ namespace forcefeedback
             return false;
         }
 
-        // Match Flycast's lifecycle: create the spring here, but do not start
-        // it until CannonBall explicitly applies its configured centering load.
         return true;
     }
 
@@ -810,9 +857,6 @@ namespace forcefeedback
         if (g_supported)
             return true;
 
-        // Materialize every documented tuning value into the shared config
-        // tree. Old configs that do not contain them therefore behave exactly
-        // like the current DX preset and gain the fields on the next save.
         config.seed_ffb_tuning_defaults();
 
         g_init_attempted = true;
@@ -867,7 +911,10 @@ namespace forcefeedback
         }
         else
         {
-            const int magnitude = constant_force_level(force, tuned_gain);
+            const int normalized_force =
+                normalized_force_for_source(force, source);
+            const int magnitude =
+                constant_force_level(normalized_force, tuned_gain);
 
             if (xdirection < 0x08)
                 signed_level = -magnitude;
@@ -882,13 +929,11 @@ namespace forcefeedback
 
         if (g_is_wheel)
         {
-            // Flycast-style wheel path: fixed steering direction, signed torque.
             effect.constant.direction = steering_direction();
             effect.constant.level = static_cast<Sint16>(signed_level);
         }
         else
         {
-            // Generic fallback for devices SDL does not classify as a wheel.
             effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
             effect.constant.direction.dir[0] = signed_level < 0 ? -1 : 1;
             effect.constant.level = static_cast<Sint16>(
@@ -980,7 +1025,7 @@ namespace forcefeedback
         effect.type = SDL_HAPTIC_SINE;
         effect.periodic.direction = steering_direction();
         effect.periodic.length = SDL_HAPTIC_INFINITY;
-        effect.periodic.period = 45; // ~22 Hz, matching the previous backend
+        effect.periodic.period = 45;
         effect.periodic.magnitude = 0;
 
         g_tyre_slip_effect = SDL_HapticNewEffect(g_haptic, &effect);
@@ -1003,10 +1048,12 @@ namespace forcefeedback
 
         if (active)
         {
+            g_tyre_slip_prestart =
+                source_function_contains(source, "update_prestart_sine");
             g_tyre_slip_strength_percent =
-                source_function_contains(source, "update_prestart_sine")
-                    ? effect_setting("start_rev_shake", 15)
-                    : effect_setting("tyre_slip", 15);
+                g_tyre_slip_prestart
+                    ? effect_setting("start_rev_shake", 11)
+                    : effect_setting("tyre_slip", 11);
             g_tyre_slip_spring_percent =
                 spring_setting("sliding", 67);
         }
@@ -1014,10 +1061,6 @@ namespace forcefeedback
         const bool state_changed = active != g_tyre_slip_active;
         g_tyre_slip_active = active;
 
-        // OOutputs calls this once per game tick before its own cached spring
-        // update. Re-evaluate the configured curve here so custom speed_start /
-        // speed_full values are honoured even where the inherited 100..240
-        // spring cache would otherwise suppress an update.
         if (source_file_contains(source, "ooutputs_base.cpp") &&
             source_function_contains(source, "tick"))
         {
@@ -1035,19 +1078,28 @@ namespace forcefeedback
         {
             if (g_tyre_slip_effect >= 0)
                 SDL_HapticStopEffect(g_haptic, g_tyre_slip_effect);
+            g_tyre_slip_prestart = false;
             return;
         }
 
         if (g_tyre_slip_effect < 0 && !create_tyre_slip_effect())
             return;
 
+        int effective_percent =
+            master_effect_gain(g_tyre_slip_strength_percent);
+
+        if (g_tyre_slip_prestart)
+        {
+            const int pedal_percent =
+                std::max(0, std::min(100,
+                    (oinputs.acc_adjust * 100 + 127) / 255));
+            effective_percent =
+                scale_value(effective_percent, pedal_percent);
+        }
+
         const int magnitude =
             std::max(0, std::min(0x7fff,
-                static_cast<int>(
-                    (static_cast<long long>(0x7fff) *
-                     g_tyre_slip_strength_percent *
-                     g_gain_percent) /
-                    10000)));
+                scale_value(0x7fff, effective_percent)));
 
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_SINE;
@@ -1076,6 +1128,7 @@ namespace forcefeedback
             if (g_tyre_slip_effect >= 0)
                 SDL_HapticStopEffect(g_haptic, g_tyre_slip_effect);
             g_tyre_slip_active = false;
+            g_tyre_slip_prestart = false;
             g_applied_centering_percent = -1;
         }
         else
@@ -1134,6 +1187,7 @@ namespace forcefeedback
         g_init_attempted = false;
         g_is_wheel = false;
         g_tyre_slip_active = false;
+        g_tyre_slip_prestart = false;
         g_applied_centering_percent = -1;
         g_tyre_slip_strength_percent = 15;
         g_tyre_slip_spring_percent = 67;
@@ -1146,8 +1200,6 @@ namespace forcefeedback
 
     bool is_supported()
     {
-        // Probe lazily so a rumble-capable gamepad can coexist with a separate
-        // FFB wheel. Wheel haptics and gamepad rumble are independent paths.
         return g_supported || ensure_initialized();
     }
 }
