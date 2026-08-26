@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include "stdint.hpp"
@@ -258,8 +259,319 @@ public:
     }
 
 protected:
+    struct FfbMenuItem
+    {
+        const char* label;
+        const char* setting;
+    };
+
     // DX-only submenu for infrequently used administrative options.
     std::vector<std::string> menu_system;
+
+    // FFB tuning pages read their values directly from Config's XML tree.
+    std::vector<std::string> menu_ffb_tuning;
+    std::vector<std::string> menu_ffb_effects;
+    std::vector<std::string> menu_ffb_spring;
+    int ffb_effect_page = 0;
+    int ffb_spring_page = 0;
+
+    static std::string ffb_value_text(
+        const char* label,
+        int value,
+        bool percentage = true)
+    {
+        return std::string(label) + " " + std::to_string(value) +
+            (percentage ? "%" : "");
+    }
+
+    void populate_ffb_tuning()
+    {
+        menu_ffb_tuning.clear();
+        menu_ffb_tuning.push_back("MAIN EFFECTS");
+        menu_ffb_tuning.push_back("SPRING EFFECTS");
+        menu_ffb_tuning.push_back(ENTRY_BACK);
+    }
+
+    void populate_ffb_effects()
+    {
+        static const FfbMenuItem ITEMS[] =
+        {
+            { "SAND",                    "sand" },
+            { "TYRE SLIP",               "tyre_slip" },
+            { "OFFROAD RUMBLE 1W",       "offroad_rumble_one_wheel" },
+            { "OFFROAD RUMBLE FULL",     "offroad_rumble_full" },
+            { "OFFROAD PULL 1W",         "offroad_pull_one_wheel" },
+            { "OFFROAD PULL FULL",       "offroad_pull_full" },
+            { "GEAR SHIFT",              "gear_shift" },
+            { "MUSIC SELECTOR",          "music_selector" },
+            { "TRAFFIC SKID",            "traffic_skid" },
+            { "CRASH BUMP",              "crash_bump" },
+            { "CRASH SPIN IMPACT",       "crash_spin_impact" },
+            { "CRASH SPIN",              "crash_spin" },
+            { "CRASH FLIP IMPACT",       "crash_flip_impact" },
+            { "CRASH FLIP",              "crash_flip" },
+            { "CRASH FLIP LANDING",      "crash_flip_landing" },
+            { "START STEERING",          "start_steering" },
+            { "START REV SHAKE",         "start_rev_shake" },
+        };
+
+        const int page_size = 9;
+        const int item_count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
+        const int first = ffb_effect_page * page_size;
+        const int last = std::min(first + page_size, item_count);
+
+        menu_ffb_effects.clear();
+        for (int i = first; i < last; i++)
+        {
+            menu_ffb_effects.push_back(
+                ffb_value_text(
+                    ITEMS[i].label,
+                    config.ffb_effect_setting(ITEMS[i].setting, 0)));
+        }
+
+        if (ffb_effect_page == 0)
+            menu_ffb_effects.push_back("NEXT PAGE");
+        else
+            menu_ffb_effects.push_back("PREV PAGE");
+
+        menu_ffb_effects.push_back(ENTRY_BACK);
+    }
+
+    void populate_ffb_spring()
+    {
+        static const FfbMenuItem ITEMS[] =
+        {
+            { "LOW SPEED",                "low_speed" },
+            { "HIGH SPEED",               "high_speed" },
+            { "SLIDING",                  "sliding" },
+            { "SPEED START",              "speed_start" },
+            { "SPEED FULL",               "speed_full" },
+            { "TRAFFIC SKID",             "traffic_skid" },
+            { "CRASH BUMP",               "crash_bump" },
+            { "CRASH SPIN",               "crash_spin" },
+            { "CRASH RECOVERY",           "crash_recovery" },
+            { "CRASH FLIP START",         "crash_flip_start" },
+            { "CRASH FLIP AIRBORNE",      "crash_flip_airborne" },
+            { "CRASH FLIP TRANSITION",    "crash_flip_transition" },
+            { "CRASH FLIP LANDING",       "crash_flip_landing" },
+            { "CRASH FLIP RECOVERY",      "crash_flip_recovery" },
+        };
+
+        const int page_size = 7;
+        const int item_count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
+        const int first = ffb_spring_page * page_size;
+        const int last = std::min(first + page_size, item_count);
+
+        menu_ffb_spring.clear();
+        for (int i = first; i < last; i++)
+        {
+            const bool speed_value =
+                std::string(ITEMS[i].setting) == "speed_start" ||
+                std::string(ITEMS[i].setting) == "speed_full";
+
+            menu_ffb_spring.push_back(
+                ffb_value_text(
+                    ITEMS[i].label,
+                    config.ffb_spring_setting(ITEMS[i].setting, 0),
+                    !speed_value));
+        }
+
+        if (ffb_spring_page == 0)
+            menu_ffb_spring.push_back("NEXT PAGE");
+        else
+            menu_ffb_spring.push_back("PREV PAGE");
+
+        menu_ffb_spring.push_back(ENTRY_BACK);
+    }
+
+    void adjust_ffb_effect(int delta)
+    {
+        static const FfbMenuItem ITEMS[] =
+        {
+            { "SAND",                    "sand" },
+            { "TYRE SLIP",               "tyre_slip" },
+            { "OFFROAD RUMBLE 1W",       "offroad_rumble_one_wheel" },
+            { "OFFROAD RUMBLE FULL",     "offroad_rumble_full" },
+            { "OFFROAD PULL 1W",         "offroad_pull_one_wheel" },
+            { "OFFROAD PULL FULL",       "offroad_pull_full" },
+            { "GEAR SHIFT",              "gear_shift" },
+            { "MUSIC SELECTOR",          "music_selector" },
+            { "TRAFFIC SKID",            "traffic_skid" },
+            { "CRASH BUMP",              "crash_bump" },
+            { "CRASH SPIN IMPACT",       "crash_spin_impact" },
+            { "CRASH SPIN",              "crash_spin" },
+            { "CRASH FLIP IMPACT",       "crash_flip_impact" },
+            { "CRASH FLIP",              "crash_flip" },
+            { "CRASH FLIP LANDING",      "crash_flip_landing" },
+            { "START STEERING",          "start_steering" },
+            { "START REV SHAKE",         "start_rev_shake" },
+        };
+
+        const int page_size = 9;
+        const int item_count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
+        const int index = ffb_effect_page * page_size + cursor;
+        if (index < 0 || index >= item_count)
+            return;
+
+        int value = config.ffb_effect_setting(ITEMS[index].setting, 0) + delta;
+        value = std::max(0, std::min(100, value));
+        config.set_ffb_effect_setting(ITEMS[index].setting, value);
+        if (!config.save())
+            display_message("ERROR SAVING SETTINGS!");
+        populate_ffb_effects();
+    }
+
+    void adjust_ffb_spring(int delta)
+    {
+        static const FfbMenuItem ITEMS[] =
+        {
+            { "LOW SPEED",                "low_speed" },
+            { "HIGH SPEED",               "high_speed" },
+            { "SLIDING",                  "sliding" },
+            { "SPEED START",              "speed_start" },
+            { "SPEED FULL",               "speed_full" },
+            { "TRAFFIC SKID",             "traffic_skid" },
+            { "CRASH BUMP",               "crash_bump" },
+            { "CRASH SPIN",               "crash_spin" },
+            { "CRASH RECOVERY",           "crash_recovery" },
+            { "CRASH FLIP START",         "crash_flip_start" },
+            { "CRASH FLIP AIRBORNE",      "crash_flip_airborne" },
+            { "CRASH FLIP TRANSITION",    "crash_flip_transition" },
+            { "CRASH FLIP LANDING",       "crash_flip_landing" },
+            { "CRASH FLIP RECOVERY",      "crash_flip_recovery" },
+        };
+
+        const int page_size = 7;
+        const int item_count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
+        const int index = ffb_spring_page * page_size + cursor;
+        if (index < 0 || index >= item_count)
+            return;
+
+        const std::string setting = ITEMS[index].setting;
+        const int maximum =
+            (setting == "speed_start" || setting == "speed_full") ? 294 : 100;
+        int value = config.ffb_spring_setting(ITEMS[index].setting, 0) + delta;
+        value = std::max(0, std::min(maximum, value));
+        config.set_ffb_spring_setting(ITEMS[index].setting, value);
+        if (!config.save())
+            display_message("ERROR SAVING SETTINGS!");
+        populate_ffb_spring();
+    }
+
+    void tick_ffb_tuning_menu()
+    {
+        if (input.has_pressed(Input::DOWN))
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            if (++cursor >= static_cast<int16_t>(menu_selected->size()))
+                cursor = 0;
+            return;
+        }
+
+        if (input.has_pressed(Input::UP))
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            if (--cursor < 0)
+                cursor = static_cast<int16_t>(menu_selected->size()) - 1;
+            return;
+        }
+
+        if (menu_selected == &menu_ffb_tuning)
+        {
+            if (!select_pressed())
+                return;
+
+            const std::string option = menu_ffb_tuning[cursor];
+            if (option == "MAIN EFFECTS")
+            {
+                ffb_effect_page = 0;
+                populate_ffb_effects();
+                set_menu(&menu_ffb_effects);
+            }
+            else if (option == "SPRING EFFECTS")
+            {
+                ffb_spring_page = 0;
+                populate_ffb_spring();
+                set_menu(&menu_ffb_spring);
+            }
+            else if (option.rfind(ENTRY_BACK, 0) == 0)
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        int delta = 0;
+        if (input.has_pressed(Input::LEFT))
+            delta = -1;
+        else if (input.has_pressed(Input::RIGHT))
+            delta = 1;
+
+        const bool selected = delta == 0 && select_pressed();
+
+        if (menu_selected == &menu_ffb_effects)
+        {
+            const int page_size = 9;
+            const int item_count = 17;
+            const int visible_items =
+                std::min(page_size, item_count - ffb_effect_page * page_size);
+
+            if (cursor < visible_items && (delta != 0 || selected))
+            {
+                adjust_ffb_effect(delta != 0 ? delta : 5);
+                return;
+            }
+
+            if (!selected)
+                return;
+
+            if (cursor == visible_items)
+            {
+                ffb_effect_page = ffb_effect_page == 0 ? 1 : 0;
+                populate_ffb_effects();
+                cursor = 0;
+            }
+            else
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        if (menu_selected == &menu_ffb_spring)
+        {
+            const int page_size = 7;
+            const int item_count = 14;
+            const int visible_items =
+                std::min(page_size, item_count - ffb_spring_page * page_size);
+
+            if (cursor < visible_items && (delta != 0 || selected))
+            {
+                adjust_ffb_spring(delta != 0 ? delta : 5);
+                return;
+            }
+
+            if (!selected)
+                return;
+
+            if (cursor == visible_items)
+            {
+                ffb_spring_page = ffb_spring_page == 0 ? 1 : 0;
+                populate_ffb_spring();
+                cursor = 0;
+            }
+            else
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+        }
+    }
 
     // Route only the new shallow DX category pages here. Every ordinary option
     // is still handled by the preserved SE implementation below this wrapper.
@@ -289,6 +601,21 @@ protected:
                     else
                         ++it;
                 }
+
+                // Put the detailed per-effect tuning directly beside the
+                // existing FFB master and Spring controls.
+                const auto spring_entry = std::find_if(
+                    menu_controls.begin(),
+                    menu_controls.end(),
+                    [](const std::string& entry)
+                    {
+                        return entry.rfind(ENTRY_CENTERING_STRENGTH, 0) == 0;
+                    });
+
+                if (spring_entry != menu_controls.end())
+                    menu_controls.insert(spring_entry + 1, "FFB TUNING");
+                else
+                    menu_controls.insert(menu_controls.end() - 1, "FFB TUNING");
 
                 set_menu(&menu_controls);
             }
@@ -323,6 +650,33 @@ protected:
                 menu_back();
             }
 
+            refresh_menu();
+            return;
+        }
+
+        if (!config.smartypi.enabled &&
+            (menu_selected == &menu_ffb_tuning ||
+             menu_selected == &menu_ffb_effects ||
+             menu_selected == &menu_ffb_spring))
+        {
+            tick_ffb_tuning_menu();
+            return;
+        }
+
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_controls &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_controls.size()) &&
+            menu_controls[cursor] == "FFB TUNING")
+        {
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            populate_ffb_tuning();
+            set_menu(&menu_ffb_tuning);
             refresh_menu();
             return;
         }
