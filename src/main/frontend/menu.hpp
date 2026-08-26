@@ -16,7 +16,9 @@
 #include "stdint.hpp"
 #include "main.hpp"
 #include "frontend/ttrial.hpp"
+#include "sdl2/input.hpp"
 #include "sdl2/pixel_scaler_state.hpp"
+#include "engine/audio/osoundint.hpp"
 
 class CabDiag;
 
