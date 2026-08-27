@@ -1,0 +1,392 @@
+name: Apply manual FPS and VSync controls
+
+on:
+  push:
+    branches:
+      - fix/windowed-display-modes
+    paths:
+      - .github/workflows/apply-manual-fps-vsync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windowed-display-modes
+          fetch-depth: 0
+
+      - name: Apply manual frame-rate and VSync settings
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def patch(path_str, replacements):
+              path = Path(path_str)
+              text = path.read_text()
+              for old, new in replacements:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f'{path}: expected exactly one match, found {count} for:\n{old}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text)
+
+          patch('src/main/frontend/menulabels.hpp', [
+              (
+                  'const static char* ENTRY_FPS_COUNTER        = "FPS COUNTER ";\n'
+                  'const static char* ENTRY_FULLSCREEN         = "DISPLAY MODE ";',
+                  'const static char* ENTRY_FPS_COUNTER        = "FPS COUNTER ";\n'
+                  'const static char* ENTRY_FRAME_RATE         = "FRAME RATE ";\n'
+                  'const static char* ENTRY_VSYNC              = "VSYNC ";\n'
+                  'const static char* ENTRY_FULLSCREEN         = "DISPLAY MODE ";'
+              ),
+          ])
+
+          patch('src/main/frontend/menu.hpp', [
+              (
+                  '            menu_video.push_back(ENTRY_FULLSCREEN);\n'
+                  '            menu_video.push_back(ENTRY_WIDESCREEN);\n'
+                  '            menu_video.push_back(scaler_entry);',
+                  '            menu_video.push_back(ENTRY_FULLSCREEN);\n'
+                  '            menu_video.push_back(ENTRY_WIDESCREEN);\n'
+                  '            menu_video.push_back(ENTRY_FRAME_RATE);\n'
+                  '            menu_video.push_back(ENTRY_VSYNC);\n'
+                  '            menu_video.push_back(scaler_entry);'
+              ),
+              (
+                  '            else if (option.rfind("PIXEL SCALER ", 0) == 0)\n',
+                  '            else if (selected(ENTRY_FRAME_RATE))\n'
+                  '            {\n'
+                  '                handled = true;\n'
+                  '                const int next = config.video.fps == 0 ? 2 : 0;\n'
+                  '                if (next != config.video.fps)\n'
+                  '                {\n'
+                  '                    config.video.fps = next;\n'
+                  '                    config.set_fps(config.video.fps);\n'
+                  '                    changed = true;\n'
+                  '                }\n'
+                  '            }\n'
+                  '            else if (selected(ENTRY_VSYNC))\n'
+                  '            {\n'
+                  '                handled = true;\n'
+                  '                const int target = direction > 0 ? 1 : 0;\n'
+                  '                if (config.video.vsync != target)\n'
+                  '                {\n'
+                  '                    config.video.vsync = target;\n'
+                  '                    config.videoRestartRequired = true;\n'
+                  '                    changed = true;\n'
+                  '                }\n'
+                  '            }\n'
+                  '            else if (option.rfind("PIXEL SCALER ", 0) == 0)\n'
+              ),
+          ])
+
+          patch('src/main/frontend/menu_base.cpp', [
+              (
+                  '            else if (SELECTED(ENTRY_FPS_COUNTER))\n'
+                  '            {\n'
+                  '                config.video.fps_count ^= 1; // cycle between 0 and 1\n'
+                  '            }\n'
+                  '            else if (SELECTED(ENTRY_FULLSCREEN))',
+                  '            else if (SELECTED(ENTRY_FPS_COUNTER))\n'
+                  '            {\n'
+                  '                config.video.fps_count ^= 1; // cycle between 0 and 1\n'
+                  '            }\n'
+                  '            else if (SELECTED(ENTRY_FRAME_RATE))\n'
+                  '            {\n'
+                  '                config.video.fps = config.video.fps == 0 ? 2 : 0;\n'
+                  '                config.set_fps(config.video.fps);\n'
+                  '            }\n'
+                  '            else if (SELECTED(ENTRY_VSYNC))\n'
+                  '            {\n'
+                  '                config.video.vsync ^= 1;\n'
+                  '                config.videoRestartRequired = true;\n'
+                  '            }\n'
+                  '            else if (SELECTED(ENTRY_FULLSCREEN))'
+              ),
+              (
+                  '            if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");\n'
+                  '            else if (SELECTED(ENTRY_FULLSCREEN))',
+                  '            if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");\n'
+                  '            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : "60 FPS");\n'
+                  '            else if (SELECTED(ENTRY_VSYNC))         set_menu_text(ENTRY_VSYNC, config.video.vsync ? "ON" : "OFF");\n'
+                  '            else if (SELECTED(ENTRY_FULLSCREEN))'
+              ),
+          ])
+
+          patch('src/main/frontend/config_base.cpp', [
+              (
+                  '    video.fps           = cfg.get_int("video.fps",             0); // Open game at 30fps; will auto-switch to 60fps if possible\n'
+                  '    video.fps_count',
+                  '    video.fps           = cfg.get_int("video.fps",             2); // 0 = 30 FPS, 2 = 60 FPS; default 60\n'
+                  '    video.fps           = video.fps == 0 ? 0 : 2;               // Normalize legacy ORIGINAL/other values to 60 FPS\n'
+                  '    video.fps_count'
+              ),
+              (
+                  '    cfg.put_int("video.window.scale",       video.scale);         // Video Scale: 1x (1)\n'
+                  '    cfg.put_int("video.fps_counter",',
+                  '    cfg.put_int("video.window.scale",       video.scale);         // Video Scale: 1x (1)\n'
+                  '    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS\n'
+                  '    cfg.put_int("video.fps_counter",'
+              ),
+          ])
+
+          patch('src/main/frontend/config.cpp', [
+              (
+                  '        video.widescreen = 0;\n'
+                  '        video.shader_mode = 0;',
+                  '        video.widescreen = 0;\n'
+                  '        video.fps = 2;\n'
+                  '        video.shader_mode = 0;'
+              ),
+          ])
+
+          patch('src/main/main.hpp', [
+              (
+                  '    extern int  fps_lock; // 0=no lock (auto), 30(fps), 60(fps)\n'
+                  '    extern bool singlecore_detect;\n'
+                  '    extern bool singlecore_mode;\n'
+                  '    extern long fps_eval_period;\n',
+                  '    extern int  fps_lock; // 0=use config setting, 30/60=command-line override\n'
+                  '    extern bool singlecore_detect;\n'
+                  '    extern bool singlecore_mode;\n'
+              ),
+          ])
+
+          patch('src/main/main.cpp', [
+              (
+                  '    - Automatic 30/60fps operation\n',
+                  '    - Selectable 30/60fps operation\n'
+              ),
+              (
+                  'int     cannonball::fps_lock            = 0; // 0=no lock (auto), 30(fps), 60(fps)\n'
+                  'bool    cannonball::singlecore_detect   = true;\n'
+                  'bool    cannonball::singlecore_mode     = false;\n'
+                  '// fps_eval_period is the interval at which 30/60 fps is evaluated in auto mode. Starts at\n'
+                  '// 4 (seconds), and is doubled every time a switch back to 30fps happens\n'
+                  'long    cannonball::fps_eval_period     = 4;\n',
+                  'int     cannonball::fps_lock            = 0; // 0=use config, 30/60=command-line override\n'
+                  'bool    cannonball::singlecore_detect   = true;\n'
+                  'bool    cannonball::singlecore_mode     = false;\n'
+              ),
+              (
+                  'static void main_loop() {\n'
+                  '    // Determine frame rate. Use auto (30/60) unless override was set on command-line\n'
+                  '    int configured_fps = (cannonball::fps_lock == 60 ? 60 : 30);\n'
+                  '    config.video.fps   = (configured_fps == 30 ? 0 : 2);\n'
+                  '    config.set_fps(config.video.fps);\n'
+                  '    double targetFPS   = static_cast<double>(configured_fps);\n\n'
+                  '    // Track whether vsync is enabled\n'
+                  '    bool vsync = false;\n'
+                  '    // Determine if we can rely on vsync (for 60fps mode)\n'
+                  '    SDL_DisplayMode displayMode;\n'
+                  '    if (SDL_GetCurrentDisplayMode(0, &displayMode) == 0) {\n'
+                  '        // Can retrieve monitor refresh rate\n'
+                  '        vsync = (displayMode.refresh_rate == configured_fps) && SDL_GL_GetSwapInterval() && (config.video.vsync == 1);\n'
+                  '        std::cout << "INFO: ";\n'
+                  '        if (config.video.vsync != 1)\n'
+                  '            std::cout << "VSync is disabled by setting in config.xml. ";\n'
+                  '        std::cout << "Display reports refresh rate is " << displayMode.refresh_rate << "Hz.";\n'
+                  '        if ((config.video.vsync == 1) && (displayMode.refresh_rate == 60) && (cannonball::fps_lock != 30))\n'
+                  '            std::cout << " VSync will be used for 60fps mode.\\n";\n'
+                  '        else\n'
+                  '            std::cout << "\\n";\n'
+                  '    }',
+                  'static void main_loop() {\n'
+                  '    // Frame rate is an explicit user setting. -30/-60 remain optional\n'
+                  '    // command-line overrides, but there is no automatic performance switch.\n'
+                  '    int configured_fps =\n'
+                  '        cannonball::fps_lock == 30 ? 30 :\n'
+                  '        cannonball::fps_lock == 60 ? 60 :\n'
+                  '        (config.video.fps == 0 ? 30 : 60);\n'
+                  '    config.video.fps = configured_fps == 30 ? 0 : 2;\n'
+                  '    config.set_fps(config.video.fps);\n'
+                  '    double targetFPS = static_cast<double>(configured_fps);\n\n'
+                  '    auto refresh_vsync_state = [&]()\n'
+                  '    {\n'
+                  '        if (config.video.vsync != 1 || SDL_GL_GetSwapInterval() == 0)\n'
+                  '            return false;\n\n'
+                  '        SDL_DisplayMode displayMode;\n'
+                  '        return SDL_GetCurrentDisplayMode(0, &displayMode) == 0 &&\n'
+                  '               displayMode.refresh_rate == configured_fps;\n'
+                  '    };\n\n'
+                  '    bool vsync = refresh_vsync_state();'
+              ),
+              (
+                  '    int renderedFrames = 0;\n'
+                  '    int droppedFrames = 0;\n'
+                  '    auto fpsTimer = std::chrono::steady_clock::now();\n\n'
+                  '    // Performance check variables (10-second evaluation).\n'
+                  '    auto performanceCheckStart = std::chrono::steady_clock::now();\n'
+                  '    int totalRenderedFramesForCheck = 0;\n'
+                  '    // For 30 FPS, accumulate sleep time and frame count.\n'
+                  '    std::chrono::duration<double> totalSleepTime(0);\n'
+                  '    int frameCountForSleep = 0;',
+                  '    int renderedFrames = 0;\n'
+                  '    auto fpsTimer = std::chrono::steady_clock::now();'
+              ),
+              (
+                  '        // If running at 30 FPS, count this frame for sleep evaluation.\n'
+                  '        frameCountForSleep += (configured_fps == 30);\n\n',
+                  ''
+              ),
+              (
+                  '            ++droppedFrames;\n',
+                  ''
+              ),
+              (
+                  '        renderedFrames++;\n'
+                  '        totalRenderedFramesForCheck++;  // For performance evaluation\n',
+                  '        renderedFrames++;\n'
+              ),
+              (
+                  '            // reset timers as video restart can take a while\n'
+                  '            nextFrameTime = std::chrono::steady_clock::now();\n',
+                  '            // reset timers as video restart can take a while\n'
+                  '            nextFrameTime = std::chrono::steady_clock::now();\n'
+                  '            vsync = refresh_vsync_state();\n'
+              ),
+              (
+                  '                // Only record sleep if we\'re at 30 FPS.\n'
+                  '                totalSleepTime += sleepDuration * (configured_fps == 30);\n\n'
+                  '                std::this_thread::sleep_for(sleepDuration);',
+                  '                std::this_thread::sleep_for(sleepDuration);'
+              ),
+              (
+                  '        // Record FPS info on console (every 2 seconds) and FPS on-screen if enabled\n'
+                  '        auto elapsed = std::chrono::steady_clock::now() - fpsTimer;\n'
+                  '        if (elapsed >= std::chrono::seconds(2)) {\n'
+                  '            int fps = renderedFrames / 2;\n'
+                  '            int totalFrames = renderedFrames + droppedFrames;\n'
+                  '            int droppedPercent = (totalFrames > 0) ? (droppedFrames * 100 / totalFrames) : 0;\n'
+                  '            printf("\\r%i FPS (dropped: %i%%)    ", fps, droppedPercent);\n'
+                  '            fflush(stdout);\n'
+                  '            fps_counter = fps;\n'
+                  '            renderedFrames = 0;\n'
+                  '            droppedFrames = 0;\n'
+                  '            fpsTimer = std::chrono::steady_clock::now();\n'
+                  '        }\n\n'
+                  '        // ---- PERFORMANCE EVALUATION (every 10 seconds) ----\n'
+                  '        if (cannonball::fps_lock==0) {\n'
+                  '            auto performanceElapsed = std::chrono::steady_clock::now() - performanceCheckStart;\n'
+                  '            if (performanceElapsed >= std::chrono::seconds(cannonball::fps_eval_period)) {\n'
+                  '                double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(performanceElapsed).count();\n'
+                  '                if (configured_fps == 60) {\n'
+                  '                    // Evaluate average FPS at 60 FPS.\n'
+                  '                    double avgFPS = totalRenderedFramesForCheck / seconds;\n'
+                  '                    if (avgFPS < 50.0) {\n'
+                  '                        printf("\\nPerformance check: average FPS %.2f too low. Switching to 30 FPS.\\n", avgFPS);\n'
+                  '                        config.video.fps = 0; // 0 = 30 fps\n'
+                  '                        config.set_fps(config.video.fps);\n'
+                  '                        cannonball::fps_eval_period *= 2; // double eval period for next try\n'
+                  '                    }\n'
+                  '                }\n'
+                  '                else if (configured_fps == 30) {\n'
+                  '                    // Evaluate average sleep fraction at 30 FPS.\n'
+                  '                    double avgSleepFraction = 0.0;\n'
+                  '                    if (frameCountForSleep > 0) {\n'
+                  '                        avgSleepFraction = totalSleepTime.count() / (frameDuration.count() * frameCountForSleep);\n'
+                  '                    }\n'
+                  '                    if (avgSleepFraction > 0.6) {\n'
+                  '                        printf("\\nPerformance check: average sleep fraction %.2f%%. Switching to 60 FPS.\\n", avgSleepFraction * 100.0);\n'
+                  '                        config.video.fps = 2; // 2 = 60 fps\n'
+                  '                        config.set_fps(config.video.fps);\n'
+                  '                    }\n'
+                  '                }\n'
+                  '                // Reset performance evaluation counters.\n'
+                  '                performanceCheckStart = std::chrono::steady_clock::now();\n'
+                  '                totalRenderedFramesForCheck = 0;\n'
+                  '                totalSleepTime = std::chrono::duration<double>(0);\n'
+                  '                frameCountForSleep = 0;\n'
+                  '            }\n'
+                  '            // Update control variables if there is an FPS change\n'
+                  '            if (config.fps != configured_fps) {\n'
+                  '                configured_fps = config.fps;\n'
+                  '                targetFPS = static_cast<double>(configured_fps);\n'
+                  '                frameDuration = std::chrono::duration<double>(1.0 / targetFPS);\n'
+                  '                nextFrameTime = std::chrono::steady_clock::now() + frameDuration;\n\n'
+                  '                // Determine if we can rely on vsync (for 60fps mode)\n'
+                  '                SDL_DisplayMode displayMode;\n'
+                  '                if (SDL_GetCurrentDisplayMode(0, &displayMode) == 0) {\n'
+                  '                    // Can retrieve monitor refresh rate\n'
+                  '                    vsync = (displayMode.refresh_rate == configured_fps) && SDL_GL_GetSwapInterval() && (config.video.vsync == 1);\n'
+                  '                    std::cout << "INFO: ";\n'
+                  '                    std::cout << "Display reports refresh rate is " << displayMode.refresh_rate << "Hz.";\n'
+                  '                    if (vsync)\n'
+                  '                        std::cout << " VSync enabled.\\n";\n'
+                  '                    else\n'
+                  '                        std::cout << " VSync disabled.\\n";\n'
+                  '                }\n'
+                  '            }\n'
+                  '        }',
+                  '        // Keep the optional on-screen FPS counter updated without\n'
+                  '        // printing periodic diagnostics to the console.\n'
+                  '        auto elapsed = std::chrono::steady_clock::now() - fpsTimer;\n'
+                  '        if (elapsed >= std::chrono::seconds(2))\n'
+                  '        {\n'
+                  '            fps_counter = renderedFrames / 2;\n'
+                  '            renderedFrames = 0;\n'
+                  '            fpsTimer = std::chrono::steady_clock::now();\n'
+                  '        }\n\n'
+                  '        // Apply an explicit in-menu frame-rate change immediately.\n'
+                  '        // Command-line -30/-60 remains authoritative for this run.\n'
+                  '        if (cannonball::fps_lock == 0 && config.fps != configured_fps)\n'
+                  '        {\n'
+                  '            configured_fps = config.fps;\n'
+                  '            targetFPS = static_cast<double>(configured_fps);\n'
+                  '            frameDuration = std::chrono::duration<double>(1.0 / targetFPS);\n'
+                  '            nextFrameTime = std::chrono::steady_clock::now() + frameDuration;\n'
+                  '            vsync = refresh_vsync_state();\n'
+                  '        }'
+              ),
+              (
+                  '    // we\'re done\n'
+                  '    printf("\\n");\n',
+                  '    // we\'re done\n'
+              ),
+              (
+                  'static bool parse_command_line(int argc, char* argv[]) {\n'
+                  '    bool fps_set = false;\n',
+                  'static bool parse_command_line(int argc, char* argv[]) {\n'
+              ),
+              (
+                  '        else if (strcmp(argv[i], "-30") == 0) {\n'
+                  '            cannonball::fps_lock = 30;\n'
+                  '            std::cout << "Game set to 30fps. Automatic frame-rate selection disabled.\\n";\n'
+                  '            fps_set = true;\n'
+                  '        }\n'
+                  '        else if (strcmp(argv[i], "-60") == 0) {\n'
+                  '            cannonball::fps_lock = 60;\n'
+                  '            std::cout << "Game set to 60fps. Automatic frame-rate selection disabled.\\n";\n'
+                  '            fps_set = true;\n'
+                  '        }',
+                  '        else if (strcmp(argv[i], "-30") == 0) {\n'
+                  '            cannonball::fps_lock = 30;\n'
+                  '        }\n'
+                  '        else if (strcmp(argv[i], "-60") == 0) {\n'
+                  '            cannonball::fps_lock = 60;\n'
+                  '        }'
+              ),
+              (
+                  '    if (!fps_set)\n'
+                  '        std::cout << "Automatic frame-rate selection enabled.\\n";\n'
+                  '  \n'
+                  '    return true;',
+                  '    return true;'
+              ),
+          ])
+          PY
+
+      - name: Commit changes and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-manual-fps-vsync.yml
+          git config user.name "Endprodukt"
+          git config user.email "o.carell@kabelmail.de"
+          git add src/main/main.cpp src/main/main.hpp src/main/frontend/config.cpp src/main/frontend/config_base.cpp src/main/frontend/menu.hpp src/main/frontend/menu_base.cpp src/main/frontend/menulabels.hpp .github/workflows/apply-manual-fps-vsync.yml
+          git commit -m "Make frame rate and VSync explicit video options"
+          git push origin HEAD:fix/windowed-display-modes
