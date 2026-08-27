@@ -40,8 +40,9 @@ const uint16_t S16_HEIGHT     = 224;
 // JJP - was 398. Using 404 allows for optimisation of Blargg filter with SIMD.
 const uint16_t S16_WIDTH_WIDE = 404;
 
-// Internal Ultrawide Width
-const uint16_t S16_WIDTH_ULTRAWIDE = 524;
+// Internal Ultrawide Width. 536:224 closely matches a 3440:1440 display,
+// avoiding the small pillarbox bars produced by the previous 524-wide buffer.
+const uint16_t S16_WIDTH_ULTRAWIDE = 536;
 
 // Palette Address in Memory
 const uint32_t S16_PALETTE_BASE    = 0x120000;
