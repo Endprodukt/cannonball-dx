@@ -942,7 +942,6 @@ int main(int argc, char* argv[]) {
                 config.video.noise         =  10;       // as Blargg filter is disabled, add more analogue noise
                 config.sound.rate          =  22050;    // 22kHz audio rate
                 config.sound.callback_rate =  1;        // 16ms sound callbacks
-                if (cannonball::fps_lock == 0) cannonball::fps_lock = 30; // lock to 30fps unless user has overriden
             }
         }
     }
