@@ -1,0 +1,45 @@
+name: Apply ultrawide background overscan fix
+
+on:
+  push:
+    branches:
+      - fix/windowed-display-modes
+    paths:
+      - .github/workflows/apply-ultrawide-background-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windowed-display-modes
+          fetch-depth: 0
+
+      - name: Adjust 21:9 background overscan for 536px internal width
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main/hwvideo/hwtiles.cpp')
+          text = path.read_text()
+          old = '''        const int scale = config.s16_width / s16_width_noscale;\n        const int overscan = 20 * scale;\n        const int width = config.s16_width;'''
+          new = '''        const int scale = config.s16_width / s16_width_noscale;\n        // 536px ultrawide widened the visible tilemap by 12px compared with\n        // the previous 524px mode. Increase the centred crop by 6px per side\n        // so the proven 484px safe background region remains unchanged.\n        const int overscan = 26 * scale;\n        const int width = config.s16_width;'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one overscan block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-ultrawide-background-fix.yml
+          git config user.name "Endprodukt"
+          git config user.email "o.carell@kabelmail.de"
+          git add src/main/hwvideo/hwtiles.cpp .github/workflows/apply-ultrawide-background-fix.yml
+          git commit -m "Adjust 21:9 background overscan for 536px width"
+          git push origin HEAD:fix/windowed-display-modes
