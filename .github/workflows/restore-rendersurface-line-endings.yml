@@ -1,0 +1,45 @@
+name: Restore renderer line endings
+
+on:
+  push:
+    branches:
+      - fix/windowed-display-modes
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windowed-display-modes
+          fetch-depth: 0
+
+      - name: Restore original line-ending style
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+
+          path = 'src/main/sdl2/rendersurface.cpp'
+          before = subprocess.check_output([
+              'git', 'show', '606adbbdd64170f1b7ac59e4c94c8084c5ab163a:' + path
+          ])
+          current = Path(path).read_bytes().replace(b'\r\n', b'\n')
+
+          if b'\r\n' in before:
+              current = current.replace(b'\n', b'\r\n')
+
+          Path(path).write_bytes(current)
+
+      - name: Remove temporary workflow and commit
+        run: |
+          rm -f .github/workflows/restore-rendersurface-line-endings.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore renderer source line endings"
+          git push origin HEAD:fix/windowed-display-modes
