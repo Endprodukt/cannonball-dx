@@ -15,10 +15,13 @@
 #include <string>
 #include "stdint.hpp"
 #include "main.hpp"
+#include "roms.hpp"
 #include "frontend/ttrial.hpp"
 #include "sdl2/input.hpp"
 #include "sdl2/pixel_scaler_state.hpp"
+#include "sdl2/gamepad_rumble_state.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "directx/ffeedback.hpp"
 
 class CabDiag;
 
@@ -276,6 +279,11 @@ protected:
     std::vector<std::string> menu_ffb_spring;
     int ffb_effect_page = 0;
     int ffb_spring_page = 0;
+
+    // Directional menu edits use their own tiny save latch. This mirrors the
+    // existing Enter-based auto-save path but also waits for renderer restarts
+    // before writing values such as hires that are promoted on the next frame.
+    bool directional_save_pending = false;
 
     static std::string ffb_value_text(
         const char* label,
@@ -575,10 +583,831 @@ protected:
         }
     }
 
+    static int wrap_value(int value, int minimum, int maximum, int step, int direction)
+    {
+        value += step * direction;
+        if (value > maximum)
+            value = minimum;
+        else if (value < minimum)
+            value = maximum;
+        return value;
+    }
+
+    bool adjust_current_value(int direction)
+    {
+        if (direction == 0 || !menu_selected || cursor < 0 ||
+            cursor >= static_cast<int>(menu_selected->size()))
+            return false;
+
+        const std::string& option = menu_selected->at(cursor);
+        auto selected = [&](const char* label)
+        {
+            return option.rfind(label, 0) == 0;
+        };
+
+        bool handled = false;
+        bool changed = false;
+
+        if (menu_selected == &menu_video)
+        {
+            if (selected(ENTRY_WIDESCREEN))
+            {
+                handled = true;
+                const int next = wrap_value(config.video.widescreen, 0, 2, 1, direction);
+                if (next != config.video.widescreen)
+                {
+                    config.video.widescreen = next;
+                    config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+            else if (option.rfind("PIXEL SCALER ", 0) == 0)
+            {
+                handled = true;
+                const int current = pixel_scaler::normalize(
+                    pixel_scaler::mode.load(std::memory_order_relaxed));
+                int next = current;
+
+                if (direction > 0)
+                {
+                    next = pixel_scaler::cycle();
+                }
+                else
+                {
+                    switch (current)
+                    {
+                        case pixel_scaler::OFF:      next = pixel_scaler::HQX_4X;  break;
+                        case pixel_scaler::XBRZ_3X:  next = pixel_scaler::OFF;     break;
+                        case pixel_scaler::XBRZ_4X:  next = pixel_scaler::XBRZ_3X; break;
+                        case pixel_scaler::XBRZ_5X:  next = pixel_scaler::XBRZ_4X; break;
+                        case pixel_scaler::XBRZ_6X:  next = pixel_scaler::XBRZ_5X; break;
+                        case pixel_scaler::HQX_3X:   next = pixel_scaler::XBRZ_6X; break;
+                        case pixel_scaler::HQX_4X:   next = pixel_scaler::HQX_3X;  break;
+                        default:                     next = pixel_scaler::OFF;     break;
+                    }
+                    pixel_scaler::set(next);
+                    pixel_scaler::request_transition_restart(current, next);
+                }
+
+                menu_video[cursor] =
+                    std::string("PIXEL SCALER ") + pixel_scaler::name(next);
+                changed = next != current;
+            }
+            else if (selected(ENTRY_FPS_COUNTER))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.video.fps_count != target)
+                {
+                    config.video.fps_count = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_X_OFFSET))
+            {
+                handled = true;
+                const int next = wrap_value(config.video.x_offset, -100, 100, 5, direction);
+                if (next != config.video.x_offset)
+                {
+                    config.video.x_offset = next;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_Y_OFFSET))
+            {
+                handled = true;
+                const int next = wrap_value(config.video.y_offset, -100, 100, 5, direction);
+                if (next != config.video.y_offset)
+                {
+                    config.video.y_offset = next;
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_crt_shader1)
+        {
+            if (selected(ENTRY_CRT_SHADER_MODE))
+            {
+                handled = true;
+                const int next = wrap_value(
+                    config.video.shader_mode,
+                    video_settings_t::SHADER_OFF,
+                    video_settings_t::SHADER_FULL,
+                    1,
+                    direction);
+
+                if (next != config.video.shader_mode)
+                {
+                    config.video.shader_mode = next;
+                    if (next == video_settings_t::SHADER_OFF)
+                        display_message("MOST EFFECTS WILL BE UNAVAILABLE");
+                    else if (next == video_settings_t::SHADER_FAST)
+                        display_message("NOISE AND DESAT. WILL BE UNAVAILBLE");
+                    else
+                        display_message("ALL EFFECTS ENABLED");
+
+                    config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_crt_mask_settings)
+        {
+            if (selected(ENTRY_SHADOW_MASK))
+            {
+                handled = true;
+                if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    const int target = direction > 0
+                        ? video_settings_t::SHADOW_MASK_SHADER
+                        : video_settings_t::SHADOW_MASK_OFF;
+                    if (config.video.shadow_mask != target)
+                    {
+                        config.video.shadow_mask = target;
+                        changed = true;
+                    }
+                }
+            }
+            else if (selected(ENTRY_MASK_DIM))
+            {
+                handled = true;
+                if (config.video.shadow_mask == video_settings_t::SHADOW_MASK_OFF)
+                    display_message("ENABLE MASK FIRST");
+                else if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.maskDim = wrap_value(config.video.maskDim, 0, 100, 5, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_MASK_BOOST))
+            {
+                handled = true;
+                if (config.video.shadow_mask == video_settings_t::SHADOW_MASK_OFF)
+                    display_message("ENABLE MASK FIRST");
+                else if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.maskBoost = wrap_value(config.video.maskBoost, 100, 160, 5, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_MASK_SIZE))
+            {
+                handled = true;
+                if (config.video.shadow_mask == video_settings_t::SHADOW_MASK_OFF)
+                    display_message("ENABLE MASK FIRST");
+                else if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.mask_size = wrap_value(config.video.mask_size, 3, 6, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_SCANLINES))
+            {
+                handled = true;
+                if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.scanlines = wrap_value(config.video.scanlines, 0, 3, 1, direction);
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_crt_shape_settings)
+        {
+            if (selected(ENTRY_CRT_SHAPE))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.video.crt_shape != target)
+                {
+                    config.video.crt_shape = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_VIGNETTE))
+            {
+                handled = true;
+                config.video.vignette = wrap_value(config.video.vignette, 0, 75, 5, direction);
+                changed = true;
+            }
+            else if (selected(ENTRY_WARPX))
+            {
+                handled = true;
+                if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.warpX = wrap_value(config.video.warpX, 0, 10, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_WARPY))
+            {
+                handled = true;
+                if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.warpY = wrap_value(config.video.warpY, 0, 10, 1, direction);
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_crt_shader2)
+        {
+            if (selected(ENTRY_NOISE))
+            {
+                handled = true;
+                if (config.video.shader_mode != video_settings_t::SHADER_FULL)
+                    display_message("ENABLE FULL SHADER FIRST");
+                else
+                {
+                    config.video.noise = wrap_value(config.video.noise, 0, 20, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_DESATURATE))
+            {
+                handled = true;
+                if (config.video.shader_mode != video_settings_t::SHADER_FULL)
+                    display_message("ENABLE FULL SHADER FIRST");
+                else
+                {
+                    config.video.desaturate = wrap_value(config.video.desaturate, 0, 10, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_DESATURATE_EDGES))
+            {
+                handled = true;
+                if (config.video.shader_mode != video_settings_t::SHADER_FULL)
+                    display_message("ENABLE FULL SHADER FIRST");
+                else
+                {
+                    config.video.desaturate_edges = wrap_value(config.video.desaturate_edges, 0, 10, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_BRIGHTNESS_BOOST))
+            {
+                handled = true;
+                if (config.video.shader_mode == video_settings_t::SHADER_OFF)
+                    display_message("ENABLE SHADER FIRST");
+                else
+                {
+                    config.video.brightboost = wrap_value(config.video.brightboost, 0, 10, 1, direction);
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_blargg_filter)
+        {
+            if (selected(ENTRY_BLARGG))
+            {
+                handled = true;
+                const int previous = config.video.blargg;
+                const int next = wrap_value(
+                    previous,
+                    video_settings_t::BLARGG_DISABLE,
+                    video_settings_t::BLARGG_RGB,
+                    1,
+                    direction);
+                if (next != previous)
+                {
+                    config.video.blargg = next;
+                    if (previous == video_settings_t::BLARGG_DISABLE ||
+                        next == video_settings_t::BLARGG_DISABLE)
+                        config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_SATURATION))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.saturation = wrap_value(config.video.saturation, -50, 50, 10, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_CONTRAST))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.contrast = wrap_value(config.video.contrast, -50, 50, 10, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_BRIGHTNESS))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.brightness = wrap_value(config.video.brightness, -50, 50, 10, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_SHARPNESS))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.sharpness = wrap_value(config.video.sharpness, -50, 50, 10, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_RESOLUTION))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.resolution = wrap_value(config.video.resolution, -100, 0, 10, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_GAMMA))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.gamma = wrap_value(config.video.gamma, -20, 10, 1, direction);
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_HUE))
+            {
+                handled = true;
+                if (config.video.blargg == video_settings_t::BLARGG_DISABLE)
+                    display_message("ENABLE BLARGG FILTER FIRST");
+                else
+                {
+                    config.video.hue = wrap_value(config.video.hue, -10, 10, 1, direction);
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_sound)
+        {
+            if (selected(ENTRY_MUTE))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.sound.enabled != target)
+                {
+                    config.sound.enabled = target;
+                    if (config.sound.enabled)
+                        cannonball::audio.start_audio();
+                    else
+                        cannonball::audio.stop_audio();
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_ADVERTISE))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.sound.advertise != target)
+                {
+                    config.sound.advertise = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_PREVIEWSND))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.sound.preview != target)
+                {
+                    config.sound.preview = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_FIXSAMPLES))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.sound.fix_samples != target)
+                {
+                    if (roms.load_pcm_rom(target == 1) == 0)
+                    {
+                        config.sound.fix_samples = target;
+                        display_message(target == 1 ? "FIXED SAMPLES LOADED" : "ORIGINAL SAMPLES LOADED");
+                        changed = true;
+                    }
+                    else
+                    {
+                        display_message(target == 1 ? "CANT LOAD FIXED SAMPLES" : "CANT LOAD ORIGINAL SAMPLES");
+                    }
+                }
+            }
+        }
+        else if (menu_selected == &menu_controls)
+        {
+            if (selected(ENTRY_GEAR))
+            {
+                handled = true;
+                config.controls.gear = wrap_value(
+                    config.controls.gear,
+                    config.controls.GEAR_BUTTON,
+                    config.controls.GEAR_AUTO,
+                    1,
+                    direction);
+                changed = true;
+            }
+            else if (selected(ENTRY_INVERT_ACCEL))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.controls.invert[1] != target)
+                {
+                    config.controls.invert[1] = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_INVERT_BRAKE))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.controls.invert[2] != target)
+                {
+                    config.controls.invert[2] = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_FFB))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+
+                if (target != config.controls.haptic)
+                {
+                    if (target)
+                    {
+                        if (!forcefeedback::is_supported())
+                        {
+                            config.controls.haptic =
+                                forcefeedback::init(
+                                    config.controls.max_force,
+                                    config.controls.min_force,
+                                    config.controls.force_duration)
+                                ? 1 : 0;
+                        }
+                        else
+                        {
+                            config.controls.haptic = 1;
+                        }
+
+                        if (config.controls.haptic)
+                        {
+                            forcefeedback::set_gain(config.controls.ffb_strength);
+                            forcefeedback::set_enabled(true);
+                            changed = true;
+                        }
+                        else
+                        {
+                            display_message("NO FORCE FEEDBACK DEVICE FOUND");
+                        }
+                    }
+                    else
+                    {
+                        config.controls.haptic = 0;
+                        forcefeedback::set_enabled(false);
+                        changed = true;
+                    }
+                }
+            }
+            else if (selected(ENTRY_FFB_STRENGTH))
+            {
+                handled = true;
+                config.controls.ffb_strength = wrap_value(
+                    config.controls.ffb_strength, 10, 100, 10, direction);
+                forcefeedback::set_gain(config.controls.ffb_strength);
+                changed = true;
+            }
+            else if (selected(ENTRY_CENTERING_STRENGTH))
+            {
+                handled = true;
+                config.controls.centering_strength = wrap_value(
+                    config.controls.centering_strength, 0, 100, 10, direction);
+                forcefeedback::set_centering_strength(
+                    (config.controls.centering_strength * 40 + 50) / 100);
+                changed = true;
+            }
+            else if (option.rfind("GAMEPAD RUMBLE ", 0) == 0)
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (gamepad_rumble::enabled != target)
+                {
+                    gamepad_rumble::enabled = target;
+                    input.set_rumble(false, config.controls.rumble, 0);
+                    menu_controls[cursor] =
+                        std::string("GAMEPAD RUMBLE ") + (target ? "ON" : "OFF");
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_RUMBLE))
+            {
+                handled = true;
+                int level = static_cast<int>(config.controls.rumble * 4.0f + 0.5f);
+                if (level < 1 || level > 4)
+                    level = 1;
+                level = wrap_value(level, 1, 4, 1, direction);
+                config.controls.rumble = level * 0.25f;
+                changed = true;
+            }
+            else if (selected(ENTRY_DSTEER))
+            {
+                handled = true;
+                config.controls.steer_speed = wrap_value(
+                    config.controls.steer_speed, 1, 9, 1, direction);
+                changed = true;
+            }
+            else if (selected(ENTRY_DPEDAL))
+            {
+                handled = true;
+                config.controls.pedal_speed = wrap_value(
+                    config.controls.pedal_speed, 1, 9, 1, direction);
+                changed = true;
+            }
+        }
+        else if (menu_selected == &menu_engine)
+        {
+            if (selected(ENTRY_TIME))
+            {
+                handled = true;
+                int state_index = config.engine.freeze_timer ? 4 : config.engine.dip_time;
+                state_index = wrap_value(state_index, 0, 4, 1, direction);
+                config.engine.freeze_timer = state_index == 4;
+                config.engine.dip_time = state_index == 4 ? 3 : state_index;
+                changed = true;
+            }
+            else if (selected(ENTRY_TRAFFIC))
+            {
+                handled = true;
+                int state_index = config.engine.disable_traffic ? 4 : config.engine.dip_traffic;
+                state_index = wrap_value(state_index, 0, 4, 1, direction);
+                config.engine.disable_traffic = state_index == 4;
+                config.engine.dip_traffic = state_index == 4 ? 3 : state_index;
+                changed = true;
+            }
+            else if (selected(ENTRY_FREEPLAY))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.freeplay != target)
+                {
+                    config.engine.freeplay = target;
+                    changed = true;
+                }
+            }
+            else if (option.rfind("SELECTION TIMER ", 0) == 0)
+            {
+                handled = true;
+                const int current = config.selection_timer_seconds();
+                int next = current;
+
+                if (direction > 0)
+                    next = current == 0 ? 15 : (current == 15 ? 30 : 0);
+                else
+                    next = current == 0 ? 30 : (current == 30 ? 15 : 0);
+
+                config.set_selection_timer_seconds(next);
+                menu_engine[cursor] =
+                    std::string("SELECTION TIMER ") +
+                    (next == 0 ? "OFF" : std::to_string(next) + " SEC");
+                changed = next != current;
+            }
+        }
+        else if (menu_selected == &menu_enhancements)
+        {
+            if (selected(ENTRY_HIRES))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.video.hires_next != target || config.video.hires != target)
+                {
+                    config.video.hires_next = target;
+                    if (target == 0)
+                        config.video.hiresprites = 0;
+                    config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_SPRITERES))
+            {
+                handled = true;
+                if (config.video.hires == 0)
+                {
+                    display_message("Set game engine to hires first");
+                }
+                else
+                {
+                    const int target = direction > 0 ? 1 : 0;
+                    if (config.video.hiresprites != target)
+                    {
+                        config.video.hiresprites = target;
+                        display_message(target ? "Enabled. Toggle in game with F7." : "Disabled. Toggle in game with F7.");
+                        changed = true;
+                    }
+                }
+            }
+            else if (selected(ENTRY_ATTRACT))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.engine.new_attract != target)
+                {
+                    config.engine.new_attract = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_OBJECTS))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.engine.level_objects != target)
+                {
+                    config.engine.level_objects = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_PROTOTYPE))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.engine.prototype != target)
+                {
+                    config.engine.prototype = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_TIMER))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.fix_timer != target)
+                {
+                    config.engine.fix_timer = target;
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_handling)
+        {
+            if (selected(ENTRY_GRIP))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.grippy_tyres != target)
+                {
+                    config.engine.grippy_tyres = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_OFFROAD))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.offroad != target)
+                {
+                    config.engine.offroad = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_BUMPER))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.bumper != target)
+                {
+                    config.engine.bumper = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_TURBO))
+            {
+                handled = true;
+                const bool target = direction > 0;
+                if (config.engine.turbo != target)
+                {
+                    config.engine.turbo = target;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_COLOR))
+            {
+                handled = true;
+                config.engine.car_pal = wrap_value(config.engine.car_pal, 0, 7, 1, direction);
+                changed = true;
+            }
+        }
+        else if (menu_selected == &menu_musictest)
+        {
+            if (selected(ENTRY_MUSIC2))
+            {
+                handled = true;
+                music_track = wrap_value(
+                    music_track,
+                    0,
+                    static_cast<int>(config.sound.music.size()),
+                    1,
+                    direction);
+                changed = true;
+            }
+            else if (selected(ENTRY_WAVEVOLUME))
+            {
+                handled = true;
+                config.sound.wave_volume = wrap_value(config.sound.wave_volume, 1, 8, 1, direction);
+                changed = true;
+            }
+            else if (selected(ENTRY_CALLBACK_RATE))
+            {
+                handled = true;
+                const int target = direction > 0 ? 1 : 0;
+                if (config.sound.callback_rate != target)
+                {
+                    config.sound.callback_rate = target;
+                    cannonball::audio.stop_audio();
+                    cannonball::audio.init();
+                    changed = true;
+                }
+            }
+        }
+        else if (menu_selected == &menu_system)
+        {
+            if (selected(ENTRY_MASTER_BREAK))
+            {
+                handled = true;
+                const int target = direction > 0 ? SDLK_F10 : SDLK_ESCAPE;
+                if (config.master_break_key != target)
+                {
+                    config.master_break_key = target;
+                    menu_system[cursor] =
+                        std::string(ENTRY_MASTER_BREAK) +
+                        (target == SDLK_ESCAPE ? "ESC" : "F10");
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+            directional_save_pending = true;
+
+        return handled;
+    }
+
     // Route only the new shallow DX category pages here. Every ordinary option
     // is still handled by the preserved SE implementation below this wrapper.
     void tick_menu() override
     {
+        if (directional_save_pending && !config.videoRestartRequired)
+        {
+            directional_save_pending = false;
+            if (!config.save())
+                display_message("ERROR SAVING SETTINGS!");
+        }
+
+        // Keyboard arrows and controller D-Pads share the logical LEFT/RIGHT
+        // actions, so a single path gives both devices symmetric value editing.
+        if (!config.smartypi.enabled)
+        {
+            int direction = 0;
+            if (input.has_pressed(Input::LEFT))
+                direction = -1;
+            else if (input.has_pressed(Input::RIGHT))
+                direction = 1;
+
+            if (direction != 0 && adjust_current_value(direction))
+            {
+                osoundint.queue_sound(sound::BEEP1);
+                refresh_menu();
+                return;
+            }
+        }
+
         if (!config.smartypi.enabled && menu_selected == &menu_settings)
         {
             if (!select_pressed())
