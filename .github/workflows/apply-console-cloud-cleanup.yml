@@ -1,0 +1,161 @@
+name: Apply console and cloud cleanup
+
+on:
+  push:
+    branches:
+      - fix/windowed-display-modes
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windowed-display-modes
+          fetch-depth: 0
+
+      - name: Apply focused source changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              data = p.read_bytes()
+              old_b = old.encode('utf-8')
+              new_b = new.encode('utf-8')
+              if old_b not in data:
+                  raise SystemExit(f'Expected block not found in {path}')
+              data = data.replace(old_b, new_b, 1)
+              p.write_bytes(data)
+
+          # Renderer: remove routine display diagnostics while preserving CRLF.
+          p = Path('src/main/sdl2/rendersurface.cpp')
+          data = p.read_bytes()
+          for line in [
+              b'                std::cout << "Image centered horizontally, ";',
+              b'                std::cout << "Image centered vertically, ";',
+              b'        std::cout << "Image anchor point: " << anchor_x << "," << anchor_y << "\\n";',
+          ]:
+              data = data.replace(line + b'\r\n', b'').replace(line + b'\n', b'')
+
+          pixel_block_crlf = (
+              b'    Uint32 window_format = SDL_GetWindowPixelFormat(window);\r\n'
+              b'    printf("Window Pixel Format: %s (0x%08X)\\n", SDL_GetPixelFormatName(window_format), window_format);\r\n'
+              b'\r\n'
+          )
+          pixel_block_lf = pixel_block_crlf.replace(b'\r\n', b'\n')
+          if pixel_block_crlf in data:
+              data = data.replace(pixel_block_crlf, b'', 1)
+          elif pixel_block_lf in data:
+              data = data.replace(pixel_block_lf, b'', 1)
+          else:
+              raise SystemExit('Window Pixel Format block not found')
+          p.write_bytes(data)
+
+          # Missing score files/sections are a normal first-run/default-score case.
+          replace_once(
+              'src/main/frontend/config_base.cpp',
+              '''    xml_parser::ptree scores("scores");
+    if (!xml_parser::read_xml(scores_file, scores)) {
+        std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
+        return;
+    }
+''',
+              '''    xml_parser::ptree scores("scores");
+    // A missing logical score section is normal on first run. Keep the
+    // built-in defaults silently; DX stores all live tables in highscores.xml.
+    if (!xml_parser::read_xml(scores_file, scores))
+        return;
+''')
+
+          # Cloud sheet: tile as many copies as the current ultrawide viewport needs.
+          replace_once(
+              'src/main/engine/osprites.cpp',
+              '''            const int16_t original_x = entry->x;
+            const uint16_t original_dst_index = entry->dst_index;
+            const int32_t tile_width = static_cast<int32_t>(entry->width);
+            const uint16_t remaining_original = original_main_count - i - 1;
+
+            // Reserve room for every original sprite still to be converted and
+            // for the final end marker. Extra copies are expendable if a scene
+            // ever approaches the sprite-entry limit.
+            auto add_cloud_copy = [&](int32_t x)
+            {
+                if (cnt_shadow_copy + remaining_original + 1 >= JUMP_ENTRIES_TOTAL)
+                    return;
+
+                entry->x = static_cast<int16_t>(x);
+                entry->dst_index = cnt_shadow_copy++;
+                do_sprite(entry);
+                ultrawide_cloud_copies++;
+            };
+
+            add_cloud_copy(static_cast<int32_t>(original_x) - tile_width);
+            add_cloud_copy(static_cast<int32_t>(original_x) + tile_width);
+
+            entry->x = original_x;
+            entry->dst_index = original_dst_index;
+''',
+              '''            const int16_t original_x = entry->x;
+            const uint16_t original_dst_index = entry->dst_index;
+            const uint8_t original_control = entry->control;
+            const int32_t tile_width = static_cast<int32_t>(entry->width);
+            const uint16_t remaining_original = original_main_count - i - 1;
+
+            // Reserve room for every original sprite still to be converted and
+            // for the final end marker. Extra copies are expendable if a scene
+            // ever approaches the sprite-entry limit.
+            auto add_cloud_copy = [&](int32_t x)
+            {
+                if (cnt_shadow_copy + remaining_original + 1 >= JUMP_ENTRIES_TOTAL)
+                    return;
+
+                entry->x = static_cast<int16_t>(x);
+                entry->dst_index = cnt_shadow_copy++;
+                do_sprite(entry);
+                ultrawide_cloud_copies++;
+            };
+
+            // The old fixed +/-1 tiling covered the former 524px mode only
+            // just far enough. Derive the number of repeats from the actual
+            // logical viewport width and keep a small edge safety margin.
+            const int32_t visible_width = S16_WIDTH + (config.s16_x_off << 1);
+            const int32_t required_width = visible_width + 16;
+            int32_t copies_each_side = 1;
+            while (((copies_each_side * 2 + 1) * tile_width) < required_width)
+                copies_each_side++;
+
+            for (int32_t step = 1; step <= copies_each_side; step++)
+            {
+                add_cloud_copy(static_cast<int32_t>(original_x) - (tile_width * step));
+                add_cloud_copy(static_cast<int32_t>(original_x) + (tile_width * step));
+            }
+
+            entry->x = original_x;
+            entry->dst_index = original_dst_index;
+            entry->control = original_control;
+''')
+          PY
+
+          git diff --check
+          ! grep -q 'Window Pixel Format:' src/main/sdl2/rendersurface.cpp
+          ! grep -q 'Image anchor point:' src/main/sdl2/rendersurface.cpp
+          ! grep -q 'Image centered horizontally' src/main/sdl2/rendersurface.cpp
+          ! grep -q 'Image centered vertically' src/main/sdl2/rendersurface.cpp
+          ! grep -q 'could not be loaded.*scores_file' src/main/frontend/config_base.cpp || true
+
+      - name: Commit focused changes and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-console-cloud-cleanup.yml
+          git add src/main/sdl2/rendersurface.cpp src/main/frontend/config_base.cpp src/main/engine/osprites.cpp
+          git commit -m "Clean console output and extend ultrawide clouds"
+          git push origin HEAD:fix/windowed-display-modes
