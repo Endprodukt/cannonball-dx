@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,125 +29,60 @@ jobs:
               old_b = old.encode('utf-8')
               new_b = new.encode('utf-8')
               if old_b not in data:
-                  raise SystemExit(f'Expected block not found in {path}')
-              data = data.replace(old_b, new_b, 1)
-              p.write_bytes(data)
+                  raise SystemExit(f'Expected text not found in {path}: {old!r}')
+              p.write_bytes(data.replace(old_b, new_b, 1))
 
-          # Renderer: remove routine display diagnostics while preserving CRLF.
+          # Renderer diagnostics. Work on bytes so its CRLF style stays intact.
           p = Path('src/main/sdl2/rendersurface.cpp')
           data = p.read_bytes()
-          for line in [
+          lines = [
               b'                std::cout << "Image centered horizontally, ";',
               b'                std::cout << "Image centered vertically, ";',
               b'        std::cout << "Image anchor point: " << anchor_x << "," << anchor_y << "\\n";',
-          ]:
+          ]
+          for line in lines:
               data = data.replace(line + b'\r\n', b'').replace(line + b'\n', b'')
-
-          pixel_block_crlf = (
-              b'    Uint32 window_format = SDL_GetWindowPixelFormat(window);\r\n'
-              b'    printf("Window Pixel Format: %s (0x%08X)\\n", SDL_GetPixelFormatName(window_format), window_format);\r\n'
-              b'\r\n'
-          )
-          pixel_block_lf = pixel_block_crlf.replace(b'\r\n', b'\n')
-          if pixel_block_crlf in data:
-              data = data.replace(pixel_block_crlf, b'', 1)
-          elif pixel_block_lf in data:
-              data = data.replace(pixel_block_lf, b'', 1)
+          pixel_crlf = b'    Uint32 window_format = SDL_GetWindowPixelFormat(window);\r\n    printf("Window Pixel Format: %s (0x%08X)\\n", SDL_GetPixelFormatName(window_format), window_format);\r\n\r\n'
+          pixel_lf = pixel_crlf.replace(b'\r\n', b'\n')
+          if pixel_crlf in data:
+              data = data.replace(pixel_crlf, b'', 1)
+          elif pixel_lf in data:
+              data = data.replace(pixel_lf, b'', 1)
           else:
               raise SystemExit('Window Pixel Format block not found')
           p.write_bytes(data)
 
-          # Missing score files/sections are a normal first-run/default-score case.
+          # Missing logical score sections are normal; keep defaults silently.
           replace_once(
               'src/main/frontend/config_base.cpp',
-              '''    xml_parser::ptree scores("scores");
-    if (!xml_parser::read_xml(scores_file, scores)) {
-        std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
-        return;
-    }
-''',
-              '''    xml_parser::ptree scores("scores");
-    // A missing logical score section is normal on first run. Keep the
-    // built-in defaults silently; DX stores all live tables in highscores.xml.
-    if (!xml_parser::read_xml(scores_file, scores))
-        return;
-''')
+              '    if (!xml_parser::read_xml(scores_file, scores)) {\n        std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;\n        return;\n    }\n',
+              '    // A missing logical score section is normal on first run. Keep the\n    // built-in defaults silently; DX stores all live tables in highscores.xml.\n    if (!xml_parser::read_xml(scores_file, scores))\n        return;\n')
 
-          # Cloud sheet: tile as many copies as the current ultrawide viewport needs.
+          # Preserve cloud entry state when extra off-screen copies are tested.
           replace_once(
               'src/main/engine/osprites.cpp',
-              '''            const int16_t original_x = entry->x;
-            const uint16_t original_dst_index = entry->dst_index;
-            const int32_t tile_width = static_cast<int32_t>(entry->width);
-            const uint16_t remaining_original = original_main_count - i - 1;
+              '            const uint16_t original_dst_index = entry->dst_index;\n            const int32_t tile_width = static_cast<int32_t>(entry->width);\n',
+              '            const uint16_t original_dst_index = entry->dst_index;\n            const uint8_t original_control = entry->control;\n            const int32_t tile_width = static_cast<int32_t>(entry->width);\n')
 
-            // Reserve room for every original sprite still to be converted and
-            // for the final end marker. Extra copies are expendable if a scene
-            // ever approaches the sprite-entry limit.
-            auto add_cloud_copy = [&](int32_t x)
-            {
-                if (cnt_shadow_copy + remaining_original + 1 >= JUMP_ENTRIES_TOTAL)
-                    return;
+          # Replace fixed +/-1 cloud repetition with viewport-derived repetition.
+          replace_once(
+              'src/main/engine/osprites.cpp',
+              '            add_cloud_copy(static_cast<int32_t>(original_x) - tile_width);\n            add_cloud_copy(static_cast<int32_t>(original_x) + tile_width);\n',
+              '            // Derive repetition count from the actual logical 21:9 width.\n            // Add a small safety margin so the sheet also extends just beyond\n            // the visible edges instead of ending exactly on the viewport.\n            const int32_t visible_width = S16_WIDTH + (config.s16_x_off << 1);\n            const int32_t required_width = visible_width + 16;\n            int32_t copies_each_side = 1;\n            while (((copies_each_side * 2 + 1) * tile_width) < required_width)\n                copies_each_side++;\n\n            for (int32_t step = 1; step <= copies_each_side; step++)\n            {\n                add_cloud_copy(static_cast<int32_t>(original_x) - (tile_width * step));\n                add_cloud_copy(static_cast<int32_t>(original_x) + (tile_width * step));\n            }\n')
 
-                entry->x = static_cast<int16_t>(x);
-                entry->dst_index = cnt_shadow_copy++;
-                do_sprite(entry);
-                ultrawide_cloud_copies++;
-            };
-
-            add_cloud_copy(static_cast<int32_t>(original_x) - tile_width);
-            add_cloud_copy(static_cast<int32_t>(original_x) + tile_width);
-
-            entry->x = original_x;
-            entry->dst_index = original_dst_index;
-''',
-              '''            const int16_t original_x = entry->x;
-            const uint16_t original_dst_index = entry->dst_index;
-            const uint8_t original_control = entry->control;
-            const int32_t tile_width = static_cast<int32_t>(entry->width);
-            const uint16_t remaining_original = original_main_count - i - 1;
-
-            // Reserve room for every original sprite still to be converted and
-            // for the final end marker. Extra copies are expendable if a scene
-            // ever approaches the sprite-entry limit.
-            auto add_cloud_copy = [&](int32_t x)
-            {
-                if (cnt_shadow_copy + remaining_original + 1 >= JUMP_ENTRIES_TOTAL)
-                    return;
-
-                entry->x = static_cast<int16_t>(x);
-                entry->dst_index = cnt_shadow_copy++;
-                do_sprite(entry);
-                ultrawide_cloud_copies++;
-            };
-
-            // The old fixed +/-1 tiling covered the former 524px mode only
-            // just far enough. Derive the number of repeats from the actual
-            // logical viewport width and keep a small edge safety margin.
-            const int32_t visible_width = S16_WIDTH + (config.s16_x_off << 1);
-            const int32_t required_width = visible_width + 16;
-            int32_t copies_each_side = 1;
-            while (((copies_each_side * 2 + 1) * tile_width) < required_width)
-                copies_each_side++;
-
-            for (int32_t step = 1; step <= copies_each_side; step++)
-            {
-                add_cloud_copy(static_cast<int32_t>(original_x) - (tile_width * step));
-                add_cloud_copy(static_cast<int32_t>(original_x) + (tile_width * step));
-            }
-
-            entry->x = original_x;
-            entry->dst_index = original_dst_index;
-            entry->control = original_control;
-''')
+          replace_once(
+              'src/main/engine/osprites.cpp',
+              '            entry->x = original_x;\n            entry->dst_index = original_dst_index;\n        }\n',
+              '            entry->x = original_x;\n            entry->dst_index = original_dst_index;\n            entry->control = original_control;\n        }\n')
           PY
 
           git diff --check
-          ! grep -q 'Window Pixel Format:' src/main/sdl2/rendersurface.cpp
-          ! grep -q 'Image anchor point:' src/main/sdl2/rendersurface.cpp
-          ! grep -q 'Image centered horizontally' src/main/sdl2/rendersurface.cpp
-          ! grep -q 'Image centered vertically' src/main/sdl2/rendersurface.cpp
-          ! grep -q 'could not be loaded.*scores_file' src/main/frontend/config_base.cpp || true
+          test -z "$(grep -F 'Window Pixel Format:' src/main/sdl2/rendersurface.cpp || true)"
+          test -z "$(grep -F 'Image anchor point:' src/main/sdl2/rendersurface.cpp || true)"
+          test -z "$(grep -F 'Image centered horizontally' src/main/sdl2/rendersurface.cpp || true)"
+          test -z "$(grep -F 'Image centered vertically' src/main/sdl2/rendersurface.cpp || true)"
+          test -z "$(grep -F 'std::cerr << "Warning: " << scores_file' src/main/frontend/config_base.cpp || true)"
+          grep -F 'const int32_t required_width = visible_width + 16;' src/main/engine/osprites.cpp
 
       - name: Commit focused changes and remove temporary workflow
         shell: bash
