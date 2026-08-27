@@ -1,0 +1,81 @@
+name: Apply display state preservation fixes
+
+on:
+  push:
+    branches:
+      - fix/windowed-display-modes
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windowed-display-modes
+          fetch-depth: 0
+
+      - name: Apply focused source changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/main/video.hpp',
+              'int init(Roms* roms, video_settings_t* settings);',
+              'int init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state = false);')
+
+          replace_once(
+              'src/main/video.cpp',
+              'int Video::init(Roms* roms, video_settings_t* settings)\n{',
+              'int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state)\n{')
+
+          replace_once(
+              'src/main/video.cpp',
+              '''    tile_layer->init(roms->tiles.rom, config.video.hires != 0);\n    sprite_layer->init(roms->sprites.rom);\n    hwroad.init(roms->road.rom, config.video.hires != 0);\n\n    clear_tile_ram();\n    clear_text_ram();''',
+              '''    const bool hires = config.video.hires != 0;\n\n    if (preserve_hardware_state)\n    {\n        // Display-mode/VSync/renderer restarts must not destroy the running\n        // System 16 video state. Passing nullptr refreshes only the\n        // resolution-dependent render paths while keeping decoded graphics,\n        // tile/text RAM, sprite RAM and road state intact.\n        tile_layer->init(nullptr, hires);\n        sprite_layer->init(nullptr);\n        hwroad.init(nullptr, hires);\n    }\n    else\n    {\n        tile_layer->init(roms->tiles.rom, hires);\n        sprite_layer->init(roms->sprites.rom);\n        hwroad.init(roms->road.rom, hires);\n\n        clear_tile_ram();\n        clear_text_ram();\n    }''')
+
+          replace_once(
+              'src/main/main.cpp',
+              '            video.init(&roms, &config.video);',
+              '            video.init(&roms, &config.video, true);')
+
+          replace_once(
+              'src/main/hwvideo/hwsprites.cpp',
+              '''void hwsprites::init(const uint8_t* src_sprites)\n{\n    reset();\n    if (src_sprites)\n    {''',
+              '''void hwsprites::init(const uint8_t* src_sprites)\n{\n    // A nullptr source is a renderer-only restart. Keep the live sprite RAM\n    // and already decoded graphics intact so display-mode changes are seamless.\n    if (src_sprites)\n    {\n        reset();''')
+
+          replace_once(
+              'src/main/hwvideo/hwroad.cpp',
+              '''void HWRoad::init(const uint8_t* src_road, const bool hires)\n{\n    road_control = 0;\n    color_offset1 = 0x400;\n    color_offset2 = 0x420;\n    color_offset3 = 0x780;\n    x_offset = 0;\n\n    if (src_road)\n        decode_road(src_road);''',
+              '''void HWRoad::init(const uint8_t* src_road, const bool hires)\n{\n    // A nullptr source is a renderer-only restart. Preserve the live road\n    // registers/state and only refresh the lores/hires render entry points.\n    if (src_road)\n    {\n        road_control = 0;\n        color_offset1 = 0x400;\n        color_offset2 = 0x420;\n        color_offset3 = 0x780;\n        x_offset = 0;\n        decode_road(src_road);\n    }''')
+
+          replace_once(
+              'src/main/hwvideo/hwtiles.cpp',
+              '''        // 536px ultrawide widened the visible tilemap by 12px compared with\n        // the previous 524px mode. Increase the centred crop by 6px per side\n        // so the proven 484px safe background region remains unchanged.\n        const int overscan = 26 * scale;''',
+              '''        // Keep one additional tile-width of safety around the 21:9\n        // background so page/tile build-up remains outside the visible image.\n        // This affects only the completed background layer, not road/sprites/HUD.\n        const int overscan = 32 * scale;''')
+
+          replace_once(
+              'src/main/sdl2/rendersurface.cpp',
+              '    window = SDL_CreateWindow("Cannonball",',
+              '    window = SDL_CreateWindow("CannonBall DX",')
+
+      - name: Remove temporary workflow and commit
+        run: |
+          rm -f .github/workflows/apply-display-state-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Preserve graphics state across display restarts"
+          git push origin HEAD:fix/windowed-display-modes
