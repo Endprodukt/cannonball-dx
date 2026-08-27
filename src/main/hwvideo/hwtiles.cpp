@@ -313,7 +313,10 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
     if (config.video.widescreen == 2 && page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
     {
         const int scale = config.s16_width / s16_width_noscale;
-        const int overscan = 20 * scale;
+        // 536px ultrawide widened the visible tilemap by 12px compared with
+        // the previous 524px mode. Increase the centred crop by 6px per side
+        // so the proven 484px safe background region remains unchanged.
+        const int overscan = 26 * scale;
         const int width = config.s16_width;
         const int height = config.s16_height;
         const int source_width = width - (overscan << 1);
