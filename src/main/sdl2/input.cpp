@@ -46,6 +46,59 @@ namespace
     const char* GAMEPAD_PREFIX = "G:";
     const char* WHEEL_PREFIX = "W:";
 
+    SDL_Keycode display_toggle_key = SDLK_UNKNOWN;
+    int last_fullscreen_mode = video_settings_t::MODE_FULL;
+
+    bool is_display_toggle(const SDL_Keysym* keysym)
+    {
+        if (!keysym)
+            return false;
+
+        if (keysym->sym == SDLK_F11)
+            return true;
+
+        const bool enter =
+            keysym->sym == SDLK_RETURN || keysym->sym == SDLK_KP_ENTER;
+        return enter && (keysym->mod & KMOD_ALT) != 0;
+    }
+
+    void toggle_display_mode()
+    {
+        const int current = config.video.mode;
+
+        if (current == video_settings_t::MODE_WINDOW)
+        {
+            if (last_fullscreen_mode != video_settings_t::MODE_FULL &&
+                last_fullscreen_mode != video_settings_t::MODE_STRETCH)
+            {
+                last_fullscreen_mode = video_settings_t::MODE_FULL;
+            }
+
+            config.video.mode = last_fullscreen_mode;
+        }
+        else
+        {
+            if (current == video_settings_t::MODE_FULL ||
+                current == video_settings_t::MODE_STRETCH)
+            {
+                last_fullscreen_mode = current;
+            }
+            else
+            {
+                last_fullscreen_mode = video_settings_t::MODE_FULL;
+            }
+
+            config.video.mode = video_settings_t::MODE_WINDOW;
+        }
+
+        config.videoRestartRequired = true;
+
+        // Hotkeys operate outside the frontend save latch, so persist the new
+        // mode immediately just like the existing F-key enhancement toggles.
+        if (!config.save())
+            std::cerr << "Unable to save display mode setting." << std::endl;
+    }
+
     bool has_group_prefix(const std::string& device)
     {
         return device.size() >= 2 &&
@@ -691,6 +744,16 @@ void Input::capture_raw_axis_motion(
 
 void Input::handle_key_down(SDL_Keysym* keysym)
 {
+    if (is_display_toggle(keysym))
+    {
+        if (display_toggle_key == SDLK_UNKNOWN)
+        {
+            display_toggle_key = keysym->sym;
+            toggle_display_mode();
+        }
+        return;
+    }
+
     handle_key_down_base(keysym);
 
     if (keysym->sym == key_config[12]) keys[VIEW1] = true;
@@ -700,6 +763,12 @@ void Input::handle_key_down(SDL_Keysym* keysym)
 
 void Input::handle_key_up(SDL_Keysym* keysym)
 {
+    if (keysym && keysym->sym == display_toggle_key)
+    {
+        display_toggle_key = SDLK_UNKNOWN;
+        return;
+    }
+
     handle_key_up_base(keysym);
 
     if (keysym->sym == key_config[12]) keys[VIEW1] = false;
