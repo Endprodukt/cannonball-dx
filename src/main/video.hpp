@@ -42,7 +42,7 @@ public:
 	Video();
     ~Video();
     
-	int init(Roms* roms, video_settings_t* settings);
+	int init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state = false);
     void swap_buffers();
     void disable();
     int set_video_mode(video_settings_t* settings);

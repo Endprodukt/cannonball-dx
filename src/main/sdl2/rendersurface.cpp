@@ -319,7 +319,7 @@ bool RenderSurface::init_sdl(int video_mode)
     // Create a window manually so that it can be closed on video restart (e.g. Blargg on/off)
     // Now create our window (with an OpenGL flag)
 
-    window = SDL_CreateWindow("Cannonball",
+    window = SDL_CreateWindow("CannonBall DX",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         scn_width, scn_height, SDL_WINDOW_OPENGL);
 

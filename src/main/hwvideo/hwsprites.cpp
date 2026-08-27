@@ -93,9 +93,11 @@ hwsprites::~hwsprites()
 
 void hwsprites::init(const uint8_t* src_sprites)
 {
-    reset();
+    // A nullptr source is a renderer-only restart. Keep the live sprite RAM
+    // and already decoded graphics intact so display-mode changes are seamless.
     if (src_sprites)
     {
+        reset();
         // Convert S16 tiles to a more useable format
         const uint8_t *spr = src_sprites;
 

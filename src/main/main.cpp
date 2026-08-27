@@ -781,7 +781,7 @@ static void main_loop() {
         if (config.videoRestartRequired) {
             video.disable();
             config.video.hires = config.video.hires_next;
-            video.init(&roms, &config.video);
+            video.init(&roms, &config.video, true);
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
             // reset timers as video restart can take a while
