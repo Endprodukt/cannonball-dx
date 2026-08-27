@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <mutex>
@@ -53,6 +54,12 @@ public:
         video_mode = requested_video_mode;
         scanlines = std::max(0, requested_scanlines);
 
+        // RenderSurface is re-used across video restarts. Never let a
+        // centering offset calculated by fullscreen leak into Windowed
+        // or Stretched on the next initialisation.
+        anchor_x = 0;
+        anchor_y = 0;
+
         // Always initialise the stock SE renderer first. It owns the one and
         // only SDL window / GLES context / shader program. The scaler is then
         // optionally attached to that live renderer without replacing it.
@@ -67,6 +74,15 @@ public:
         }
 
         base_renderer_initialized = true;
+
+        // Windowed mode is mouse-resizable. SDL2 has no portable
+        // window-aspect constraint, so finalize_frame() keeps it locked
+        // to the active 4:3 / 16:9 / 21:9 game aspect while dragging.
+        if (requested_video_mode == video_settings_t::MODE_WINDOW && window)
+        {
+            SDL_SetWindowResizable(window, SDL_TRUE);
+            SDL_GetWindowSize(window, &window_last_width, &window_last_height);
+        }
 
         if (pixel_scaler::active(requested_mode))
         {
@@ -252,6 +268,8 @@ public:
         activity_counter.fetch_add(1, std::memory_order_acq_rel);
         std::lock_guard<std::mutex> gpulock(gpuMutex);
 
+        sync_windowed_size();
+
         if (FrameCounter++ == 60)
             FrameCounter = 0;
 
@@ -334,6 +352,90 @@ public:
     }
 
 private:
+    int window_last_width = 0;
+    int window_last_height = 0;
+
+    void sync_windowed_size()
+    {
+        if (video_mode != video_settings_t::MODE_WINDOW || !window)
+            return;
+
+        int window_width = 0;
+        int window_height = 0;
+        SDL_GetWindowSize(window, &window_width, &window_height);
+
+        if (window_width <= 0 || window_height <= 0)
+            return;
+
+        if (window_last_width <= 0 || window_last_height <= 0)
+        {
+            window_last_width = window_width;
+            window_last_height = window_height;
+            return;
+        }
+
+        if (window_width == window_last_width &&
+            window_height == window_last_height)
+        {
+            return;
+        }
+
+        const double aspect = double(src_width) / double(src_height);
+        const int width_delta = std::abs(window_width - window_last_width);
+        const int height_delta = std::abs(window_height - window_last_height);
+
+        int adjusted_width = window_width;
+        int adjusted_height = window_height;
+
+        if (width_delta >= height_delta)
+        {
+            adjusted_height = std::max(
+                1,
+                static_cast<int>(std::lround(double(window_width) / aspect)));
+        }
+        else
+        {
+            adjusted_width = std::max(
+                1,
+                static_cast<int>(std::lround(double(window_height) * aspect)));
+        }
+
+        if (adjusted_width != window_width ||
+            adjusted_height != window_height)
+        {
+            SDL_SetWindowSize(window, adjusted_width, adjusted_height);
+        }
+
+        window_last_width = adjusted_width;
+        window_last_height = adjusted_height;
+
+        int drawable_width = adjusted_width;
+        int drawable_height = adjusted_height;
+        SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+
+        scn_width = drawable_width;
+        scn_height = drawable_height;
+        dst_rect.x = 0;
+        dst_rect.y = 0;
+        dst_rect.w = drawable_width;
+        dst_rect.h = drawable_height;
+        anchor_x = 0;
+        anchor_y = 0;
+
+        glb::on_drawable_resized();
+
+        // init_overlay() normally rebuilds its LUT only when CRT geometry
+        // changes. A window resize changes the LUT dimensions too, so force one
+        // rebuild without permanently changing the renderer state.
+        const bool was_initialised = initialised;
+        initialised = false;
+        init_overlay();
+        initialised = was_initialised;
+
+        scaler_last_config = -1;
+        scaler_ticks = 3;
+    }
+
     inline static std::once_flag hqx_init_once;
 
     inline static constexpr std::array<uint32_t, 32> STANDARD_DAC = {

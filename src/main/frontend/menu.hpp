@@ -217,7 +217,6 @@ public:
 
             menu_video.clear();
             menu_video.push_back(ENTRY_FULLSCREEN);
-            menu_video.push_back(ENTRY_SCALE);
             menu_video.push_back(ENTRY_WIDESCREEN);
             menu_video.push_back(scaler_entry);
             menu_video.push_back(ENTRY_FPS_COUNTER);
