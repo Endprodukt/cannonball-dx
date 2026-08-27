@@ -54,10 +54,10 @@ const static char* ENTRY_S_BUGS             = "BUG FIXES ";
 
 // Video Menu
 const static char* ENTRY_FPS_COUNTER        = "FPS COUNTER ";
-const static char* ENTRY_FULLSCREEN         = "FULL SCREEN ";   // no longer in menu but available in config.xml
-const static char* ENTRY_SCREENMODE         = "SCREEN MODE ";   // no longer in menu but available in config.xml
+const static char* ENTRY_FULLSCREEN         = "DISPLAY MODE ";
+const static char* ENTRY_SCREENMODE         = "SCREEN MODE ";   // retained for legacy menu code
 const static char* ENTRY_WIDESCREEN			= "ASPECT RATIO ";
-const static char* ENTRY_SCALE              = "WINDOW SCALE ";  // no longer in menu but available in config.xml
+const static char* ENTRY_SCALE              = "WINDOW SCALE ";
 const static char* ENTRY_X_OFFSET           = "X POSITION ";    // JJP - allows user to shift image left or right
 const static char* ENTRY_Y_OFFSET           = "Y POSITION ";    // JJP - allows user to shift image up or down
 const static char* ENTRY_CRT_SHADER1        = "VIDEO EMULATION... "; // JJP - Submenu for the CRT mask overlays
@@ -157,7 +157,7 @@ const static char* DIP_DIFFICULTY[4] = { "EASY", "NORMAL", "HARD", "HARDEST" };
 const static char* GEAR_LABELS[4] = {"MANUAL", "MANUAL CABINET", "MANUAL 2 BUTTONS", "AUTOMATIC"};
 const static char* FPS_LABELS[3] = { "30 FPS", "ORIGINAL", "60 FPS" };
 const static char* ANALOG_LABELS[3] = { "OFF", "ON", "ON WHEEL ONLY" };
-const static char* VIDEO_LABELS[3] = { "OFF", "ON", "STRETCH" };
+const static char* VIDEO_LABELS[3] = { "WINDOWED", "FULLSCREEN", "STRETCHED" };
 const static char* ASPECT_LABELS[3] = { "4-3", "16-9", "21-9" };
 const static char* RUMBLE_LABELS[5] = { "OFF", "LOW", "MED", "HIGH", "FULL" };
 const static char* CAB_LABELS[3] = { "MOVING", "UPRIGHT", "MINI" };
