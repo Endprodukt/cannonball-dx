@@ -55,7 +55,7 @@ Video::~Video(void)
     delete renderer;
 }
 
-int Video::init(Roms* roms, video_settings_t* settings)
+int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state)
 {
     if (!set_video_mode(settings))
         return false;
@@ -78,12 +78,27 @@ int Video::init(Roms* roms, video_settings_t* settings)
         std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
         return false;
     }
-    tile_layer->init(roms->tiles.rom, config.video.hires != 0);
-    sprite_layer->init(roms->sprites.rom);
-    hwroad.init(roms->road.rom, config.video.hires != 0);
+    const bool hires = config.video.hires != 0;
 
-    clear_tile_ram();
-    clear_text_ram();
+    if (preserve_hardware_state)
+    {
+        // Display-mode/VSync/renderer restarts must not destroy the running
+        // System 16 video state. Passing nullptr refreshes only the
+        // resolution-dependent render paths while keeping decoded graphics,
+        // tile/text RAM, sprite RAM and road state intact.
+        tile_layer->init(nullptr, hires);
+        sprite_layer->init(nullptr);
+        hwroad.init(nullptr, hires);
+    }
+    else
+    {
+        tile_layer->init(roms->tiles.rom, hires);
+        sprite_layer->init(roms->sprites.rom);
+        hwroad.init(roms->road.rom, hires);
+
+        clear_tile_ram();
+        clear_text_ram();
+    }
 
 //    renderer->init(config.s16_width, config.s16_height, settings->scale, settings->mode, settings->scanlines);
 

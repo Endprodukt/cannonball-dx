@@ -7,7 +7,7 @@
     This version for CannonBall-SE incorporates revisions Copyright (c)
     2025 James Pearce:
     - Threaded operation
-    - Automatic 30/60fps operation
+    - Selectable 30/60fps operation
     - Rumble on tire smoke
     - Hardware watchdog support
     - Records play count and runtime hours
@@ -172,12 +172,9 @@ double  cannonball::frame_ms            = 0;
 int     cannonball::frame               = 0;
 bool    cannonball::tick_frame          = true;
 int     cannonball::fps_counter         = 0;
-int     cannonball::fps_lock            = 0; // 0=no lock (auto), 30(fps), 60(fps)
+int     cannonball::fps_lock            = 0; // 0=use config, 30/60=command-line override
 bool    cannonball::singlecore_detect   = true;
 bool    cannonball::singlecore_mode     = false;
-// fps_eval_period is the interval at which 30/60 fps is evaluated in auto mode. Starts at
-// 4 (seconds), and is doubled every time a switch back to 30fps happens
-long    cannonball::fps_eval_period     = 4;
 int     cannonball::game_threads        = omp_get_max_threads();
 bool    cannonball::perftest            = false;
 
@@ -641,28 +638,27 @@ void pin_thread_to_core(std::thread& t, int core_id) {
 
 
 static void main_loop() {
-    // Determine frame rate. Use auto (30/60) unless override was set on command-line
-    int configured_fps = (cannonball::fps_lock == 60 ? 60 : 30);
-    config.video.fps   = (configured_fps == 30 ? 0 : 2);
+    // Frame rate is an explicit user setting. -30/-60 remain optional
+    // command-line overrides, but there is no automatic performance switch.
+    int configured_fps =
+        cannonball::fps_lock == 30 ? 30 :
+        cannonball::fps_lock == 60 ? 60 :
+        (config.video.fps == 0 ? 30 : 60);
+    config.video.fps = configured_fps == 30 ? 0 : 2;
     config.set_fps(config.video.fps);
-    double targetFPS   = static_cast<double>(configured_fps);
+    double targetFPS = static_cast<double>(configured_fps);
 
-    // Track whether vsync is enabled
-    bool vsync = false;
-    // Determine if we can rely on vsync (for 60fps mode)
-    SDL_DisplayMode displayMode;
-    if (SDL_GetCurrentDisplayMode(0, &displayMode) == 0) {
-        // Can retrieve monitor refresh rate
-        vsync = (displayMode.refresh_rate == configured_fps) && SDL_GL_GetSwapInterval() && (config.video.vsync == 1);
-        std::cout << "INFO: ";
-        if (config.video.vsync != 1)
-            std::cout << "VSync is disabled by setting in config.xml. ";
-        std::cout << "Display reports refresh rate is " << displayMode.refresh_rate << "Hz.";
-        if ((config.video.vsync == 1) && (displayMode.refresh_rate == 60) && (cannonball::fps_lock != 30))
-            std::cout << " VSync will be used for 60fps mode.\n";
-        else
-            std::cout << "\n";
-    }
+    auto refresh_vsync_state = [&]()
+    {
+        if (config.video.vsync != 1 || SDL_GL_GetSwapInterval() == 0)
+            return false;
+
+        SDL_DisplayMode displayMode;
+        return SDL_GetCurrentDisplayMode(0, &displayMode) == 0 &&
+               displayMode.refresh_rate == configured_fps;
+    };
+
+    bool vsync = refresh_vsync_state();
 
     // Determine if we'll be using threaded or sequential rendering
     int threads = cannonball::game_threads;
@@ -713,15 +709,7 @@ static void main_loop() {
     // For diagnostics:
     int frameCounter = 0;
     int renderedFrames = 0;
-    int droppedFrames = 0;
     auto fpsTimer = std::chrono::steady_clock::now();
-
-    // Performance check variables (10-second evaluation).
-    auto performanceCheckStart = std::chrono::steady_clock::now();
-    int totalRenderedFramesForCheck = 0;
-    // For 30 FPS, accumulate sleep time and frame count.
-    std::chrono::duration<double> totalSleepTime(0);
-    int frameCountForSleep = 0;
 
     // Go!
 
@@ -739,9 +727,6 @@ static void main_loop() {
         frameCounter++;
         auto now = std::chrono::steady_clock::now();
 
-        // If running at 30 FPS, count this frame for sleep evaluation.
-        frameCountForSleep += (configured_fps == 30);
-
         // If we're behind schedule and not forcing a render, drop this frame
         // always render every 4th frame at least
         bool forceRender = ((frameCounter & 3) == 3);
@@ -749,7 +734,6 @@ static void main_loop() {
             // Update game logic for missed frame
             tick();
             audio.tick();
-            ++droppedFrames;
             nextFrameTime = (now + frameDuration); // reset time next frame is due
             // Skip heavy work this frame; return to top of while loop
             continue;
@@ -758,7 +742,6 @@ static void main_loop() {
         // ---- LAUNCH WORKER TASKS & RENDERING ----
 
         renderedFrames++;
-        totalRenderedFramesForCheck++;  // For performance evaluation
 
         if (using_threading) {
             // Set NTSC filter to work on the last complete frame immediately
@@ -798,11 +781,12 @@ static void main_loop() {
         if (config.videoRestartRequired) {
             video.disable();
             config.video.hires = config.video.hires_next;
-            video.init(&roms, &config.video);
+            video.init(&roms, &config.video, true);
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
             // reset timers as video restart can take a while
             nextFrameTime = std::chrono::steady_clock::now();
+            vsync = refresh_vsync_state();
         }
         // If we're ahead of schedule, sleep until it's time.
         if (perftest) {
@@ -811,9 +795,6 @@ static void main_loop() {
         } else if (!vsync) {
             if (now < nextFrameTime) {
                 auto sleepDuration = nextFrameTime - now;
-                // Only record sleep if we're at 30 FPS.
-                totalSleepTime += sleepDuration * (configured_fps == 30);
-
                 std::this_thread::sleep_for(sleepDuration);
                 now = std::chrono::steady_clock::now();
             }
@@ -822,73 +803,25 @@ static void main_loop() {
         // Update the next frame time.
         nextFrameTime += frameDuration;
 
-        // Record FPS info on console (every 2 seconds) and FPS on-screen if enabled
+        // Keep the optional on-screen FPS counter updated without
+        // printing periodic diagnostics to the console.
         auto elapsed = std::chrono::steady_clock::now() - fpsTimer;
-        if (elapsed >= std::chrono::seconds(2)) {
-            int fps = renderedFrames / 2;
-            int totalFrames = renderedFrames + droppedFrames;
-            int droppedPercent = (totalFrames > 0) ? (droppedFrames * 100 / totalFrames) : 0;
-            printf("\r%i FPS (dropped: %i%%)    ", fps, droppedPercent);
-            fflush(stdout);
-            fps_counter = fps;
+        if (elapsed >= std::chrono::seconds(2))
+        {
+            fps_counter = renderedFrames / 2;
             renderedFrames = 0;
-            droppedFrames = 0;
             fpsTimer = std::chrono::steady_clock::now();
         }
 
-        // ---- PERFORMANCE EVALUATION (every 10 seconds) ----
-        if (cannonball::fps_lock==0) {
-            auto performanceElapsed = std::chrono::steady_clock::now() - performanceCheckStart;
-            if (performanceElapsed >= std::chrono::seconds(cannonball::fps_eval_period)) {
-                double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(performanceElapsed).count();
-                if (configured_fps == 60) {
-                    // Evaluate average FPS at 60 FPS.
-                    double avgFPS = totalRenderedFramesForCheck / seconds;
-                    if (avgFPS < 50.0) {
-                        printf("\nPerformance check: average FPS %.2f too low. Switching to 30 FPS.\n", avgFPS);
-                        config.video.fps = 0; // 0 = 30 fps
-                        config.set_fps(config.video.fps);
-                        cannonball::fps_eval_period *= 2; // double eval period for next try
-                    }
-                }
-                else if (configured_fps == 30) {
-                    // Evaluate average sleep fraction at 30 FPS.
-                    double avgSleepFraction = 0.0;
-                    if (frameCountForSleep > 0) {
-                        avgSleepFraction = totalSleepTime.count() / (frameDuration.count() * frameCountForSleep);
-                    }
-                    if (avgSleepFraction > 0.6) {
-                        printf("\nPerformance check: average sleep fraction %.2f%%. Switching to 60 FPS.\n", avgSleepFraction * 100.0);
-                        config.video.fps = 2; // 2 = 60 fps
-                        config.set_fps(config.video.fps);
-                    }
-                }
-                // Reset performance evaluation counters.
-                performanceCheckStart = std::chrono::steady_clock::now();
-                totalRenderedFramesForCheck = 0;
-                totalSleepTime = std::chrono::duration<double>(0);
-                frameCountForSleep = 0;
-            }
-            // Update control variables if there is an FPS change
-            if (config.fps != configured_fps) {
-                configured_fps = config.fps;
-                targetFPS = static_cast<double>(configured_fps);
-                frameDuration = std::chrono::duration<double>(1.0 / targetFPS);
-                nextFrameTime = std::chrono::steady_clock::now() + frameDuration;
-
-                // Determine if we can rely on vsync (for 60fps mode)
-                SDL_DisplayMode displayMode;
-                if (SDL_GetCurrentDisplayMode(0, &displayMode) == 0) {
-                    // Can retrieve monitor refresh rate
-                    vsync = (displayMode.refresh_rate == configured_fps) && SDL_GL_GetSwapInterval() && (config.video.vsync == 1);
-                    std::cout << "INFO: ";
-                    std::cout << "Display reports refresh rate is " << displayMode.refresh_rate << "Hz.";
-                    if (vsync)
-                        std::cout << " VSync enabled.\n";
-                    else
-                        std::cout << " VSync disabled.\n";
-                }
-            }
+        // Apply an explicit in-menu frame-rate change immediately.
+        // Command-line -30/-60 remains authoritative for this run.
+        if (cannonball::fps_lock == 0 && config.fps != configured_fps)
+        {
+            configured_fps = config.fps;
+            targetFPS = static_cast<double>(configured_fps);
+            frameDuration = std::chrono::duration<double>(1.0 / targetFPS);
+            nextFrameTime = std::chrono::steady_clock::now() + frameDuration;
+            vsync = refresh_vsync_state();
         }
     }
     // Signal the worker threads to quit.
@@ -903,14 +836,12 @@ static void main_loop() {
     audio.stop_audio();
 
     // we're done
-    printf("\n");
 }
 
 
 // Very (very) simple command line parser.
 // Returns true if everything is ok to proceed with launching the game engine.
 static bool parse_command_line(int argc, char* argv[]) {
-    bool fps_set = false;
     for (int i = 0; i < argc; i++) {
         if ( (strcmp(argv[i], "-list-sound-devices") == 0) ||
                   (strcmp(argv[i], "-list-audio-devices") == 0) ) {
@@ -927,13 +858,9 @@ static bool parse_command_line(int argc, char* argv[]) {
         }
         else if (strcmp(argv[i], "-30") == 0) {
             cannonball::fps_lock = 30;
-            std::cout << "Game set to 30fps. Automatic frame-rate selection disabled.\n";
-            fps_set = true;
         }
         else if (strcmp(argv[i], "-60") == 0) {
             cannonball::fps_lock = 60;
-            std::cout << "Game set to 60fps. Automatic frame-rate selection disabled.\n";
-            fps_set = true;
         }
         else if (strcmp(argv[i], "-t") == 0 && i+1 < argc) {
             std::string arg = argv[i + 1];
@@ -976,9 +903,6 @@ static bool parse_command_line(int argc, char* argv[]) {
             _Exit(0);
         }
     }
-    if (!fps_set)
-        std::cout << "Automatic frame-rate selection enabled.\n";
-  
     return true;
 }
 
@@ -1018,7 +942,6 @@ int main(int argc, char* argv[]) {
                 config.video.noise         =  10;       // as Blargg filter is disabled, add more analogue noise
                 config.sound.rate          =  22050;    // 22kHz audio rate
                 config.sound.callback_rate =  1;        // 16ms sound callbacks
-                if (cannonball::fps_lock == 0) cannonball::fps_lock = 30; // lock to 30fps unless user has overriden
             }
         }
     }

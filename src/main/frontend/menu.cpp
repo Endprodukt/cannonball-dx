@@ -392,7 +392,9 @@ bool Menu::select_pressed()
     const Uint8* keyboard_state = SDL_GetKeyboardState(nullptr);
     const bool return_down =
         keyboard_state && keyboard_state[SDL_SCANCODE_RETURN] != 0;
-    const bool return_pressed = return_down && !return_was_down;
+    const bool alt_down = (SDL_GetModState() & KMOD_ALT) != 0;
+    const bool return_pressed =
+        return_down && !return_was_down && !alt_down;
 
     return_was_down = return_down;
 

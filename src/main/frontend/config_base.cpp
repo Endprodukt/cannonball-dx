@@ -208,7 +208,8 @@ void Config::load()
 
     video.mode          = cfg.get_int("video.mode",            1); // Video Mode: Default is Full Screen
     video.scale         = cfg.get_int("video.window.scale",    1); // Video Scale: Default is 1x
-    video.fps           = cfg.get_int("video.fps",             0); // Open game at 30fps; will auto-switch to 60fps if possible
+    video.fps           = cfg.get_int("video.fps",             2); // 0 = 30 FPS, 2 = 60 FPS; default 60
+    video.fps           = video.fps == 0 ? 0 : 2;               // Normalize legacy ORIGINAL/other values to 60 FPS
     video.fps_count     = cfg.get_int("video.fps_counter",     0); // FPS Counter
     video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode
     video.hires_next    =
@@ -434,6 +435,7 @@ bool Config::save()
     // JJP - CRT emulation settings
     cfg.put_int("video.mode",               video.mode);          // Video Mode: Full Screen (2)
     cfg.put_int("video.window.scale",       video.scale);         // Video Scale: 1x (1)
+    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS
     cfg.put_int("video.fps_counter",        video.fps_count);     // FPS Counter (0)
     cfg.put_int("video.widescreen",         video.widescreen);    // Widescreen Mode (1)
     cfg.put_int("video.vsync",              video.vsync);         // V-Sync (1)
@@ -586,10 +588,10 @@ void Config::load_scores(bool original_mode)
         scores_file = engine.jap ? data.file_cont_jap : data.file_cont;
 
     xml_parser::ptree scores("scores");
-    if (!xml_parser::read_xml(scores_file, scores)) {
-        std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
+    // A missing logical score section is normal on first run. Keep the
+    // built-in defaults silently; DX stores all live tables in highscores.xml.
+    if (!xml_parser::read_xml(scores_file, scores))
         return;
-    }
 
     // Game Scores
     for (int i = 0; i < ohiscore.NO_SCORES; i++)

@@ -256,7 +256,6 @@ void RenderSurface::set_scaling()
             int correct_width  = int(float(src_width) * float(scn_height) / float(src_height));
             if (correct_height > dst_rect.h) {
                 // re-scale width, to leave black bars either side and image full height on screen)
-                std::cout << "Image centered horizontally, ";
                 dst_rect.w = int(float(src_width) * float(scn_height) / float(src_height));
                 dst_rect.x = (scn_width - dst_rect.w) >> 1;
                 anchor_x   = dst_rect.x;
@@ -264,14 +263,12 @@ void RenderSurface::set_scaling()
             }
             if (correct_width > dst_rect.w) {
                 // re-scale height, to leave black bars top and bottom and image full width)
-                std::cout << "Image centered vertically, ";
                 dst_rect.h = correct_height;
                 dst_rect.y = (scn_height - dst_rect.h) >> 1;
                 anchor_y   = dst_rect.y;
                 anchor_x   = 0;
             }
         }
-        std::cout << "Image anchor point: " << anchor_x << "," << anchor_y << "\n";
         SDL_ShowCursor(SDL_DISABLE);
     }
     else  // Windowed mode
@@ -319,7 +316,7 @@ bool RenderSurface::init_sdl(int video_mode)
     // Create a window manually so that it can be closed on video restart (e.g. Blargg on/off)
     // Now create our window (with an OpenGL flag)
 
-    window = SDL_CreateWindow("Cannonball",
+    window = SDL_CreateWindow("CannonBall DX",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         scn_width, scn_height, SDL_WINDOW_OPENGL);
 
@@ -335,9 +332,22 @@ bool RenderSurface::init_sdl(int video_mode)
         return false;
     }
 
-    // go true fullscreen (desktop resolution)
-    SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-    // then fix the GL viewport to the new backbuffer size
+    // MODE_FULL and MODE_STRETCH use borderless desktop fullscreen. A real
+    // MODE_WINDOW must keep the scaled SDL window created above instead of
+    // being promoted to fullscreen unconditionally.
+    if (video_mode == video_settings_t::MODE_FULL ||
+        video_mode == video_settings_t::MODE_STRETCH)
+    {
+        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+        {
+            std::cerr << "Failed to enter fullscreen mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+    }
+
+    // Fix the GL viewport to the actual drawable size in both fullscreen and
+    // windowed modes.
     glb::on_drawable_resized();
 
     // --- Tiny ES2 backend init (replaces SDL_gpu) ---
@@ -374,9 +384,6 @@ bool RenderSurface::init_sdl(int video_mode)
         std::cerr << "gl_backend init failed.\n";
         return false;
     }
-
-    Uint32 window_format = SDL_GetWindowPixelFormat(window);
-    printf("Window Pixel Format: %s (0x%08X)\n", SDL_GetPixelFormatName(window_format), window_format);
 
     //--------------------------------------------------------
     // Create CPU surfaces for the game image.
@@ -436,7 +443,7 @@ int find_circle_intersection_(float x1, float y1, float r1,
     // Distance from the center of the first circle to the midpoint of the intersection line
     double a = (pow(r1, 2) - pow(r2, 2) + pow(d, 2)) / (2 * d);
 
-    // Height of the intersection points from the midpoint
+    // Height from midpoint to each intersection; clamp to avoid sqrt(-0).
     double h = sqrt(pow(r1, 2) - pow(a, 2));
 
     // Midpoint on the line connecting the centers
@@ -878,7 +885,7 @@ bool RenderSurface::finalize_frame()
                 invExpandX = 1 / 1.03;
             } else {
                 #if SNES_NTSC_HAVE_SIMD
-                    invExpandX = 1 / 1.01;
+                invExpandX = 1 / 1.01;
                 #else
                     // add 3% width to the source as the non-SIMD blargg filter leaves a black bar on the right
                     invExpandX = 1 / 1.03;

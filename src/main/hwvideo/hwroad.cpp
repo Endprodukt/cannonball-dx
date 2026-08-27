@@ -124,14 +124,17 @@ HWRoad::~HWRoad()
 // Convert road to a more useable format
 void HWRoad::init(const uint8_t* src_road, const bool hires)
 {
-    road_control = 0;
-    color_offset1 = 0x400;
-    color_offset2 = 0x420;
-    color_offset3 = 0x780;
-    x_offset = 0;
-
+    // A nullptr source is a renderer-only restart. Preserve the live road
+    // registers/state and only refresh the lores/hires render entry points.
     if (src_road)
+    {
+        road_control = 0;
+        color_offset1 = 0x400;
+        color_offset2 = 0x420;
+        color_offset3 = 0x780;
+        x_offset = 0;
         decode_road(src_road);
+    }
 
     if (hires)
     {

@@ -313,7 +313,10 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
     if (config.video.widescreen == 2 && page_index == 0 && priority_draw == 0 && s16_width_noscale > 512)
     {
         const int scale = config.s16_width / s16_width_noscale;
-        const int overscan = 20 * scale;
+        // Keep one additional tile-width of safety around the 21:9
+        // background so page/tile build-up remains outside the visible image.
+        // This affects only the completed background layer, not road/sprites/HUD.
+        const int overscan = 32 * scale;
         const int width = config.s16_width;
         const int height = config.s16_height;
         const int source_width = width - (overscan << 1);

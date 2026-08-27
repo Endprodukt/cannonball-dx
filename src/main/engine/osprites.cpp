@@ -505,6 +505,7 @@ void OSprites::sprite_copy()
         {
             const int16_t original_x = entry->x;
             const uint16_t original_dst_index = entry->dst_index;
+            const uint8_t original_control = entry->control;
             const int32_t tile_width = static_cast<int32_t>(entry->width);
             const uint16_t remaining_original = original_main_count - i - 1;
 
@@ -522,11 +523,24 @@ void OSprites::sprite_copy()
                 ultrawide_cloud_copies++;
             };
 
-            add_cloud_copy(static_cast<int32_t>(original_x) - tile_width);
-            add_cloud_copy(static_cast<int32_t>(original_x) + tile_width);
+            // Derive repetition count from the actual logical 21:9 width.
+            // Add a small safety margin so the sheet also extends just beyond
+            // the visible edges instead of ending exactly on the viewport.
+            const int32_t visible_width = S16_WIDTH + (config.s16_x_off << 1);
+            const int32_t required_width = visible_width + 16;
+            int32_t copies_each_side = 1;
+            while (((copies_each_side * 2 + 1) * tile_width) < required_width)
+                copies_each_side++;
+
+            for (int32_t step = 1; step <= copies_each_side; step++)
+            {
+                add_cloud_copy(static_cast<int32_t>(original_x) - (tile_width * step));
+                add_cloud_copy(static_cast<int32_t>(original_x) + (tile_width * step));
+            }
 
             entry->x = original_x;
             entry->dst_index = original_dst_index;
+            entry->control = original_control;
         }
     }
 
