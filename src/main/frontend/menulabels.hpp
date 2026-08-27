@@ -54,6 +54,8 @@ const static char* ENTRY_S_BUGS             = "BUG FIXES ";
 
 // Video Menu
 const static char* ENTRY_FPS_COUNTER        = "FPS COUNTER ";
+const static char* ENTRY_FRAME_RATE         = "FRAME RATE ";
+const static char* ENTRY_VSYNC              = "VSYNC ";
 const static char* ENTRY_FULLSCREEN         = "DISPLAY MODE ";
 const static char* ENTRY_SCREENMODE         = "SCREEN MODE ";   // retained for legacy menu code
 const static char* ENTRY_WIDESCREEN			= "ASPECT RATIO ";

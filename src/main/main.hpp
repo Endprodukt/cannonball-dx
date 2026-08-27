@@ -34,10 +34,9 @@ namespace cannonball
     };
 
     // JJP
-    extern int  fps_lock; // 0=no lock (auto), 30(fps), 60(fps)
+    extern int  fps_lock; // 0=use config setting, 30/60=command-line override
     extern bool singlecore_detect;
     extern bool singlecore_mode;
-    extern long fps_eval_period;
     extern int  game_threads;
     extern bool perftest;
 }

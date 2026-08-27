@@ -565,6 +565,7 @@ void Config::load()
     if (first_run)
     {
         video.widescreen = 0;
+        video.fps = 2;
         video.shader_mode = 0;
         video.shadow_mask = 0;
         video.maskDim = 100;

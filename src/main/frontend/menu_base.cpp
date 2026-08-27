@@ -770,6 +770,16 @@ void Menu::tick_menu()
             {
                 config.video.fps_count ^= 1; // cycle between 0 and 1
             }
+            else if (SELECTED(ENTRY_FRAME_RATE))
+            {
+                config.video.fps = config.video.fps == 0 ? 2 : 0;
+                config.set_fps(config.video.fps);
+            }
+            else if (SELECTED(ENTRY_VSYNC))
+            {
+                config.video.vsync ^= 1;
+                config.videoRestartRequired = true;
+            }
             else if (SELECTED(ENTRY_FULLSCREEN))
             {
                 if (++config.video.mode > video_settings_t::MODE_STRETCH)
@@ -1403,6 +1413,8 @@ void Menu::refresh_menu()
         else if (menu_selected == &menu_video)
         {
             if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");
+            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : "60 FPS");
+            else if (SELECTED(ENTRY_VSYNC))         set_menu_text(ENTRY_VSYNC, config.video.vsync ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FULLSCREEN))    set_menu_text(ENTRY_FULLSCREEN, VIDEO_LABELS[config.video.mode]);
             else if (SELECTED(ENTRY_WIDESCREEN))    set_menu_text(ENTRY_WIDESCREEN, ASPECT_LABELS[config.video.widescreen]);
             else if (SELECTED(ENTRY_SCALE))         set_menu_text(ENTRY_SCALE, Utils::to_string(config.video.scale) + "X");
