@@ -588,10 +588,10 @@ void Config::load_scores(bool original_mode)
         scores_file = engine.jap ? data.file_cont_jap : data.file_cont;
 
     xml_parser::ptree scores("scores");
-    if (!xml_parser::read_xml(scores_file, scores)) {
-        std::cerr << "Warning: " << scores_file << " could not be loaded." << std::endl;
+    // A missing logical score section is normal on first run. Keep the
+    // built-in defaults silently; DX stores all live tables in highscores.xml.
+    if (!xml_parser::read_xml(scores_file, scores))
         return;
-    }
 
     // Game Scores
     for (int i = 0; i < ohiscore.NO_SCORES; i++)

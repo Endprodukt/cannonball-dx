@@ -256,7 +256,6 @@ void RenderSurface::set_scaling()
             int correct_width  = int(float(src_width) * float(scn_height) / float(src_height));
             if (correct_height > dst_rect.h) {
                 // re-scale width, to leave black bars either side and image full height on screen)
-                std::cout << "Image centered horizontally, ";
                 dst_rect.w = int(float(src_width) * float(scn_height) / float(src_height));
                 dst_rect.x = (scn_width - dst_rect.w) >> 1;
                 anchor_x   = dst_rect.x;
@@ -264,14 +263,12 @@ void RenderSurface::set_scaling()
             }
             if (correct_width > dst_rect.w) {
                 // re-scale height, to leave black bars top and bottom and image full width)
-                std::cout << "Image centered vertically, ";
                 dst_rect.h = correct_height;
                 dst_rect.y = (scn_height - dst_rect.h) >> 1;
                 anchor_y   = dst_rect.y;
                 anchor_x   = 0;
             }
         }
-        std::cout << "Image anchor point: " << anchor_x << "," << anchor_y << "\n";
         SDL_ShowCursor(SDL_DISABLE);
     }
     else  // Windowed mode
@@ -387,9 +384,6 @@ bool RenderSurface::init_sdl(int video_mode)
         std::cerr << "gl_backend init failed.\n";
         return false;
     }
-
-    Uint32 window_format = SDL_GetWindowPixelFormat(window);
-    printf("Window Pixel Format: %s (0x%08X)\n", SDL_GetPixelFormatName(window_format), window_format);
 
     //--------------------------------------------------------
     // Create CPU surfaces for the game image.
