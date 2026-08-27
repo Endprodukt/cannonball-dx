@@ -216,6 +216,8 @@ public:
             menu_settings.push_back(ENTRY_BACK);
 
             menu_video.clear();
+            menu_video.push_back(ENTRY_FULLSCREEN);
+            menu_video.push_back(ENTRY_SCALE);
             menu_video.push_back(ENTRY_WIDESCREEN);
             menu_video.push_back(scaler_entry);
             menu_video.push_back(ENTRY_FPS_COUNTER);
@@ -610,7 +612,34 @@ protected:
 
         if (menu_selected == &menu_video)
         {
-            if (selected(ENTRY_WIDESCREEN))
+            if (selected(ENTRY_FULLSCREEN))
+            {
+                handled = true;
+                const int next = wrap_value(
+                    config.video.mode,
+                    video_settings_t::MODE_WINDOW,
+                    video_settings_t::MODE_STRETCH,
+                    1,
+                    direction);
+                if (next != config.video.mode)
+                {
+                    config.video.mode = next;
+                    config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_SCALE))
+            {
+                handled = true;
+                const int next = wrap_value(config.video.scale, 1, 3, 1, direction);
+                if (next != config.video.scale)
+                {
+                    config.video.scale = next;
+                    config.videoRestartRequired = true;
+                    changed = true;
+                }
+            }
+            else if (selected(ENTRY_WIDESCREEN))
             {
                 handled = true;
                 const int next = wrap_value(config.video.widescreen, 0, 2, 1, direction);
