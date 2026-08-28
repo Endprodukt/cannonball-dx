@@ -169,6 +169,31 @@ void OMusic::enable()
     music_select_deadline_ms = 0;
     enable_base();
 
+    // The inherited widescreen music screen was authored for the old 398-wide
+    // renderer. Its custom 50-column tilemap is written ten tiles before the
+    // original 40-column start address and contains five extension tiles on
+    // each side. The legacy code also scrolls by s16_x_off; together with the
+    // centred tile clamp this counts the aspect-ratio offset twice. That is
+    // nearly invisible at the old width but pushes the background far right at
+    // 21:9 while sprites (radio/hand) remain correctly centred.
+    //
+    // Keep the existing tile data and RAM placement, but derive the one scroll
+    // value that aligns the central 40-column composition with the original
+    // 4:3 coordinates. The normal centre clamp then moves both background and
+    // sprites by s16_x_off exactly once for every widescreen width.
+    if (tilemap && tilemap->loaded && config.s16_x_off > 0)
+    {
+        uint32_t map_header = 0;
+        tilemap->read16(&map_header); // rows
+        const uint16_t cols = tilemap->read16(&map_header);
+        const int extra_cols =
+            cols > 40 ? static_cast<int>(cols) - 40 : 0;
+        const int left_padding_px = (extra_cols / 2) * 8;
+        const int ram_lead_px = 10 * 8; // TILEMAP_RAM_16 - 20 bytes
+
+        otiles.set_scroll(ram_lead_px - left_padding_px);
+    }
+
     // Music Select is intentionally free between songs: no directional pull
     // and no continuous centering spring. Only the short boundary-step pulses
     // in main.cpp are active while choosing a song. disable() restores the
