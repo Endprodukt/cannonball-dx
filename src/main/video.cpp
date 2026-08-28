@@ -28,6 +28,7 @@
 #include "globals.hpp"
 #include "frontend/config.hpp"
 #include "engine/oroad.hpp"
+#include "engine/music_side_art.hpp"
 
 #include "sdl2/pixelscaler_renderer.hpp"
 
@@ -221,6 +222,13 @@ void Video::prepare_frame()
             (hwroad.*hwroad.render_foreground)(pixels);
 
         sprite_layer->render(pixels, 8);
+
+        // The edited 21:9 side art represents the final appearance of the
+        // ultrawide margins. Draw it after sprites so legacy sprite fragments
+        // cannot reintroduce the blue/grey side artefacts. Text remains live
+        // and is rendered afterwards as usual.
+        music_side_art::render(pixels);
+
         tile_layer->render_text_layer(pixels, 1);
         tile_layer->render_text_scroll_overlay(pixels, 1);
     }
@@ -472,7 +480,7 @@ void Video::write_pal16(uint32_t* palAddr, const uint16_t data)
 /*
 void Video::write_pal16(uint32_t* palAddr, const uint16_t data)
 {
-    uint32_t adr = *palAddr & (0x1fff - 1); // 0x1fff - 1 = 8190;
+    uint32_t adr = *palAddr & (0x1fff - 1); // 0x1fff – 1 = 8190;
     palette[adr]   = (data >> 8) & 0xFF;
     palette[adr+1] = data & 0xFF;
     refresh_palette(adr);
@@ -543,11 +551,11 @@ uint8_t Video::read_pal8(uint32_t palAddr)
 
 uint16_t Video::read_pal16(uint32_t palAddr)
 {
-    uint32_t adr = palAddr & (0x1fffu - 1u);    // keep inside 8 KB, 16‑bit aligned
+    uint32_t adr = palAddr & (0x1fffu - 1u);    // keep inside 8 KB, 16-bit aligned
     uint16_t w = 0;
-    std::memcpy(&w, &palette[adr], sizeof(w));  // single 16‑bit load
+    std::memcpy(&w, &palette[adr], sizeof(w));  // single 16-bit load
 
-    return std::byteswap(w);                    // palette is big‑endian
+    return std::byteswap(w);                    // palette is big-endian
 }
 
 /*
@@ -581,8 +589,8 @@ uint16_t Video::read_pal16(uint32_t* palAddr)
 
 uint32_t Video::read_pal32(uint32_t* palAddr)
 {
-    // Keep the index inside the 8 KB palette and aligned to a 4‑byte word
-    uint32_t adr = (*palAddr) & (0x1fffu - 3u);   // 0x1fff – 3 = 8188
+    // Keep the index inside the 8 KB palette and aligned to a 4-byte word
+    uint32_t adr = (*palAddr) & (0x1fffu - 3u);   // 0x1fff - 3 = 8188
 
     // Advance the caller’s address before we read
     *palAddr += 4;
@@ -591,7 +599,7 @@ uint32_t Video::read_pal32(uint32_t* palAddr)
     uint32_t word = 0;
     std::memcpy(&word, &palette[adr], sizeof(word));
 
-    // The palette is stored big‑endian; convert to the host format
+    // The palette is stored big-endian; convert to the host format
     return std::byteswap(word);
 }
 
@@ -607,21 +615,21 @@ uint32_t Video::read_pal32(uint32_t* palAddr)
 // Convert internal System 16 RRRR GGGG BBBB format palette to renderer output format
 void Video::refresh_palette(uint32_t palAddr)
 {
-    // Ensure we address an even index – the palette is 16‑bit entries.
+    // Ensure we address an even index – the palette is 16-bit entries.
     palAddr &= ~1u;
 
-    /*  Read the 16‑bit value once.
-        The palette stores a big‑endian word:  high byte first.  */
+    /*  Read the 16-bit value once.
+        The palette stores a big-endian word:  high byte first.  */
     uint16_t a;
-    std::memcpy(&a, &palette[palAddr], sizeof a);   // one 16‑bit copy
+    std::memcpy(&a, &palette[palAddr], sizeof a);   // one 16-bit copy
     a = std::byteswap(a);
 
-    /*  Extract the 5‑bit RGB components in a single operation each.
+    /*  Extract the 5-bit RGB components in a single operation each.
         The logic is equivalent to the original code but needs only
         one shift, one mask and one OR per component.  */
-    uint8_t r = (((a >> 0) & 0x000Fu) << 1) | ((a >> 12) & 1u);   // bits 0‑3, flag bit 12
-    uint8_t g = (((a >> 4) & 0x000Fu) << 1) | ((a >> 13) & 1u); // bits 4‑7, flag bit 13
-    uint8_t b = (((a >> 8) & 0x000Fu) << 1) | ((a >> 14) & 1u); // bits 8‑11, flag bit 14
+    uint8_t r = (((a >> 0) & 0x000Fu) << 1) | ((a >> 12) & 1u);   // bits 0-3, flag bit 12
+    uint8_t g = (((a >> 4) & 0x000Fu) << 1) | ((a >> 13) & 1u); // bits 4-7, flag bit 13
+    uint8_t b = (((a >> 8) & 0x000Fu) << 1) | ((a >> 14) & 1u); // bits 8-11, flag bit 14
 
     renderer->convert_palette(palAddr, r, g, b);
 }
