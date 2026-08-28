@@ -7,11 +7,8 @@
 
 #include <array>
 #include <cstdint>
-#include <fstream>
 #include <iostream>
-#include <iterator>
 #include <limits>
-#include <string>
 #include <vector>
 
 namespace music_side_art
@@ -23,11 +20,11 @@ namespace music_side_art
         187, 195, 203, 211, 218, 226, 234, 242
     };
 
-    inline constexpr std::array<uint8_t, 32> SHADOW_DAC = {
-        0, 5, 10, 15, 20, 25, 30, 35,
-        40, 45, 50, 55, 60, 65, 70, 75,
-        80, 85, 90, 95, 100, 105, 110, 115,
-        120, 126, 130, 136, 140, 146, 150, 156
+    struct Rgb
+    {
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
     };
 
     struct Span
@@ -40,13 +37,58 @@ namespace music_side_art
 
     struct State
     {
-        bool attempted_load = false;
-        bool loaded = false;
-        bool palette_mapped = false;
-        std::vector<std::array<uint8_t, 3>> colours;
+        bool decoded = false;
+        bool valid = false;
+        bool logged = false;
+        std::vector<Rgb> colours;
         std::vector<Span> spans;
         std::vector<uint16_t> palette_indices;
     };
+
+    // This is the edited 536x224 Music Select image reduced to only the two
+    // 68-pixel side strips. RGB 0,140,242 (the old blank blue fill) is omitted.
+    // Keeping the 4.5 KB payload in the executable avoids a separate resource
+    // file being missed when only the freshly built EXE is copied for testing.
+    inline constexpr const char* ART_BASE64 =
+        "TVMyMQETUgQAqwAAu6sA2qsA6rtOTk6MjJyMnH2cjH2cnJycnKurnIyrq8urq+q7q5y7y+rLy8vLy+rL2urq6upwDwERcBADEnATARFwFAEOcDABEnAxAhFxDQEOcQ4EEnESARFxEwIScRUBEXEWAQ5xGAIScRoBDnEoAxJxLAIScS4CEXEwAxJxMwIRcTUBEnE2ARFxSwERcUwDEnFPARFxUAEOcgoBDnILAhJyDQERcg4BEnIPAxFyEgESchMBEXIUARJyFQERchYBEnIXBRFyHAMSch8BDnIlAQxyJgIOcigBEnIpAg5yKwERciwBDHItBA5yMQMScjQCEXI2ARJyNwIOckkBDnJKBBJyTgERck8CEnJRARFyUgEOclQBEnJVAg5ydwEScngBEXMJAgxzCwIOcw0BEnMOAg5zEAMScxMCDnMVARJzFgERcxcEDnMbAhFzHQEOcx4GDHMmBgxzLQQMczEFDnM2BgxzRgEOc0cCEnNJARFzSgESc0sDEXNOARJzTwERc1ABEnNRARFzUgESc1MFEXNYAxJzWwEOc28CEnNyAhJzdAMRc3cCEnN5AhFzewESc3wBEXQLCQx0FgkMdC0BDHQxBQx0RAMMdEcCDnRJARJ0SgIOdEwDEnRPAg50UQESdFIBEXRTBA50VwIRdFkBDnRaBgx0awEMdGwDDnRvARJ0cAEOdHEBEXRyAQx0cwUOdHgCEnR6AhF0fAESdH0DDnVHCQx1UgkMdWwGDHVzBQx1eAQOdXwGDHZzAQx2eAQMfEYBDXxHAQZ8SAIHfUYCBn1IAQp9SQINfUsBB35EAwZ+RwEKfkgCBn5KAQp+SwMGfk4CCn5QAQ1+UwEGflQBB35dAwZ+bAIGfm4BB39EAgZ/RgIKf0gBBn9JAQd/SgEGf0sBDX9MBwZ/UwEKf1QBDX9VAwd/WAIKf1oBDX9bAQp/XAENf10GCn9nBQd/bAEGf20BCn9uAQd/bwUKf3QBDX91AgqARAIGgEYCCoBIAQaASQIHgEsBBoBMAgqATgYGgFQBCoBVAg2AVwEKgFgCB4BaAQaAWwENgFwBCoBdAweAYAIKgGICBoBkBgeAagEKgGsBBoBsAgqAbgMHgHEBCoByAQaAcwIKgHUBDYB2AwqAeQIHgUQCBoFGAwqBSQEGgUoEB4FOAQaBTwEKgVAEBoFUBQeBWQQKgV0EB4FhAwaBZAEKgWUBBoFmAQeBZwYKgW0BBoFuAweBcQMGgXQCCoF2BAeBegEGgXsCCoF9AgaBfwMHgkQCBoJGAwqCSQEGgkoEB4JOAQaCTwUKglQBBoJVAwqCWAEHglkCCoJbAQaCXAEKgl0CB4JfAQqCYAIHgmICBoJkBgqCagEGgmsBCoJsAgaCbgUHgnMCBoJ1AQqCdgUHgnsDCoJ+BAeCggEGgoMCCoKFAQ2ChgIGg0QFCoNJAweDTAIKg04CB4NQAgqDUgEHg1MCCoNVAgaDVwEKg1gEBoNcAQeDXQMGg2ACB4NiAwaDZQEKg2YBBoNnBAqDawIGg20MB4N5AgqDewIGg30GB4ODAQqDhAENg4UBB4OGAgaERAMKhEcDBoRKBAqETgIHhFABCoRRAQeEUgcKhFkHBoRgAgeEYgMGhGUBCoRmAQaEZwQKhGsBBoRsCAeEdAYKhHoDBoR9BQeEggEGhIMBDYSEAQeEhQIGhIcBCoVEAgqFRgEHhUcBCoVIAgaFSgEAhUsDBoVOBAeFUgIKhVQBB4VVAgqFVwIHhVkBCoVaAgaFXAEAhV0CBoVfAQqFYAQHhWQFBoVpAQeFagEGhWsIB4VzAgqFdQIAhXcDBoV6AgCFfAYHhYIBCoWDAgaFhQIKhYcBB4ZEAgaGRgMHhkkBCoZKAQaGSwMAhk4EBoZSAQqGUwIHhlUDBoZYAweGWwQAhl8GB4ZlAgCGZwIGhmkEB4ZtAQaGbgMKhnEEB4Z1AQaGdgMAhnkBBoZ6CQeGgwEGhoQDAIaHAQeHQQMEh0QCB4dGAQaHRwEAh0gCBodKAgCHTAIGh04CAIdQAQaHUQEKh1IBB4dTBgaHWQMHh1wBAIddAweHYAEKh2ECB4djAgCHZQEKh2YFB4drAgaHbQQKh3EBB4dyAQqHcwMAh3YNB4eDAwCHhgEGh4cBB4gAPgGIPgYEiEREAYkAHQGJHQESiR4IAYkmARKJJw8BiTYBEok3AwGJOgoEiUQEAYlIARKJSREBiVoBEolbGQGJdAESiXUTAYoADQKKDQESig4IAooWARKKFxgCii8BEoowBwKKNw0EikQPAopTARKKVBACimQBEoplGgKKfwESioAIAosANAKLNBAEi0REAowAAQKMAQESjAIwAowyEgSMREECjIUBEoyGAgKNADEDjTETBI1ERAOOAC8Dji8V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";
+
+    inline int decode_value(char c)
+    {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    }
+
+    inline std::vector<uint8_t> decode_base64()
+    {
+        std::vector<uint8_t> out;
+        uint32_t accumulator = 0;
+        int bits = 0;
+
+        for (const char* p = ART_BASE64; *p; ++p)
+        {
+            if (*p == '=')
+                break;
+
+            const int value = decode_value(*p);
+            if (value < 0)
+                continue;
+
+            accumulator = (accumulator << 6) | static_cast<uint32_t>(value);
+            bits += 6;
+
+            if (bits >= 8)
+            {
+                bits -= 8;
+                out.push_back(static_cast<uint8_t>((accumulator >> bits) & 0xFFu));
+            }
+        }
+
+        return out;
+    }
 
     inline State& get_state()
     {
@@ -54,35 +96,20 @@ namespace music_side_art
         return state;
     }
 
-    inline bool load()
+    inline bool decode_art()
     {
         State& state = get_state();
-        if (state.attempted_load)
-            return state.loaded;
+        if (state.decoded)
+            return state.valid;
 
-        state.attempted_load = true;
-
-        const std::string path =
-            config.data.res_path + "music_select_21x9_sides.bin";
-        std::ifstream file(path, std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Unable to load 21:9 Music Select side artwork: "
-                      << path << std::endl;
-            return false;
-        }
-
-        std::vector<uint8_t> data(
-            (std::istreambuf_iterator<char>(file)),
-            std::istreambuf_iterator<char>());
+        state.decoded = true;
+        const std::vector<uint8_t> data = decode_base64();
 
         if (data.size() < 8 ||
             data[0] != 'M' || data[1] != 'S' ||
-            data[2] != '2' || data[3] != '1' ||
-            data[4] != 1)
+            data[2] != '2' || data[3] != '1' || data[4] != 1)
         {
-            std::cerr << "Invalid 21:9 Music Select side artwork: "
-                      << path << std::endl;
+            std::cerr << "Invalid embedded 21:9 Music Select side artwork." << std::endl;
             return false;
         }
 
@@ -96,8 +123,7 @@ namespace music_side_art
 
         if (colour_count == 0 || data.size() != expected_size)
         {
-            std::cerr << "Invalid 21:9 Music Select side artwork size: "
-                      << path << std::endl;
+            std::cerr << "Invalid embedded 21:9 Music Select side artwork size." << std::endl;
             return false;
         }
 
@@ -106,9 +132,7 @@ namespace music_side_art
         for (uint8_t i = 0; i < colour_count; ++i)
         {
             state.colours.push_back({
-                data[offset + 0],
-                data[offset + 1],
-                data[offset + 2]
+                data[offset], data[offset + 1], data[offset + 2]
             });
             offset += 3;
         }
@@ -116,24 +140,18 @@ namespace music_side_art
         state.spans.reserve(span_count);
         for (uint16_t i = 0; i < span_count; ++i)
         {
-            Span span {
-                data[offset + 0],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3]
+            const Span span {
+                data[offset], data[offset + 1],
+                data[offset + 2], data[offset + 3]
             };
             offset += 4;
 
-            if (span.y >= S16_HEIGHT ||
-                span.x >= 136 ||
+            if (span.y >= S16_HEIGHT || span.x >= 136 ||
                 span.length == 0 ||
                 static_cast<int>(span.x) + span.length > 136 ||
                 span.colour >= colour_count)
             {
-                std::cerr << "Invalid 21:9 Music Select side artwork span: "
-                          << path << std::endl;
-                state.colours.clear();
-                state.spans.clear();
+                std::cerr << "Invalid embedded 21:9 Music Select side artwork span." << std::endl;
                 return false;
             }
 
@@ -141,86 +159,99 @@ namespace music_side_art
         }
 
         state.palette_indices.resize(colour_count);
-        state.loaded = true;
+        state.valid = true;
         return true;
     }
 
-    inline std::array<uint8_t, 3> palette_rgb(uint16_t virtual_index)
+    inline Rgb palette_rgb(uint16_t palette_index)
     {
-        const bool shadow = (virtual_index & 0x1000u) != 0;
-        const uint16_t palette_index = virtual_index & 0x0FFFu;
         const uint16_t raw = video.read_pal16(
             S16_PALETTE_BASE + static_cast<uint32_t>(palette_index) * 2u);
 
-        const uint8_t r5 =
-            static_cast<uint8_t>(((raw >> 0) & 0x000Fu) << 1) |
-            static_cast<uint8_t>((raw >> 12) & 1u);
-        const uint8_t g5 =
-            static_cast<uint8_t>(((raw >> 4) & 0x000Fu) << 1) |
-            static_cast<uint8_t>((raw >> 13) & 1u);
-        const uint8_t b5 =
-            static_cast<uint8_t>(((raw >> 8) & 0x000Fu) << 1) |
-            static_cast<uint8_t>((raw >> 14) & 1u);
+        const uint8_t r5 = static_cast<uint8_t>(
+            (((raw >> 0) & 0x000Fu) << 1) | ((raw >> 12) & 1u));
+        const uint8_t g5 = static_cast<uint8_t>(
+            (((raw >> 4) & 0x000Fu) << 1) | ((raw >> 13) & 1u));
+        const uint8_t b5 = static_cast<uint8_t>(
+            (((raw >> 8) & 0x000Fu) << 1) | ((raw >> 14) & 1u));
 
-        const auto& dac = shadow ? SHADOW_DAC : STANDARD_DAC;
-        return { dac[r5], dac[g5], dac[b5] };
+        return { STANDARD_DAC[r5], STANDARD_DAC[g5], STANDARD_DAC[b5] };
     }
 
-    inline void map_palette()
+    inline int colour_distance(const Rgb& a, const Rgb& b)
+    {
+        const int dr = static_cast<int>(a.r) - b.r;
+        const int dg = static_cast<int>(a.g) - b.g;
+        const int db = static_cast<int>(a.b) - b.b;
+        return dr * dr + dg * dg + db * db;
+    }
+
+    inline int map_palette()
     {
         State& state = get_state();
+        int exact_matches = 0;
 
         for (std::size_t colour = 0; colour < state.colours.size(); ++colour)
         {
-            const auto target = state.colours[colour];
+            const Rgb target = state.colours[colour];
             int best_distance = std::numeric_limits<int>::max();
             uint16_t best_index = 0;
+            bool exact = false;
 
-            // Search the complete normal + shadow System 16 palette space.
-            // These colours came from a native framebuffer capture, so exact
-            // matches are expected; nearest-colour fallback is defensive only.
-            for (uint16_t virtual_index = 0; virtual_index < 0x2000u; ++virtual_index)
+            // Remap while the screen is active rather than caching the first
+            // GS_MUSIC frame. The music palette is still being established
+            // around the state transition, and duplicate palette entries may
+            // change later during fades/animation.
+            for (uint16_t index = 0; index < 0x1000u; ++index)
             {
-                const auto candidate = palette_rgb(virtual_index);
-                const int dr = static_cast<int>(candidate[0]) - target[0];
-                const int dg = static_cast<int>(candidate[1]) - target[1];
-                const int db = static_cast<int>(candidate[2]) - target[2];
-                const int distance = dr * dr + dg * dg + db * db;
+                const Rgb candidate = palette_rgb(index);
+                const int distance = colour_distance(candidate, target);
 
                 if (distance < best_distance)
                 {
                     best_distance = distance;
-                    best_index = virtual_index;
-                    if (distance == 0)
-                        break;
+                    best_index = index;
+                }
+
+                if (distance == 0)
+                {
+                    exact = true;
+                    break;
                 }
             }
 
             state.palette_indices[colour] = best_index;
+            if (exact)
+                ++exact_matches;
         }
 
-        state.palette_mapped = true;
+        return exact_matches;
     }
 
     inline void render(uint16_t* buffer)
     {
-        State& state = get_state();
-
-        if (!buffer ||
-            config.video.widescreen != 2 ||
-            outrun.game_state != GS_MUSIC)
+        if (!buffer || config.video.widescreen != 2 ||
+            (outrun.game_state != GS_INIT_MUSIC && outrun.game_state != GS_MUSIC))
         {
-            // Palette contents are rebuilt between game states. Force a fresh
-            // lookup the next time Music Select becomes active.
-            state.palette_mapped = false;
             return;
         }
 
-        if (!load())
+        if (!decode_art())
             return;
 
-        if (!state.palette_mapped)
-            map_palette();
+        State& state = get_state();
+        const int exact_matches = map_palette();
+
+        if (!state.logged)
+        {
+            std::cout
+                << "Embedded Music Select 21:9 side art active: "
+                << state.spans.size() << " spans, "
+                << exact_matches << "/" << state.colours.size()
+                << " palette colours matched exactly."
+                << std::endl;
+            state.logged = true;
+        }
 
         const bool hires = config.video.hires != 0;
         constexpr int SIDE_WIDTH = 68;
@@ -240,8 +271,7 @@ namespace music_side_art
 
                 if (!hires)
                 {
-                    buffer[static_cast<int>(span.y) * config.s16_width + logical_x] =
-                        pixel;
+                    buffer[static_cast<int>(span.y) * config.s16_width + logical_x] = pixel;
                 }
                 else
                 {
