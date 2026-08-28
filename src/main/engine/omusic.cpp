@@ -9,7 +9,6 @@
 
 #include "main.hpp"
 #include "engine/car_palette_state.hpp"
-#include "engine/music_native_capture.hpp"
 #include "engine/oferrari.hpp"
 #include "engine/ohiscore.hpp"
 #include "engine/ohud.hpp"
@@ -194,12 +193,6 @@ void OMusic::enable()
 
         otiles.set_scroll(ram_lead_px - left_padding_px);
     }
-
-    // Restore the native diagnostic capture used while editing the ultrawide
-    // Music Select artwork. It captures the raw 536x224 System 16 composition,
-    // before any scaler, scanline or CRT post-processing is applied.
-    if (config.video.widescreen == 2)
-        music_native_capture::install_capture_watch();
 
     // Music Select is intentionally free between songs: no directional pull
     // and no continuous centering spring. Only the short boundary-step pulses
