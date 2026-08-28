@@ -91,9 +91,3 @@ private:
 };
 
 extern Video video;
-
-// video.cpp includes music_side_art.hpp after this header. Preload the wrapper
-// here so that include is satisfied by #pragma once and its existing
-// music_side_art::render() call transparently runs the proven side renderer
-// followed by the two pixel-exact correction areas.
-#include "engine/music_side_art_wrapper.hpp"
