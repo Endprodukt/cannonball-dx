@@ -37,6 +37,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 ### Display & Presentation
 
 - **4:3, 16:9 and 21:9 ultrawide support**
+- **Native 21:9 Music Select Screen** - full ultrawide presentation with correctly centred background and sprite alignment
 - **xBRZ 3x/4x/5x/6x and HQX 3x/4x pixel scalers**
 - **CRT / analogue video and NTSC filtering** inherited from CannonBall-SE
 - **Enhanced Attract Mode** with automatic camera changes and cabinet-lamp choreography
