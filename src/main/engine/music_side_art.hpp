@@ -1,7 +1,10 @@
 #pragma once
 
-// Windows headers may define max as a macro. The original renderer uses
-// std::numeric_limits<int>::max(), so remove the macro before parsing it.
+// Prevent Windows headers from defining min/max macros, and remove a max macro
+// if one was already defined before this header was reached.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #ifdef max
 #undef max
 #endif
