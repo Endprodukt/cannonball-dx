@@ -221,12 +221,14 @@ void Video::prepare_frame()
         if (!config.engine.fix_bugs || oroad.horizon_base != ORoad::HORIZON_OFF)
             (hwroad.*hwroad.render_foreground)(pixels);
 
-        // The edited 21:9 side art is part of the native Music Select
-        // background. Draw it after the tile/road background and before the
-        // live radio/hand sprites so existing animation remains untouched.
+        sprite_layer->render(pixels, 8);
+
+        // The edited 21:9 side art represents the final appearance of the
+        // ultrawide margins. Draw it after sprites so legacy sprite fragments
+        // cannot reintroduce the blue/grey side artefacts. Text remains live
+        // and is rendered afterwards as usual.
         music_side_art::render(pixels);
 
-        sprite_layer->render(pixels, 8);
         tile_layer->render_text_layer(pixels, 1);
         tile_layer->render_text_scroll_overlay(pixels, 1);
     }
