@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <vector>
