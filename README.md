@@ -47,8 +47,6 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Configurable selection timers** - 15 sec, 30 sec or OFF
 - **Dedicated Time Trial and Endless results / high-score presentation**
 
-![CannonBall DX 21:9 Scaler](screenshots/cannonballdxscaler219.jpg)
-
 ### Arcade Cabinet Features
 
 - **START, BRAKE, VIEW, VIEW1, VIEW2 and VIEW3 lamp outputs**
