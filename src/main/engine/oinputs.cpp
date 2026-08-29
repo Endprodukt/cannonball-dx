@@ -13,6 +13,7 @@
 // Keep the multiplayer include before the normal engine/config include chain on
 // Windows so Winsock2 is established before any Windows networking headers.
 #include "engine/multiplayer.hpp"
+#include "main.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ostats.hpp"
