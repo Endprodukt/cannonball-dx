@@ -13,3 +13,12 @@ host = 127.0.0.1
 
 # UDP port listened to by the master.
 port = 51337
+
+# Seconds to wait at the race-start barrier for player 2.
+# If this expires, that race continues without multiplayer synchronization.
+timeout = 15
+
+# Once both players are ready, the master schedules a common start this many
+# milliseconds ahead. 1000 ms gives the slave enough time to receive the start
+# command before both engines initialize the race.
+start_delay_ms = 1000
