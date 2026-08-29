@@ -1,0 +1,15 @@
+# CannonBall DX multiplayer prototype
+# Copy this file to multiplayer.cfg in each game folder.
+
+# 0 = disabled, 1 = enabled
+enabled = 0
+
+# off | master | slave
+role = off
+
+# Slave only: IP/hostname of the master.
+# For two instances on the same PC use 127.0.0.1.
+host = 127.0.0.1
+
+# UDP port listened to by the master.
+port = 51337
