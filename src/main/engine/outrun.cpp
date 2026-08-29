@@ -58,10 +58,6 @@ namespace
         return true;
     }
 
-    // Only the call sites inside the preserved Outrun implementation are
-    // redirected. Player 1 and all single-player runs still execute OTraffic's
-    // original code verbatim. Player 2 switches to the authoritative network
-    // snapshot once one has arrived, while init/disable paths remain untouched.
     class MultiplayerTrafficProxy
     {
     public:
@@ -76,34 +72,35 @@ namespace
 
         void disable_traffic() { ::otraffic.disable_traffic(); }
         void init_stage1_traffic() { ::otraffic.init_stage1_traffic(); }
-        void init() { ::otraffic.init(); }
+
+        void init()
+        {
+            ::otraffic.init();
+
+            // Player 2's JOIN press is deliberately consumed before the normal
+            // freeplay START handler can manufacture a credit. The preserved
+            // GS_INIT_GAME path still decrements one, so seed that single race
+            // credit here before the original initialization continues.
+            if (multiplayer.player_number() == 2 && ostats.credits == 0)
+                ostats.credits = 1;
+        }
     };
 
     MultiplayerTrafficProxy multiplayer_traffic_proxy;
 }
 
-// Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
-// Endless as false. It therefore calls init_best_outrunners() instead of the
-// prototype's direct GS_REINIT shortcut. Everywhere else this macro resolves
-// to the real member value, so all Endless gameplay behaviour remains intact.
 #define endless_mode ((game_state == GS_GAMEOVER) ? false : this->endless_mode)
 
-// The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
-// every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
-// screen: suppress physical START, clear the old PRESS START row, redraw the
-// Results page and synthesize a press after seven seconds.
 #define is_pressed(ARG) \
     is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
     (time_trial_records.suppress_physical_input(ARG) && \
      (video.clear_text_ram(), time_trial_results_input(ARG)) && \
      (time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2, true))
 
-// The old Time Trial branch assigns STATE_INIT_MENU after its START check.
 #define STATE_INIT_MENU STATE_GAME
 
 // Redirect only references to the global traffic object that appear in
-// outrun_base.cpp. The real ::otraffic object remains unchanged everywhere else
-// (including OSprites::finalise_sprites traffic sound/ordering logic).
+// outrun_base.cpp. The real ::otraffic object remains unchanged everywhere else.
 #define otraffic multiplayer_traffic_proxy
 
 #include "outrun_base.cpp"
