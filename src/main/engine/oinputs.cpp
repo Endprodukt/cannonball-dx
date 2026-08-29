@@ -14,6 +14,7 @@
 // Windows so Winsock2 is established before any Windows networking headers.
 #include "engine/multiplayer.hpp"
 #include "main.hpp"
+#include "engine/car_palette_state.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ostats.hpp"
@@ -22,6 +23,92 @@
 // while GS_INIT_GAME is waiting for both players, so rendering/input/networking
 // continue while the actual OutRun engine is held before race initialization.
 extern bool pause_engine;
+
+namespace
+{
+    bool multiplayer_colour_left_down = false;
+    bool multiplayer_colour_right_down = false;
+    bool multiplayer_colour_gear1_down = false;
+    bool multiplayer_colour_gear2_down = false;
+
+    int wrap_multiplayer_colour(int colour)
+    {
+        while (colour < 0)
+            colour += car_palette_state::COLOR_COUNT;
+        while (colour >= car_palette_state::COLOR_COUNT)
+            colour -= car_palette_state::COLOR_COUNT;
+        return colour;
+    }
+
+    void reset_multiplayer_colour_edges()
+    {
+        multiplayer_colour_left_down = false;
+        multiplayer_colour_right_down = false;
+        multiplayer_colour_gear1_down = false;
+        multiplayer_colour_gear2_down = false;
+    }
+
+    // Player 2's waiting screen is not a normal CannonBall menu state. Capture
+    // the raw control state BEFORE multiplayer.network_tick(), then apply it
+    // immediately afterwards. This avoids has_pressed() ordering differences
+    // between keyboard, D-pad and wheel-button backends. If the legacy network
+    // handler already changed the colour, simply adopt that result instead of
+    // stepping twice.
+    void handle_multiplayer_colour_after_network(
+        bool left_now,
+        bool right_now,
+        bool gear1_now,
+        bool gear2_now,
+        int colour_before_network)
+    {
+        if (!multiplayer.keep_lobby_color())
+        {
+            reset_multiplayer_colour_edges();
+            return;
+        }
+
+        const int before = wrap_multiplayer_colour(colour_before_network);
+        int current = wrap_multiplayer_colour(config.engine.car_pal);
+
+        int direction = 0;
+        if (left_now && !multiplayer_colour_left_down)
+            direction = -1;
+        else if (right_now && !multiplayer_colour_right_down)
+            direction = 1;
+        else if (gear1_now && !multiplayer_colour_gear1_down)
+            direction = -1;
+        else if (gear2_now && !multiplayer_colour_gear2_down)
+            direction = 1;
+
+        multiplayer_colour_left_down = left_now;
+        multiplayer_colour_right_down = right_now;
+        multiplayer_colour_gear1_down = gear1_now;
+        multiplayer_colour_gear2_down = gear2_now;
+
+        // The original multiplayer handler gets first chance during
+        // network_tick(). If it already changed config.engine.car_pal, keep its
+        // result. Otherwise apply the captured edge here deterministically.
+        if (current == before && direction != 0)
+        {
+            current = wrap_multiplayer_colour(current + direction);
+            config.engine.car_pal = current;
+            osoundint.queue_sound(sound::BEEP1);
+            std::cout << "[Multiplayer] Player 2 colour -> " << current << std::endl;
+        }
+
+        // Make the visual Ferrari follow the temporary race colour immediately.
+        // This is intentionally not persisted as the normal Attract default.
+        oferrari.ferrari_pal = car_palette_state::palette_source(current);
+
+        // The waiting screen owns these controls. Consume them after both the
+        // legacy and deterministic colour paths have had their chance so they
+        // cannot steer the Attract car or toggle the normal gear state below.
+        input.keys[Input::LEFT] = false;
+        input.keys[Input::RIGHT] = false;
+        input.keys[Input::GEAR1] = false;
+        input.keys[Input::GEAR2] = false;
+    }
+}
 
 OInputs oinputs;
 
@@ -64,9 +151,24 @@ void OInputs::init()
 
 void OInputs::tick()
 {
+    // Capture Player 2 colour controls before network_tick can consume any
+    // has_pressed() edge or clear a target key.
+    const bool multiplayer_left_now = input.is_pressed(Input::LEFT);
+    const bool multiplayer_right_now = input.is_pressed(Input::RIGHT);
+    const bool multiplayer_gear1_now = input.is_pressed(Input::GEAR1);
+    const bool multiplayer_gear2_now = input.is_pressed(Input::GEAR2);
+    const int multiplayer_colour_before = config.engine.car_pal;
+
     // Multiplayer networking must continue in Attract, frontend/menu and Music
     // Select, not only while the Ferrari gameplay routine happens to be active.
     multiplayer.network_tick();
+
+    handle_multiplayer_colour_after_network(
+        multiplayer_left_now,
+        multiplayer_right_now,
+        multiplayer_gear1_now,
+        multiplayer_gear2_now,
+        multiplayer_colour_before);
 
     // START from Music Select changes the engine to GS_INIT_GAME. Freeze the
     // normal OutRun engine at that exact boundary until master/slave are both
