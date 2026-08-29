@@ -45,10 +45,21 @@ public:
     // Multiplayer Player 2 never enters Music Select. The race leader sends the
     // selected track and this setter primes the same normal play_music() path
     // before both instances cross the synchronized GS_INIT_GAME barrier.
+    // Clamp against Player 2's own music list so a configuration mismatch can
+    // never feed an invalid index into play_music()/vector::at().
     void set_multiplayer_music_selected(int selection)
     {
-        if (selection < 0)
+        const int track_count = static_cast<int>(config.sound.music.size());
+
+        if (track_count <= 0)
             selection = 0;
+        else
+        {
+            if (selection < 0)
+                selection = 0;
+            else if (selection >= track_count)
+                selection = track_count - 1;
+        }
 
         music_selected = static_cast<uint8_t>(selection);
         cursor_pos = selection;
