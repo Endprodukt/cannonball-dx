@@ -93,6 +93,22 @@ public:
     void stop_audio();
     void clear_wav();
     void load_audio(const char* filename);
+
+    // Multiplayer must be able to restart an already loaded MP3/WAV without
+    // opening the file again from the critical START1 race-init path. The
+    // decoder/mixer already protects wavfile with wav_mutex, so rewinding only
+    // the read cursor is thread-safe and does not touch the loader thread.
+    bool rewind_audio_file()
+    {
+        std::lock_guard<std::mutex> lock(wav_mutex);
+
+        if (!wavfile.data || wavfile.loaded_length == 0)
+            return false;
+
+        wavfile.pos = 0;
+        return true;
+    }
+
     void tick();
     void fill_and_mix(uint8_t *stream, int len);
 
