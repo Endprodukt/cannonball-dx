@@ -7,11 +7,10 @@
     car_palette_hotkey.hpp so the key can also be handled there safely.
 ***************************************************************************/
 
-#include <iostream>
-
 // Keep the multiplayer include first on Windows so Winsock2 is loaded before
 // any platform headers that may be reached through SDL/config includes.
 #include "engine/multiplayer.hpp"
+#include <iostream>
 #include "engine/car_palette_hotkey.hpp"
 #include "engine/car_palette_state.hpp"
 
