@@ -30,7 +30,7 @@ player when the selection is finished.
 
 ## Shared setup currently transferred
 
-The race leader sends the values that define the initial shared race world:
+Player 1 sends the values that define the initial shared race world:
 
 - Original / Continuous / Endless / Time Trial engine mode
 - World or Japanese course mapping
@@ -42,9 +42,35 @@ The race leader sends the values that define the initial shared race world:
 - traffic difficulty
 - synchronized launch token/time
 
-The random generator is reset on both instances at the synchronized launch, so
-both begin the race with the same random sequence and the same deterministic
-Stage 1 traffic initialization.
+The random generator is reset on both instances at synchronized launch.
+
+## Shared traffic authority
+
+Player 1 now owns the common OutRun traffic simulation.
+
+The normal, unchanged `OTraffic` code runs only on Player 1 once authoritative
+snapshots are available. After each traffic tick, the world state of all eight
+traffic slots is included in the normal UDP state packet:
+
+- enabled/disabled state
+- road side
+- vehicle type
+- Player-1-relative depth
+- lane/world X positions
+- traffic speed/original speed
+- temporary hidden state
+- wheel palette phase
+
+Player 2 stops evolving a separate traffic AI world and projects those same
+traffic cars through Player 2's local camera/road position. This means traffic
+spawn, lane changes and traffic-to-traffic decisions come from one authority
+instead of reacting independently to two different Ferraris.
+
+Player 2 can already collide locally with a shared traffic car and receives the
+normal skid/speed/sound response. **The effect of a Player 2 collision on the
+shared traffic car itself is not yet sent back to Player 1.** That collision-event
+round trip is the next traffic step. Until then, Player 1 remains authoritative
+and its next snapshot will restore the shared car's position/state.
 
 ## Player-local values
 
@@ -59,17 +85,6 @@ The remote Ferrari is rendered as a real perspective-correct OutRun sprite after
 `GS_INGAME`. It is deliberately not added during the original scripted
 START1/START2/START3 Ferrari animation, which avoids the old double-car overlap.
 Player 1 and Player 2 use separate logical lane origins.
-
-## Important traffic status
-
-The synchronized race setup and RNG now make the **initial** traffic deterministic,
-but this is not yet the final shared-traffic implementation. OutRun's traffic AI
-reacts to the local player's position, and collisions can also modify its state.
-Therefore the next traffic milestone is a Player-1-authoritative traffic world:
-Player 1 will own spawn/lane/speed state for the eight traffic slots and Player 2
-will receive that state instead of independently evolving a second traffic world.
-
-Do not treat the current prototype as final traffic synchronization yet.
 
 ## Local two-instance test
 
@@ -103,10 +118,10 @@ timeout = 15
 start_delay_ms = 1000
 ```
 
-The protocol version for this lobby build is **3**, so both executables must be
-built from the same current branch.
+The protocol version for this build is **4**, so both executables must be built
+from the same current branch.
 
-### Expected test
+### Expected lobby/start test
 
 After both consoles report `Peer connected`, press START on only one instance.
 That instance should enter Music Select. The other screen should remain in
@@ -128,9 +143,14 @@ WAITING FOR PLAYER 1...
 ```
 
 Change Player 2's colour and verify that it stays selected while waiting.
-Finish the mode/music selection on Player 1. The consoles should then report that
+Finish the mode/music selection on Player 1. The consoles should report that
 Player 2 applied Player 1's race setup, followed by a synchronized start message.
 The Ferrari intro and countdown should begin together.
+
+Then drive both players at noticeably different speeds/positions and watch the
+same traffic cars. The important check is that a traffic car changing lane or a
+new car spawning remains the same shared vehicle on both screens rather than the
+two instances gradually inventing separate traffic patterns.
 
 Repeat the test with the network slave pressing START first. That instance must
 still become Player 1 / Race Leader; the network master should become Player 2
@@ -143,7 +163,8 @@ UDP `51337` on the network master if the firewall requires it.
 
 ## Next milestones
 
-1. Player-1-authoritative traffic state and Player-2 collision events.
+1. Send Player 2 traffic-collision events back to Player 1 so impacts alter the
+   shared traffic world authoritatively.
 2. Authoritative fork choice: whichever player reaches the branch decision first
    locks the route for both instances.
 3. Shared race tick drift detection/correction.
