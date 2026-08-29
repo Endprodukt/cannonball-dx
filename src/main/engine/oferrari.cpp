@@ -50,13 +50,22 @@ namespace
     // overwritten by the live network representation; there is never a second
     // peer body slot to hand off or leave behind in the alternate sprite buffer.
     constexpr uint8_t MULTIPLAYER_PEER_SPRITE = OSprites::SPRITE_ENTRIES + 22;
-    constexpr int16_t MULTIPLAYER_GRID_SEPARATION = 0x48;
 
-    int16_t multiplayer_grid_screen_x()
+    // Grid positions are presentation only. Do not modify car_x_pos or any road
+    // physics. Player 1 is drawn left of centre and Player 2 right of centre on
+    // both machines, giving a clear two-car starting grid.
+    constexpr int16_t MULTIPLAYER_GRID_HALF_SEPARATION = 0x30;
+
+    int16_t multiplayer_grid_local_x()
     {
         return multiplayer.player_number() == 2
-            ? -MULTIPLAYER_GRID_SEPARATION
-            : MULTIPLAYER_GRID_SEPARATION;
+            ? MULTIPLAYER_GRID_HALF_SEPARATION
+            : -MULTIPLAYER_GRID_HALF_SEPARATION;
+    }
+
+    int16_t multiplayer_grid_peer_x()
+    {
+        return -multiplayer_grid_local_x();
     }
 
     // CannonBall submits the normal Ferrari on BOTH tick_frame phases: the
@@ -82,7 +91,7 @@ namespace
         peer->shadow = 3;
         peer->priority = 0x1FC;
         peer->road_priority = 0x1FC;
-        peer->x = multiplayer_grid_screen_x();
+        peer->x = multiplayer_grid_peer_x();
         peer->y = 221;
         peer->zoom = 0x7F;
         peer->addr = roms.rom0p->read32(outrun.adr.sprite_ferrari_frames);
@@ -214,6 +223,20 @@ void OFerrari::tick()
     }
 
     tick_base();
+
+    // Move only the rendered local car on the multiplayer countdown. The normal
+    // Ferrari logic rebuilds these X values on tick_frame; the non-tick render
+    // half reuses them, so apply the offset only once per logic update.
+    if (multiplayer.grid_start_active() &&
+        outrun.tick_frame &&
+        outrun.game_state >= GS_START1 &&
+        outrun.game_state <= GS_START3)
+    {
+        const int16_t grid_x = multiplayer_grid_local_x();
+        spr_ferrari->x = static_cast<int16_t>(spr_ferrari->x + grid_x);
+        spr_pass1->x = static_cast<int16_t>(spr_pass1->x + grid_x);
+        spr_pass2->x = static_cast<int16_t>(spr_pass2->x + grid_x);
+    }
 
     // Player 2 stays in Attract while waiting. Clear the text layer AFTER the
     // normal Attract code ran, then redraw only the multiplayer waiting UI. This
