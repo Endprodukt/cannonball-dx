@@ -42,94 +42,117 @@ namespace
 {
     bool ttrial_goal_randomized = false;
 
-    constexpr uint8_t MULTIPLAYER_GRID_SPRITE = OSprites::SPRITE_FLAG + 1;
+    // The final two entries in OSprites::jump_table are unused by the original
+    // game. Keep the countdown peer in one dedicated slot instead of repeatedly
+    // copying/re-purposing animation state from the local Ferrari.
+    constexpr uint8_t MULTIPLAYER_GRID_SPRITE = OSprites::SPRITE_ENTRIES + 22;
     constexpr int16_t MULTIPLAYER_GRID_SEPARATION = 0x48;
 
-    int multiplayer_grid_source_stable_frames = 0;
+    bool join_left_down = false;
+    bool join_right_down = false;
+    bool join_gear1_down = false;
+    bool join_gear2_down = false;
 
-    int16_t multiplayer_peer_screen_x()
+    int normalize_join_colour(int colour)
     {
-        const oentry& local = osprites.jump_table[OSprites::SPRITE_FERRARI];
-        const int direction = multiplayer.player_number() == 2 ? -1 : 1;
-        return static_cast<int16_t>(
-            static_cast<int>(local.x) + direction * MULTIPLAYER_GRID_SEPARATION);
+        while (colour < 0) colour += 8;
+        while (colour >= 8) colour -= 8;
+        return colour;
     }
 
-    void disable_multiplayer_peer_slot()
+    void reset_join_colour_input()
     {
-        oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
-        peer->control &= ~OSprites::ENABLE;
-        peer->hidden = 1;
+        join_left_down = false;
+        join_right_down = false;
+        join_gear1_down = false;
+        join_gear2_down = false;
     }
 
-    // START1/2/3 deliberately do not use the network road projection. The local
-    // Ferrari has already been completely drawn by the preserved code on the
-    // render half-frame, so copy that finished sprite into a spare jump-table
-    // entry and move only the copy sideways on screen. This gives us the same
-    // two-car grid we had before without touching car_x_pos, camera position,
-    // road arrays or the joiner's fragile race initialization.
+    void handle_join_colour_input(bool active)
+    {
+        if (!active)
+        {
+            reset_join_colour_input();
+            return;
+        }
+
+        const bool left_now = input.is_pressed(Input::LEFT);
+        const bool right_now = input.is_pressed(Input::RIGHT);
+        const bool gear1_now = input.is_pressed(Input::GEAR1);
+        const bool gear2_now = input.is_pressed(Input::GEAR2);
+
+        int direction = 0;
+
+        // Use our own edge latches here. Multiplayer networking runs at the
+        // beginning of OInputs::tick, so relying on has_pressed() there can miss
+        // the user's LEFT/RIGHT edge depending on the input backend/order.
+        if (left_now && !join_left_down)
+            direction = -1;
+        else if (right_now && !join_right_down)
+            direction = 1;
+        else if (gear1_now && !join_gear1_down)
+            direction = -1;
+        else if (gear2_now && !join_gear2_down)
+            direction = 1;
+
+        join_left_down = left_now;
+        join_right_down = right_now;
+        join_gear1_down = gear1_now;
+        join_gear2_down = gear2_now;
+
+        if (direction == 0)
+            return;
+
+        const int colour = normalize_join_colour(config.engine.car_pal + direction);
+        config.engine.car_pal = colour;
+        ferrari_pal = FERRARI_PALETTES[colour];
+
+        // Do not let the colour-select buttons steer the Attract car underneath
+        // the waiting overlay after they have been consumed here.
+        input.keys[Input::LEFT] = false;
+        input.keys[Input::RIGHT] = false;
+
+        osoundint.queue_sound(sound::BEEP1);
+        std::cout << "[Multiplayer] Player 2 colour -> " << colour << std::endl;
+    }
+
+    int16_t multiplayer_grid_screen_x()
+    {
+        return multiplayer.player_number() == 2
+            ? -MULTIPLAYER_GRID_SEPARATION
+            : MULTIPLAYER_GRID_SEPARATION;
+    }
+
+    // Countdown renderer: fixed, known-good Ferrari frame at a fixed screen
+    // position. It deliberately does not read road perspective, car_x_pos or a
+    // transitional local Ferrari sprite. This removes the pre-grid flicker.
     void draw_multiplayer_grid_peer()
     {
         if (!multiplayer.grid_start_active() ||
             !multiplayer.connected() ||
+            outrun.tick_frame ||
             outrun.game_state < GS_START1 ||
             outrun.game_state > GS_START3)
         {
-            multiplayer_grid_source_stable_frames = 0;
             return;
         }
-
-        // Match the preserved Ferrari renderer exactly: logic runs on the tick
-        // half-frame and sprite submission runs only on the render half-frame.
-        // Submitting the same jump-table entry on both halves causes duplicate
-        // sprite-order entries and visible ghost/trail copies.
-        if (outrun.tick_frame)
-            return;
-
-        const oentry& local = osprites.jump_table[OSprites::SPRITE_FERRARI];
-        if (!(local.control & OSprites::ENABLE) ||
-            local.addr == 0 ||
-            local.zoom == 0 ||
-            local.y != 221)
-        {
-            multiplayer_grid_source_stable_frames = 0;
-            return;
-        }
-
-        // The first Ferrari frame immediately after FERRARI_SEQ -> FERRARI_LOGIC
-        // can still contain transitional sprite data. Wait for a second valid
-        // render frame instead of briefly drawing that transient frame and
-        // producing the flicker seen just before the car settles on the grid.
-        if (++multiplayer_grid_source_stable_frames < 2)
-            return;
 
         oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
-        *peer = local;
-        peer->jump_index = MULTIPLAYER_GRID_SPRITE;
-        peer->x = multiplayer_peer_screen_x();
+        peer->init(MULTIPLAYER_GRID_SPRITE);
+        peer->control = OSprites::ENABLE;
+        peer->draw_props = oentry::BOTTOM;
+        peer->shadow = 3;
+        peer->priority = 0x1FC;
+        peer->road_priority = 0x1FC;
+        peer->x = multiplayer_grid_screen_x();
+        peer->y = 221;
+        peer->zoom = 0x7F;
+        peer->addr = roms.rom0p->read32(outrun.adr.sprite_ferrari_frames);
+        peer->pal_src = ferrari_pal;
         peer->hidden = 0;
 
-        // Re-map the copied palette entry in case this slot previously belonged
-        // to another temporary object. For the countdown the copy intentionally
-        // uses the local Ferrari palette; the real network renderer takes over
-        // at GO and uses the transmitted peer palette again.
         osprites.map_palette(peer);
         osprites.do_spr_order_shadows(peer);
-    }
-
-    // At GO the full network renderer takes over. When both cars are still very
-    // close longitudinally its near-camera perspective is hypersensitive to tiny
-    // road/camera differences. Keep only the final screen X close to the stable
-    // grid position until the peer has moved farther into perspective. Physics
-    // and transmitted world coordinates remain completely untouched.
-    void stabilize_near_peer_projection()
-    {
-        oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
-        if (!(peer->control & OSprites::ENABLE))
-            return;
-
-        if (peer->road_priority > 0x1C0)
-            peer->x = multiplayer_peer_screen_x();
     }
 }
 
@@ -160,6 +183,10 @@ void OFerrari::tick()
         config.engine.car_pal = color;
         ferrari_pal = car_palette_state::palette_source(color);
     }
+
+    // P2 colour selection has its own edge handling so keyboard, D-pad and gear
+    // buttons work regardless of the networking/input tick ordering.
+    handle_join_colour_input(multiplayer_lobby_colour);
 
     if (car_palette_hotkey::pressed())
     {
@@ -200,14 +227,12 @@ void OFerrari::tick()
     // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
 
-    // Keep the known-stable audio behaviour. Music is now confirmed synchronized,
-    // so do not touch the audio path while fixing only the Ferrari rendering.
+    // Keep the known-good synchronized music path untouched.
     if (multiplayer.player_number() == 1)
         multiplayer.start_grid_music_once();
 
     // The original START1 counter contains an extra 50 ticks for the Ferrari
     // drive-in. There is no drive-in in multiplayer, so remove that dead time.
-    // START1/2/3 then become three equal countdown phases before GO.
     if (multiplayer.grid_start_active() &&
         outrun.game_state == GS_START1 &&
         ostats.frame_counter > ostats.frame_reset)
@@ -217,35 +242,22 @@ void OFerrari::tick()
 
     tick_base();
 
+    // Player 2 stays in Attract while waiting. Clear the text layer AFTER the
+    // normal Attract code ran, then redraw only the multiplayer waiting UI. This
+    // guarantees the old JOIN TIME text disappears immediately after joining.
+    if (multiplayer_lobby_colour)
+        video.clear_text_ram();
+
     multiplayer.draw_lobby_overlay();
 
     if (outrun.game_state >= GS_START1 && outrun.game_state <= GS_START3)
     {
         draw_multiplayer_grid_peer();
     }
-    else if (outrun.game_state == GS_INGAME)
+    else if (outrun.game_state == GS_INGAME && !outrun.tick_frame)
     {
-        multiplayer_grid_source_stable_frames = 0;
-
-        if (outrun.tick_frame)
-        {
-            // Explicit handoff frame: remove the static countdown copy. The
-            // real network Ferrari will be created on the following render
-            // half-frame, so both representations can never be ordered together.
-            disable_multiplayer_peer_slot();
-        }
-        else
-        {
-            // The preserved Ferrari renderer submits sprites only on this half.
-            // Do the same for the network Ferrari. Previously it was submitted
-            // on both halves, which accumulated several copies of the same jump
-            // entry at slightly different positions (the visible Ferrari train).
-            multiplayer.draw_remote_ferrari();
-            stabilize_near_peer_projection();
-        }
-    }
-    else
-    {
-        multiplayer_grid_source_stable_frames = 0;
+        // Gameplay goes back to the original single network-Ferrari path. No
+        // extra handoff copy, no near-grid clone and no car_x_pos manipulation.
+        multiplayer.draw_remote_ferrari();
     }
 }
