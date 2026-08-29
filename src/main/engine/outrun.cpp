@@ -34,7 +34,6 @@
 #include "engine/otraffic.hpp"
 #include "engine/outils.hpp"
 #include "engine/time_trial_records.hpp"
-#include "engine/multiplayer_traffic.hpp"
 #include <iostream>
 
 namespace
@@ -44,7 +43,13 @@ namespace
 
     bool time_trial_results_input(Input::presses press)
     {
+        // Keep the existing Results renderer/capture logic, but let DX own the
+        // actual transition time. The preserved helper becomes ready at five
+        // seconds; intentionally ignore that readiness until seven seconds.
         time_trial_records.synthetic_input(press);
+
+        // The old Results helper draws "RECORDS IN n" on this row. The delay is
+        // automatic now, so erase that implementation detail every frame.
         ohud.blit_text_new(
             0,
             24,
@@ -57,55 +62,33 @@ namespace
         time_trial_results_ticks = 0;
         return true;
     }
-
-    class MultiplayerTrafficProxy
-    {
-    public:
-        void tick()
-        {
-            if (!multiplayer_traffic::render_remote())
-            {
-                ::otraffic.tick();
-                multiplayer_traffic::capture_after_local_tick();
-            }
-        }
-
-        void disable_traffic() { ::otraffic.disable_traffic(); }
-        void init_stage1_traffic() { ::otraffic.init_stage1_traffic(); }
-
-        void init()
-        {
-            ::otraffic.init();
-
-            // Player 2's JOIN press is deliberately consumed before the normal
-            // freeplay START handler can manufacture a credit. The preserved
-            // GS_INIT_GAME path still decrements one, so seed that single race
-            // credit here before the original initialization continues.
-            if (multiplayer.player_number() == 2 && ostats.credits == 0)
-                ostats.credits = 1;
-        }
-    };
-
-    MultiplayerTrafficProxy multiplayer_traffic_proxy;
 }
 
+// Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
+// Endless as false. It therefore calls init_best_outrunners() instead of the
+// prototype's direct GS_REINIT shortcut. Everywhere else this macro resolves
+// to the real member value, so all Endless gameplay behaviour remains intact.
 #define endless_mode ((game_state == GS_GAMEOVER) ? false : this->endless_mode)
 
+// The preserved Time Trial exit checks input.is_pressed(Input::START). Keep
+// every normal is_pressed() call unchanged, except on the Time Trial GAME OVER
+// screen: suppress physical START, clear the old PRESS START row, redraw the
+// Results page and synthesize a press after seven seconds. The visible countdown
+// from the older five-second helper is removed by time_trial_results_input().
 #define is_pressed(ARG) \
     is_pressed(ARG) && !time_trial_records.suppress_physical_input(ARG) || \
     (time_trial_records.suppress_physical_input(ARG) && \
      (video.clear_text_ram(), time_trial_results_input(ARG)) && \
      (time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2, true))
 
+// The old Time Trial branch assigns STATE_INIT_MENU after its START check.
+// At this point our synthetic-input hook above has already selected
+// GS_INIT_BEST2, so keep the outer CannonBall state in-game. This removes the
+// frontend-menu route completely rather than trying to undo it afterwards.
 #define STATE_INIT_MENU STATE_GAME
-
-// Redirect only references to the global traffic object that appear in
-// outrun_base.cpp. The real ::otraffic object remains unchanged everywhere else.
-#define otraffic multiplayer_traffic_proxy
 
 #include "outrun_base.cpp"
 
-#undef otraffic
 #undef STATE_INIT_MENU
 #undef is_pressed
 #undef endless_mode
