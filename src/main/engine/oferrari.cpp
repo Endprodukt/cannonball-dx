@@ -104,11 +104,20 @@ void OFerrari::tick()
         ttrial_goal_randomized = false;
     }
 
+    // Two-player races use a dedicated grid start. GS_INIT_GAME has already
+    // rebuilt the normal Ferrari/passenger sprite pointers at this point, so
+    // switch straight from the intro state to the ordinary in-game Ferrari
+    // state before the preserved tick sees START1. Also hard-restart the shared
+    // music on this same first countdown frame.
+    multiplayer.prepare_grid_ferrari();
+    multiplayer.start_grid_music_once();
+
     tick_base();
 
     // Draw the lobby text after the normal Attract/Music/Ferrari logic so the
     // underlying game cannot immediately overwrite JOIN GAME NOW / PLAYER 2
-    // JOINED. The remote Ferrari itself remains an in-race-only road sprite.
+    // JOINED. Protocol v6 also draws the peer during START1/2/3, because both
+    // Ferraris now use the normal road sprite instead of the drive-in animation.
     multiplayer.draw_lobby_overlay();
     multiplayer.draw_remote_ferrari();
 }
