@@ -41,6 +41,67 @@
 namespace
 {
     bool ttrial_goal_randomized = false;
+
+    constexpr uint8_t MULTIPLAYER_GRID_SPRITE = OSprites::SPRITE_FLAG + 1;
+    constexpr int16_t MULTIPLAYER_GRID_SEPARATION = 0x48;
+
+    int16_t multiplayer_peer_screen_x()
+    {
+        const oentry& local = osprites.jump_table[OSprites::SPRITE_FERRARI];
+        const int direction = multiplayer.player_number() == 2 ? -1 : 1;
+        return static_cast<int16_t>(
+            static_cast<int>(local.x) + direction * MULTIPLAYER_GRID_SEPARATION);
+    }
+
+    // START1/2/3 deliberately do not use the network road projection. The local
+    // Ferrari has already been completely drawn by the preserved code on the
+    // render half-frame, so copy that finished sprite into a spare jump-table
+    // entry and move only the copy sideways on screen. This gives us the same
+    // two-car grid we had before without touching car_x_pos, camera position,
+    // road arrays or the joiner's fragile race initialization.
+    void draw_multiplayer_grid_peer()
+    {
+        if (!multiplayer.grid_start_active() ||
+            !multiplayer.connected() ||
+            outrun.tick_frame ||
+            outrun.game_state < GS_START1 ||
+            outrun.game_state > GS_START3)
+        {
+            return;
+        }
+
+        const oentry& local = osprites.jump_table[OSprites::SPRITE_FERRARI];
+        if (!(local.control & OSprites::ENABLE))
+            return;
+
+        oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
+        *peer = local;
+        peer->jump_index = MULTIPLAYER_GRID_SPRITE;
+        peer->x = multiplayer_peer_screen_x();
+        peer->hidden = 0;
+
+        // Re-map the copied palette entry in case this slot previously belonged
+        // to another temporary object. For the countdown the copy intentionally
+        // uses the local Ferrari palette; the real network renderer takes over
+        // at GO and uses Player 2's transmitted palette again.
+        osprites.map_palette(peer);
+        osprites.do_spr_order_shadows(peer);
+    }
+
+    // At GO the full network renderer takes over. When both cars are still very
+    // close longitudinally its near-camera perspective is hypersensitive to tiny
+    // road/camera differences. Keep only the final screen X close to the stable
+    // grid position until the peer has moved farther into perspective. Physics
+    // and transmitted world coordinates remain completely untouched.
+    void stabilize_near_peer_projection()
+    {
+        oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
+        if (!(peer->control & OSprites::ENABLE))
+            return;
+
+        if (peer->road_priority > 0x1C0)
+            peer->x = multiplayer_peer_screen_x();
+    }
 }
 
 void OFerrari::cycle_car_palette()
@@ -110,11 +171,11 @@ void OFerrari::tick()
     // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
 
-    // Player 2 has just started the shared track through the normal GS_INIT_GAME
-    // omusic.play_music() call. Starting it a second time in the same frame is
-    // unnecessary and has proved unsafe on the joiner path. Player 1 may have
-    // been previewing the track in Music Select, so only Player 1 performs the
-    // explicit reset/restart to align its phase with Player 2's fresh start.
+    // Keep the known-stable audio behaviour for this revision. Player 2 starts
+    // the selected track once through the normal GS_INIT_GAME path; only Player
+    // 1 clears its old Music Select preview phase. External MP3/WAV playback
+    // needs a separate preload/release synchronization step rather than another
+    // risky start inside Player 2's first race frame.
     if (multiplayer.player_number() == 1)
         multiplayer.start_grid_music_once();
 
@@ -130,11 +191,15 @@ void OFerrari::tick()
 
     tick_base();
 
-    // Keep the joiner transition as small as possible until normal gameplay is
-    // fully initialized. The peer road-projection renderer resumes at GO. A
-    // dedicated fixed grid renderer can be layered onto START1/2/3 once this
-    // transition is confirmed stable, without touching race initialization.
     multiplayer.draw_lobby_overlay();
-    if (outrun.game_state == GS_INGAME)
+
+    if (outrun.game_state >= GS_START1 && outrun.game_state <= GS_START3)
+    {
+        draw_multiplayer_grid_peer();
+    }
+    else if (outrun.game_state == GS_INGAME)
+    {
         multiplayer.draw_remote_ferrari();
+        stabilize_near_peer_projection();
+    }
 }
