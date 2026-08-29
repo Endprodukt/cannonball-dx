@@ -107,10 +107,16 @@ void OFerrari::tick()
     // Two-player races use a dedicated grid start. GS_INIT_GAME has already
     // rebuilt the normal Ferrari/passenger sprite pointers at this point, so
     // switch straight from the intro state to the ordinary in-game Ferrari
-    // state before the preserved tick sees START1. Also hard-restart the shared
-    // music on this same first countdown frame.
+    // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
-    multiplayer.start_grid_music_once();
+
+    // Player 2 has just started the shared track through the normal GS_INIT_GAME
+    // omusic.play_music() call. Starting it a second time in the same frame is
+    // unnecessary and has proved unsafe on the joiner path. Player 1 may have
+    // been previewing the track in Music Select, so only Player 1 performs the
+    // explicit reset/restart to align its phase with Player 2's fresh start.
+    if (multiplayer.player_number() == 1)
+        multiplayer.start_grid_music_once();
 
     // The original START1 counter contains an extra 50 ticks for the Ferrari
     // drive-in. There is no drive-in in multiplayer, so remove that dead time.
@@ -124,10 +130,11 @@ void OFerrari::tick()
 
     tick_base();
 
-    // Draw the lobby text after the normal Attract/Music/Ferrari logic so the
-    // underlying game cannot immediately overwrite JOIN GAME NOW / PLAYER 2
-    // JOINED. Protocol v6 also draws the peer during START1/2/3, because both
-    // Ferraris now use the normal road sprite instead of the drive-in animation.
+    // Keep the joiner transition as small as possible until normal gameplay is
+    // fully initialized. The peer road-projection renderer resumes at GO. A
+    // dedicated fixed grid renderer can be layered onto START1/2/3 once this
+    // transition is confirmed stable, without touching race initialization.
     multiplayer.draw_lobby_overlay();
-    multiplayer.draw_remote_ferrari();
+    if (outrun.game_state == GS_INGAME)
+        multiplayer.draw_remote_ferrari();
 }
