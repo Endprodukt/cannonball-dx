@@ -1,52 +1,87 @@
 # CannonBall DX - Two Player Multiplayer Prototype
 
-This branch contains the experimental two-player networking work. Each CannonBall
-instance is still authoritative for its own driving physics, but the two programs
-now establish a persistent UDP connection before the race and use a master-driven
-start barrier so the actual OutRun race initialization begins together.
+This branch contains the experimental two-player networking work.
 
-## Implemented in the current prototype
+`master` and `slave` are transport roles only: they establish the UDP link.
+For every race, the player who presses START first becomes **Player 1 / Race
+Leader**, regardless of whether that instance is the network master or slave.
 
-- Two CannonBall instances exchange state over UDP.
-- Master and slave can run from two independent folders/configurations.
-- Networking stays active in menus, Attract Mode, Music Select and gameplay.
-- When one player starts a race, `GS_INIT_GAME` is held until the second player
-  has also reached the same ready point.
-- The master then schedules the launch slightly in the future (default 1000 ms).
-- Both instances release the engine at that launch point, so road initialization,
-  traffic initialization, Ferrari intro and countdown start together.
-- The OutRun random generator is reset at synchronized launch so different
-  amounts of time spent in Attract Mode do not immediately produce different
-  random traffic streams.
-- The remote Ferrari is rendered as a real perspective-correct OutRun sprite.
-- Lateral position, steering, speed, stage and road position are exchanged.
-- The peer Ferrari is drawn only during `GS_INGAME`. It is deliberately not
-  mixed into the scripted `GS_START1/2/3` Ferrari animation anymore.
-- Master and slave use separate logical starting-lane origins so equal local
-  `car_x_pos` values do not place both cars directly on top of each other.
+## Current lobby flow
 
-Not implemented yet:
+1. Start both instances. They establish the normal UDP connection in Attract Mode.
+2. The first player to press START becomes Player 1 and opens a join window.
+3. Player 1 continues into the normal CannonBall DX Music Select and chooses the
+   shared game mode, course options and music.
+4. The other instance stays in Attract Mode and displays `JOIN GAME NOW` with the
+   remaining join time.
+5. Pressing START there joins the offered race as Player 2. Player 2 does not get
+   a separate mode selector.
+6. While waiting, Player 2 can change only the local Ferrari colour with
+   LEFT/RIGHT, the gear controls, or F10.
+7. When Player 1 finishes the selection, the complete shared race setup is sent
+   to Player 2. Player 2 is moved directly to `GS_INIT_GAME` with that setup.
+8. Both instances wait at the pre-race barrier. The transport master schedules a
+   common launch slightly in the future (1000 ms by default).
+9. Both engines release together, reset the OutRun random stream, initialize the
+   race and run the same START1/START2/START3 countdown.
 
-- authoritative route selection at forks
-- synchronization/forcing of the selected game mode or Time Trial course
-- player-to-player collision
-- fully authoritative shared traffic state
-- shared timer/score/game-over rules
-- lag compensation/interpolation
-- internet lobby/NAT traversal
+If nobody joins before the join timer expires, Player 1 continues as single
+player when the selection is finished.
+
+## Shared setup currently transferred
+
+The race leader sends the values that define the initial shared race world:
+
+- Original / Continuous / Endless / Time Trial engine mode
+- World or Japanese course mapping
+- prototype-course flag
+- Time Trial level, traffic and lap count
+- selected music
+- custom traffic level
+- timer/freeze state and timer difficulty
+- traffic difficulty
+- synchronized launch token/time
+
+The random generator is reset on both instances at the synchronized launch, so
+both begin the race with the same random sequence and the same deterministic
+Stage 1 traffic initialization.
+
+## Player-local values
+
+These remain individual by design:
+
+- Ferrari colour
+- steering / throttle / brake / gear
+- driving position and speed
+- local controls, FFB and video/view preferences
+
+The remote Ferrari is rendered as a real perspective-correct OutRun sprite after
+`GS_INGAME`. It is deliberately not added during the original scripted
+START1/START2/START3 Ferrari animation, which avoids the old double-car overlap.
+Player 1 and Player 2 use separate logical lane origins.
+
+## Important traffic status
+
+The synchronized race setup and RNG now make the **initial** traffic deterministic,
+but this is not yet the final shared-traffic implementation. OutRun's traffic AI
+reacts to the local player's position, and collisions can also modify its state.
+Therefore the next traffic milestone is a Player-1-authoritative traffic world:
+Player 1 will own spawn/lane/speed state for the eight traffic slots and Player 2
+will receive that state instead of independently evolving a second traffic world.
+
+Do not treat the current prototype as final traffic synchronization yet.
 
 ## Local two-instance test
 
-Build the `multiplayer-test` branch, then make two complete game folders, for
+Build the latest `multiplayer-test` branch and use two complete game folders, for
 example:
 
 - `CannonBall-DX-Master`
 - `CannonBall-DX-Slave`
 
-Each folder needs its own normal CannonBall files and its own `multiplayer.cfg`.
-The supplied `multiplayer.cfg.example` can be copied and renamed.
+Each folder needs its own `multiplayer.cfg`.
 
-### Master multiplayer.cfg
+### Master
 
 ```ini
 enabled = 1
@@ -57,7 +92,7 @@ timeout = 15
 start_delay_ms = 1000
 ```
 
-### Slave multiplayer.cfg
+### Slave
 
 ```ini
 enabled = 1
@@ -68,78 +103,49 @@ timeout = 15
 start_delay_ms = 1000
 ```
 
-Start the master and slave in either order. The master should show:
+The protocol version for this lobby build is **3**, so both executables must be
+built from the same current branch.
+
+### Expected test
+
+After both consoles report `Peer connected`, press START on only one instance.
+That instance should enter Music Select. The other screen should remain in
+Attract and show approximately:
 
 ```text
-[Multiplayer] Prototype enabled as MASTER on UDP port 51337
-[Multiplayer] Waiting for slave on UDP 51337
-[Multiplayer] Peer connected
+JOIN GAME NOW
+JOIN TIME  15
+PRESS START TO JOIN
 ```
 
-The slave should show:
+Press START on the second instance. It should remain out of the mode selector and
+show:
 
 ```text
-[Multiplayer] Prototype enabled as SLAVE on UDP port 51337
-[Multiplayer] Connecting to master 127.0.0.1:51337
-[Multiplayer] Peer connected
+PLAYER 2 JOINED
+CAR COLOR  RED
+WAITING FOR PLAYER 1...
 ```
 
-Select the same game mode on both instances. It is fine for one player to press
-START first: that instance should stop at the pre-race boundary and print:
+Change Player 2's colour and verify that it stays selected while waiting.
+Finish the mode/music selection on Player 1. The consoles should then report that
+Player 2 applied Player 1's race setup, followed by a synchronized start message.
+The Ferrari intro and countdown should begin together.
 
-```text
-[Multiplayer] Race ready. Waiting for player 2 (timeout 15s)
-```
-
-After the second instance reaches the same point, the master should print:
-
-```text
-[Multiplayer] Both players ready. Synchronized start in 1000 ms
-```
-
-and the slave should receive the scheduled launch. Both should then print:
-
-```text
-[Multiplayer] Synchronized race start
-```
-
-The visible Ferrari drive-in/countdown should begin together. The peer Ferrari
-appears when the race reaches `GS_INGAME`.
-
-If player 2 does not become ready before `timeout`, the waiting instance releases
-the engine and runs that race without multiplayer synchronization. Returning to
-Music Select arms multiplayer again for the next race.
+Repeat the test with the network slave pressing START first. That instance must
+still become Player 1 / Race Leader; the network master should become Player 2
+when it joins.
 
 ## LAN test
 
-The master configuration stays the same. On the slave, replace `127.0.0.1`
-with the master's IPv4 address, for example:
+For LAN use, set the slave `host` to the master's IPv4 address and allow inbound
+UDP `51337` on the network master if the firewall requires it.
 
-```ini
-enabled = 1
-role = slave
-host = 192.168.1.50
-port = 51337
-timeout = 15
-start_delay_ms = 1000
-```
+## Next milestones
 
-Allow inbound UDP port `51337` through the master's firewall if required.
-Only the master needs a fixed listening port; the slave uses an automatically
-assigned source port and the master learns it from the first valid packet.
-
-## Current synchronization rules
-
-The remote car is only drawn when:
-
-- a peer packet has arrived recently;
-- both instances are in `GS_INGAME`;
-- both instances selected the same CannonBall game mode;
-- both instances currently report the same `stage_lookup_off`.
-
-The stage restriction remains intentional. Until fork selection is synchronized,
-a Ferrari from a different route must not be projected onto unrelated road data.
-
-The next logical milestone is master-authoritative fork selection: whichever
-player reaches the branch decision first chooses the route and that decision is
-then applied to both instances.
+1. Player-1-authoritative traffic state and Player-2 collision events.
+2. Authoritative fork choice: whichever player reaches the branch decision first
+   locks the route for both instances.
+3. Shared race tick drift detection/correction.
+4. Shared finish/game-over rules and multiplayer result screen.
+5. Player-to-player collision and network interpolation/lag compensation.
