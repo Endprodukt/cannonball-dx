@@ -10,9 +10,17 @@
 
 #include <iostream>
 
+// Keep the multiplayer include before the normal engine/config include chain on
+// Windows so Winsock2 is established before any Windows networking headers.
+#include "engine/multiplayer.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ostats.hpp"
+
+// Main loop pause flag. Multiplayer uses the existing engine pause gate only
+// while GS_INIT_GAME is waiting for both players, so rendering/input/networking
+// continue while the actual OutRun engine is held before race initialization.
+extern bool pause_engine;
 
 OInputs oinputs;
 
@@ -55,6 +63,21 @@ void OInputs::init()
 
 void OInputs::tick()
 {
+    // Multiplayer networking must continue in Attract, frontend/menu and Music
+    // Select, not only while the Ferrari gameplay routine happens to be active.
+    multiplayer.network_tick();
+
+    // START from Music Select changes the engine to GS_INIT_GAME. Freeze the
+    // normal OutRun engine at that exact boundary until master/slave are both
+    // ready and the shared launch deadline has elapsed. Input and rendering
+    // continue because only the existing engine pause flag is asserted.
+    if (cannonball::state == cannonball::STATE_GAME &&
+        outrun.game_state == GS_INIT_GAME &&
+        multiplayer.enabled())
+    {
+        pause_engine = multiplayer.hold_game_start();
+    }
+
     // The old global Analog Controls switch is intentionally ignored in DX.
     // Explicit matrix bindings already tell us whether a target is an axis or
     // a button/HAT, while keyboard bindings are inherently digital.
