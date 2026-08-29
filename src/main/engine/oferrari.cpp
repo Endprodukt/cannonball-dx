@@ -100,8 +100,11 @@ void OFerrari::tick()
 
     tick_base();
 
-    // The normal Ferrari has now submitted its sprites, while sprite_copy()
-    // has not run yet. This is the safe point to exchange network state and
-    // submit the remote Ferrari into the same sprite-ordering pass.
-    multiplayer.tick();
+    // Networking is serviced globally by OInputs::tick so it remains alive in
+    // menus and Music Select. Only submit the peer sprite here, after the local
+    // Ferrari has been processed and before sprite_copy() orders the frame.
+    // draw_remote_ferrari() deliberately renders only during GS_INGAME; mixing
+    // a normal road sprite with the scripted START1/2/3 Ferrari caused the two
+    // cars to overlap or jump during the old unsynchronised intro.
+    multiplayer.draw_remote_ferrari();
 }
