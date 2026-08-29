@@ -172,11 +172,13 @@ void OFerrari::tick()
     // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
 
-    // Both machines deliberately restart the selected track at the first shared
-    // START1 frame. Player 1 may have been previewing it for several seconds and
-    // Player 2 may only just have loaded it; FM_RESET + play_music() on BOTH sides
-    // makes the synchronized grid the single audible time origin.
-    multiplayer.start_grid_music_once();
+    // Keep Player 2 on the already proven crash-free audio path. Calling
+    // play_music() a second time from Player 2's first START1 Ferrari tick has
+    // repeatedly crashed that instance, especially with external MP3/WAV audio.
+    // Player 1 may restart its preview here; proper two-sided synchronization
+    // will use preload + common playback release instead of reloading on P2.
+    if (multiplayer.player_number() == 1)
+        multiplayer.start_grid_music_once();
 
     // The original START1 counter contains an extra 50 ticks for the Ferrari
     // drive-in. There is no drive-in in multiplayer, so remove that dead time.
