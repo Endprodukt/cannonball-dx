@@ -1,13 +1,17 @@
 /***************************************************************************
     CannonBall DX experimental two-player multiplayer prototype.
 
-    The network master/slave roles establish the UDP transport only. The
-    player who presses START first becomes Player 1 for that race. Player 1
-    chooses the shared race setup; Player 2 keeps an independent Ferrari colour.
+    master/slave are UDP transport roles only. The first player who presses
+    START becomes Player 1 / race leader. Player 1 owns the shared race setup;
+    Player 2 keeps an independent Ferrari colour.
 
-    This stabilization revision deliberately does NOT synchronize traffic yet.
-    First make connection, lobby, colour selection, course setup and launch
-    deterministic. Shared traffic can be layered back on once this path is solid.
+    Protocol v6 introduces a dedicated multiplayer grid start: the normal
+    single-player Ferrari drive-in is skipped, both cars are visible on the
+    start line during the countdown, and the selected music is hard-restarted
+    on the first shared countdown frame. Remote longitudinal projection is
+    derived from OutRun's own traffic perspective instead of a linear distance
+    approximation, so a stationary peer no longer appears to travel with the
+    local camera.
 ***************************************************************************/
 
 #pragma once
@@ -36,6 +40,7 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -55,7 +60,7 @@
 namespace multiplayer_detail
 {
     constexpr uint32_t MAGIC = 0x43424458; // CBDX
-    constexpr uint16_t VERSION = 5;
+    constexpr uint16_t VERSION = 6;
     constexpr std::size_t PACKET_SIZE = 64;
     constexpr uint16_t DEFAULT_PORT = 51337;
     constexpr int PEER_TIMEOUT_MS = 1500;
@@ -366,8 +371,10 @@ namespace multiplayer_detail
         hints.ai_socktype = SOCK_DGRAM;
         addrinfo* result = nullptr;
         const std::string service = std::to_string(port);
+
         if (getaddrinfo(host.c_str(), service.c_str(), &hints, &result) != 0 || !result)
             return false;
+
         std::memcpy(&address, result->ai_addr, sizeof(sockaddr_in));
         freeaddrinfo(result);
         return true;
@@ -375,10 +382,11 @@ namespace multiplayer_detail
 
     inline int lane_offset(uint8_t player_no)
     {
-        // Logical camera-space lane origins. They do not alter either player's
-        // physics; they only stop equal car_x positions drawing on top of one another.
-        if (player_no == 1) return 0x58;
-        if (player_no == 2) return -0x58;
+        // Screen-space logical grid lanes only. The old +/-0x58 put the peer
+        // roughly 170 pixels away at the player plane; +/-0x28 gives about an
+        // 80-pixel centre-to-centre separation, i.e. two Ferraris side by side.
+        if (player_no == 1) return 0x28;
+        if (player_no == 2) return -0x28;
         return 0;
     }
 }
@@ -399,10 +407,61 @@ public:
     bool keep_lobby_color() const { return local_joiner && !race_started; }
     uint8_t player_number() const { return local_player_no; }
 
+    bool grid_start_active() const
+    {
+        return race_started && !session_bypassed && local_player_no != 0;
+    }
+
+    // Called from OFerrari::tick before the preserved Ferrari state machine.
+    // Once GS_INIT_GAME has rebuilt all normal sprite pointers, bypass only the
+    // single-player drive-in state and enter the standard Ferrari logic directly.
+    void prepare_grid_ferrari()
+    {
+        if (!grid_start_active() || grid_ferrari_prepared)
+            return;
+
+        if (outrun.game_state < GS_START1 || outrun.game_state > GS_START3)
+            return;
+
+        if (oferrari.state == OFerrari::FERRARI_SEQ1 ||
+            oferrari.state == OFerrari::FERRARI_SEQ2)
+        {
+            oferrari.init_ingame();
+        }
+
+        grid_ferrari_prepared = true;
+        std::cout << "[Multiplayer] Grid start: Ferrari intro skipped" << std::endl;
+    }
+
+    // The leader may have been previewing the selected track while Player 2 was
+    // waiting in Attract Mode. A duplicate PLAY command alone can leave the
+    // leader at the old phase. Reset first, then start the exact shared track on
+    // the first synchronized countdown frame on both machines.
+    void start_grid_music_once()
+    {
+        if (!grid_start_active() || grid_music_started ||
+            outrun.game_state != GS_START1)
+        {
+            return;
+        }
+
+        int selection = local_joiner
+            ? static_cast<int>(race_music_selected)
+            : std::max(0, omusic.get_music_selected());
+
+        osoundint.queue_sound(sound::FM_RESET);
+        omusic.play_music(selection);
+        grid_music_started = true;
+
+        std::cout << "[Multiplayer] Grid music synchronized: track "
+                  << selection << std::endl;
+    }
+
     void network_tick()
     {
         load_settings_once();
-        if (!settings.enabled || !ensure_socket()) return;
+        if (!settings.enabled || !ensure_socket())
+            return;
 
         receive_packets();
         update_connection_state();
@@ -442,7 +501,7 @@ public:
         if (!peer_connected || !remote.ready || remote.lobby_token != active_lobby_token)
             return true;
 
-        // UDP master owns only the common launch clock. Player 1 can be either
+        // The UDP master owns only the common launch clock. Player 1 can be the
         // transport master or transport slave.
         if (settings.role == multiplayer_detail::ROLE_MASTER)
         {
@@ -455,7 +514,8 @@ public:
                 scheduled_start_token = advertised_start_token;
                 start_deadline = now + std::chrono::milliseconds(settings.start_delay_ms);
                 start_scheduled = true;
-                std::cout << "[Multiplayer] Both players ready. Synchronized start in "
+
+                std::cout << "[Multiplayer] Both players ready. Synchronized grid in "
                           << settings.start_delay_ms << " ms" << std::endl;
             }
         }
@@ -470,14 +530,20 @@ public:
         consumed_start_token = scheduled_start_token;
         race_waiting = false;
         race_started = true;
+        grid_ferrari_prepared = false;
+        grid_music_started = false;
+        race_music_selected = local_joiner
+            ? race_music_selected
+            : static_cast<uint8_t>(std::max(0, omusic.get_music_selected()));
 
         prepare_synchronized_race_state();
 
-        std::cout << "[Multiplayer] Synchronized race start"
+        std::cout << "[Multiplayer] Synchronized grid start"
                   << " mode=" << static_cast<int>(outrun.cannonball_mode)
                   << " region=" << (config.engine.jap ? "JP" : "WORLD")
                   << " level=" << static_cast<int>(
                          outrun.cannonball_mode == Outrun::MODE_TTRIAL ? outrun.ttrial.level : 0)
+                  << " music=" << static_cast<int>(race_music_selected)
                   << std::endl;
         return false;
     }
@@ -525,10 +591,9 @@ public:
 
     void draw_remote_ferrari()
     {
-        // START1/2/3 use OutRun's special intro Ferrari. The network Ferrari is
-        // submitted only once both players are in normal gameplay coordinates.
         if (session_bypassed || !race_started || !peer_connected || !remote.active ||
-            outrun.game_state != GS_INGAME || remote.game_state != GS_INGAME ||
+            outrun.game_state < GS_START1 || outrun.game_state > GS_INGAME ||
+            remote.game_state < GS_START1 || remote.game_state > GS_INGAME ||
             remote.mode != static_cast<uint8_t>(outrun.cannonball_mode) ||
             remote.stage_lookup_off != oroad.stage_lookup_off ||
             remote.player_no == 0 || local_player_no == 0 ||
@@ -537,10 +602,29 @@ public:
             return;
         }
 
-        const int64_t road_delta = static_cast<int64_t>(remote.road_pos) -
-                                   static_cast<int64_t>(static_cast<int32_t>(oroad.road_pos));
-        const int32_t depth_delta = static_cast<int32_t>((road_delta * 8) >> 16);
-        const int32_t z_calc = 0x1F0 - depth_delta;
+        // OutRun traffic does not move linearly through perspective. For a
+        // stationary traffic object the engine uses:
+        //   dz/dtick = speed * z / 2048
+        // while the player's world road position advances by approximately
+        //   dRoad/dtick = 0x12F * speed / 65536.
+        // Eliminating time yields z = zPlayer * exp(-32 * distance / 0x12F).
+        // Using the same mapping makes a stationary network Ferrari stay fixed
+        // in world space as the local player approaches and passes it.
+        const int64_t road_delta_fixed =
+            static_cast<int64_t>(remote.road_pos) -
+            static_cast<int64_t>(static_cast<int32_t>(oroad.road_pos));
+        const double road_distance =
+            static_cast<double>(road_delta_fixed) / 65536.0;
+
+        if (road_distance < -0.30 || road_distance > 80.0)
+            return;
+
+        constexpr double PLAYER_Z = 0x1F0;
+        constexpr double ROAD_PERSPECTIVE = 32.0 / 0x12F;
+        const double projected_z =
+            PLAYER_Z * std::exp(-ROAD_PERSPECTIVE * road_distance);
+        const int32_t z_calc = static_cast<int32_t>(std::lround(projected_z));
+
         if (z_calc < 4 || z_calc >= 0x1FC)
             return;
 
@@ -628,7 +712,10 @@ private:
     bool race_started = false;
     bool session_bypassed = false;
     bool start_scheduled = false;
+    bool grid_ferrari_prepared = false;
+    bool grid_music_started = false;
     uint8_t local_player_no = 0;
+    uint8_t race_music_selected = 0;
     int local_join_color = -1;
 
     uint32_t sequence = 0;
@@ -789,6 +876,9 @@ private:
         race_started = false;
         session_bypassed = false;
         start_scheduled = false;
+        grid_ferrari_prepared = false;
+        grid_music_started = false;
+        race_music_selected = 0;
         advertised_start_token = consumed_start_token;
         scheduled_start_token = 0;
 
@@ -813,13 +903,13 @@ private:
         race_started = false;
         session_bypassed = false;
         start_scheduled = false;
+        grid_ferrari_prepared = false;
+        grid_music_started = false;
         join_shifter_initialized = false;
 
         local_join_color = normalize_color(config.engine.car_pal);
         apply_local_join_color();
 
-        // Consume JOIN so the normal local attract/freeplay handler does not
-        // also turn Player 2 into an independent Player 1 race.
         input.keys[Input::START] = false;
 
         std::cout << "[Multiplayer] Player 2 joined race " << active_lobby_token
@@ -840,16 +930,12 @@ private:
         if (!local_joiner)
             return;
 
-        // Keep Player 2 in the waiting lobby. The race leader owns game mode,
-        // course and music selection.
         input.keys[Input::START] = false;
         input.keys[Input::VIEWPOINT] = false;
         input.keys[Input::VIEW1] = false;
         input.keys[Input::VIEW2] = false;
         input.keys[Input::VIEW3] = false;
 
-        // F10 is handled by OFerrari::tick(). If it changed the temporary
-        // config colour since our previous tick, adopt it instead of fighting it.
         const int configured_color = normalize_color(config.engine.car_pal);
         if (configured_color != local_join_color)
             local_join_color = configured_color;
@@ -889,15 +975,11 @@ private:
             local_join_color = normalize_color(local_join_color + direction);
             apply_local_join_color();
             osoundint.queue_sound(sound::BEEP1);
-
-            // Do not let colour keys steer the waiting Attract car afterwards.
             input.keys[Input::LEFT] = false;
             input.keys[Input::RIGHT] = false;
         }
         else
         {
-            // Explicitly keep the chosen temporary colour alive while Attract
-            // continues behind the Player-2 waiting overlay.
             apply_local_join_color();
         }
     }
@@ -943,8 +1025,6 @@ private:
             return;
         }
 
-        // These values define the shared race and therefore come from Player 1.
-        // Ferrari colour is deliberately absent from this block: it stays local.
         config.engine.jap = remote.japanese ? 1 : 0;
         config.engine.prototype = remote.prototype ? 1 : 0;
         config.engine.dip_time = remote.dip_time;
@@ -958,15 +1038,13 @@ private:
         outrun.ttrial.level = remote.ttrial_level;
         outrun.ttrial.traffic = remote.ttrial_traffic;
         outrun.ttrial.laps = remote.ttrial_laps;
-        omusic.set_multiplayer_music_selected(remote.music_selected);
 
-        // Player 2 never passed through the normal local START/credit path.
-        // Give the normal GS_INIT_GAME code exactly one credit to consume.
+        race_music_selected = remote.music_selected;
+        omusic.set_multiplayer_music_selected(race_music_selected);
+
         if (ostats.credits == 0)
             ostats.credits = 1;
 
-        // Remove all stale Attract road identity before the synchronized race
-        // initialization. The normal GS_INIT_GAME path will build the real road.
         ostats.cur_stage = 0;
         oroad.stage_lookup_off = 0;
         oroad.road_pos = 0;
@@ -987,6 +1065,7 @@ private:
                   << " region=" << (config.engine.jap ? "JP" : "WORLD")
                   << " level=" << static_cast<int>(
                          outrun.cannonball_mode == Outrun::MODE_TTRIAL ? outrun.ttrial.level : 0)
+                  << " music=" << static_cast<int>(race_music_selected)
                   << " colour=" << color_name(local_join_color)
                   << std::endl;
     }
@@ -996,7 +1075,9 @@ private:
         multiplayer_detail::State state;
         state.sequence = ++sequence;
         state.role = settings.role;
-        state.active = race_started && outrun.game_state == GS_INGAME;
+        state.active = race_started &&
+                       outrun.game_state >= GS_START1 &&
+                       outrun.game_state <= GS_INGAME;
         state.ready = outrun.game_state == GS_INIT_GAME && !session_bypassed &&
                       (local_leader || (local_joiner && remote_setup_applied));
         state.lobby_offer = local_leader && !join_window_expired && !race_started;
@@ -1116,8 +1197,6 @@ private:
                 std::cout << "[Multiplayer] Player 2 joined" << std::endl;
             }
 
-            // The transport slave follows the launch token advertised by the
-            // transport master. Relative remaining time avoids requiring synced PCs.
             if (settings.role == multiplayer_detail::ROLE_SLAVE &&
                 outrun.game_state == GS_INIT_GAME &&
                 incoming.start_token > consumed_start_token &&
@@ -1127,7 +1206,7 @@ private:
                 start_deadline = clock::now() +
                                  std::chrono::milliseconds(incoming.start_after_ms);
                 start_scheduled = true;
-                std::cout << "[Multiplayer] Shared start scheduled in "
+                std::cout << "[Multiplayer] Shared grid scheduled in "
                           << incoming.start_after_ms << " ms" << std::endl;
             }
         }
@@ -1165,9 +1244,6 @@ private:
 
     void prepare_synchronized_race_state()
     {
-        // Reassert identical course mapping immediately before both instances
-        // execute the normal GS_INIT_GAME path. This avoids carrying an Attract
-        // stage/road identity into the synchronized launch.
         outrun.select_course(config.engine.jap != 0, config.engine.prototype != 0);
         ostats.cur_stage = 0;
         oroad.stage_lookup_off = 0;
@@ -1175,7 +1251,6 @@ private:
         outils::reset_random_seed();
         outrun.tick_counter = 0;
 
-        // Player 2's colour remains local across the final shared reset.
         if (local_joiner && local_join_color >= 0)
             apply_local_join_color();
     }
@@ -1191,8 +1266,11 @@ private:
         race_started = false;
         session_bypassed = false;
         start_scheduled = false;
+        grid_ferrari_prepared = false;
+        grid_music_started = false;
         local_player_no = 0;
         local_join_color = -1;
+        race_music_selected = 0;
         active_lobby_token = 0;
         advertised_start_token = consumed_start_token;
         scheduled_start_token = 0;
