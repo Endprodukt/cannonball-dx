@@ -14,6 +14,7 @@
 #include "main.hpp"
 #include "trackloader.hpp"
 #include "../utils.hpp"
+#include "directx/ffb_instance_guard.hpp"
 #include "engine/oattractai.hpp"
 #include "engine/oanimseq.hpp"
 #include "engine/obonus.hpp"
@@ -81,6 +82,13 @@ namespace
      (video.clear_text_ram(), time_trial_results_input(ARG)) && \
      (time_trial_records.begin_records_transition(), game_state = GS_INIT_BEST2, true))
 
+// A number of Windows wheel drivers become unstable if two CannonBall DX
+// processes open the same SDL haptic device. Keep the user's FFB setting true
+// only for the first process that claims the machine-local FFB mutex. Because
+// this macro is defined after all declarations are included, it affects only
+// the preserved Outrun::init() expression `config.controls.haptic`.
+#define haptic haptic && ffb_instance_guard::claim()
+
 // The old Time Trial branch assigns STATE_INIT_MENU after its START check.
 // At this point our synthetic-input hook above has already selected
 // GS_INIT_BEST2, so keep the outer CannonBall state in-game. This removes the
@@ -90,5 +98,6 @@ namespace
 #include "outrun_base.cpp"
 
 #undef STATE_INIT_MENU
+#undef haptic
 #undef is_pressed
 #undef endless_mode
