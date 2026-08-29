@@ -43,94 +43,12 @@ namespace
     bool ttrial_goal_randomized = false;
 
     // The final two entries in OSprites::jump_table are unused by the original
-    // game. Keep the countdown peer in one dedicated slot instead of repeatedly
-    // copying/re-purposing animation state from the local Ferrari.
-    constexpr uint8_t MULTIPLAYER_GRID_SPRITE = OSprites::SPRITE_ENTRIES + 22;
+    // game. The network Ferrari already uses +22, so use that same dedicated
+    // peer slot for the static countdown representation. At GO it is simply
+    // overwritten by the live network representation; there is never a second
+    // peer body slot to hand off or leave behind in the alternate sprite buffer.
+    constexpr uint8_t MULTIPLAYER_PEER_SPRITE = OSprites::SPRITE_ENTRIES + 22;
     constexpr int16_t MULTIPLAYER_GRID_SEPARATION = 0x48;
-
-    bool join_left_down = false;
-    bool join_right_down = false;
-    bool join_gear1_down = false;
-    bool join_gear2_down = false;
-    int join_last_colour = -1;
-
-    int normalize_join_colour(int colour)
-    {
-        while (colour < 0) colour += 8;
-        while (colour >= 8) colour -= 8;
-        return colour;
-    }
-
-    void reset_join_colour_input()
-    {
-        join_left_down = false;
-        join_right_down = false;
-        join_gear1_down = false;
-        join_gear2_down = false;
-        join_last_colour = -1;
-    }
-
-    void handle_join_colour_input(bool active)
-    {
-        if (!active)
-        {
-            reset_join_colour_input();
-            return;
-        }
-
-        const bool left_now = input.is_pressed(Input::LEFT);
-        const bool right_now = input.is_pressed(Input::RIGHT);
-        const bool gear1_now = input.is_pressed(Input::GEAR1);
-        const bool gear2_now = input.is_pressed(Input::GEAR2);
-        const int configured_colour = normalize_join_colour(config.engine.car_pal);
-
-        // multiplayer.hpp still contains the original has_pressed()-based colour
-        // path. If it already handled this input earlier in OInputs::tick, adopt
-        // that result and do not apply a second step here.
-        if (join_last_colour >= 0 && configured_colour != join_last_colour)
-        {
-            join_last_colour = configured_colour;
-            oferrari.ferrari_pal = FERRARI_PALETTES[configured_colour];
-            join_left_down = left_now;
-            join_right_down = right_now;
-            join_gear1_down = gear1_now;
-            join_gear2_down = gear2_now;
-            return;
-        }
-
-        if (join_last_colour < 0)
-            join_last_colour = configured_colour;
-
-        int direction = 0;
-
-        // Use our own edge latches here. Multiplayer networking runs at the
-        // beginning of OInputs::tick, so relying only on has_pressed() there can
-        // miss LEFT/RIGHT on some keyboard, D-pad and wheel button paths.
-        if (left_now && !join_left_down)
-            direction = -1;
-        else if (right_now && !join_right_down)
-            direction = 1;
-        else if (gear1_now && !join_gear1_down)
-            direction = -1;
-        else if (gear2_now && !join_gear2_down)
-            direction = 1;
-
-        join_left_down = left_now;
-        join_right_down = right_now;
-        join_gear1_down = gear1_now;
-        join_gear2_down = gear2_now;
-
-        if (direction == 0)
-            return;
-
-        const int colour = normalize_join_colour(configured_colour + direction);
-        config.engine.car_pal = colour;
-        oferrari.ferrari_pal = FERRARI_PALETTES[colour];
-        join_last_colour = colour;
-
-        osoundint.queue_sound(sound::BEEP1);
-        std::cout << "[Multiplayer] Player 2 colour -> " << colour << std::endl;
-    }
 
     int16_t multiplayer_grid_screen_x()
     {
@@ -139,22 +57,24 @@ namespace
             : MULTIPLAYER_GRID_SEPARATION;
     }
 
-    // Countdown renderer: fixed, known-good Ferrari frame at a fixed screen
-    // position. It deliberately does not read road perspective, car_x_pos or a
-    // transitional local Ferrari sprite. This removes the pre-grid flicker.
+    // CannonBall submits the normal Ferrari on BOTH tick_frame phases: the
+    // logic phase ends in setup_ferrari_sprite()->draw_sprite(), and the other
+    // phase calls draw_sprite() directly. The sprite RAM is double-buffered, so
+    // the multiplayer peer must follow the same rule. Submitting it on only one
+    // phase leaves one hardware buffer with stale/no peer data, which is exactly
+    // the alternating flicker and old stacked position seen during testing.
     void draw_multiplayer_grid_peer()
     {
         if (!multiplayer.grid_start_active() ||
             !multiplayer.connected() ||
-            outrun.tick_frame ||
             outrun.game_state < GS_START1 ||
             outrun.game_state > GS_START3)
         {
             return;
         }
 
-        oentry* peer = &osprites.jump_table[MULTIPLAYER_GRID_SPRITE];
-        peer->init(MULTIPLAYER_GRID_SPRITE);
+        oentry* peer = &osprites.jump_table[MULTIPLAYER_PEER_SPRITE];
+        peer->init(MULTIPLAYER_PEER_SPRITE);
         peer->control = OSprites::ENABLE;
         peer->draw_props = oentry::BOTTOM;
         peer->shadow = 3;
@@ -169,6 +89,19 @@ namespace
 
         osprites.map_palette(peer);
         osprites.do_spr_order_shadows(peer);
+    }
+
+    void draw_multiplayer_live_peer()
+    {
+        // The current network renderer still requests OSprites' generic object
+        // shadow. A Ferrari has its own dedicated shadow implementation, so the
+        // generic shadow can resemble a second displaced body in perspective.
+        // Keep exactly the ordered body for now; a proper peer Ferrari shadow can
+        // be added later as its own dedicated sprite.
+        const uint16_t shadows_before = osprites.spr_cnt_shadow;
+        multiplayer.draw_remote_ferrari();
+        if (osprites.spr_cnt_shadow > shadows_before)
+            osprites.spr_cnt_shadow = shadows_before;
     }
 }
 
@@ -199,10 +132,6 @@ void OFerrari::tick()
         config.engine.car_pal = color;
         ferrari_pal = car_palette_state::palette_source(color);
     }
-
-    // P2 colour selection has its own edge handling so keyboard, D-pad and gear
-    // buttons work regardless of the networking/input tick ordering.
-    handle_join_colour_input(multiplayer_lobby_colour);
 
     if (car_palette_hotkey::pressed())
     {
@@ -243,9 +172,11 @@ void OFerrari::tick()
     // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
 
-    // Keep the known-good synchronized music path untouched.
-    if (multiplayer.player_number() == 1)
-        multiplayer.start_grid_music_once();
+    // Both machines deliberately restart the selected track at the first shared
+    // START1 frame. Player 1 may have been previewing it for several seconds and
+    // Player 2 may only just have loaded it; FM_RESET + play_music() on BOTH sides
+    // makes the synchronized grid the single audible time origin.
+    multiplayer.start_grid_music_once();
 
     // The original START1 counter contains an extra 50 ticks for the Ferrari
     // drive-in. There is no drive-in in multiplayer, so remove that dead time.
@@ -270,16 +201,11 @@ void OFerrari::tick()
     {
         draw_multiplayer_grid_peer();
     }
-    else if (outrun.game_state == GS_INGAME && !outrun.tick_frame)
+    else if (outrun.game_state == GS_INGAME)
     {
-        // Gameplay goes back to the original single network-Ferrari path. The
-        // current multiplayer renderer still asks OSprites for a generic object
-        // shadow, which does not match OutRun's dedicated Ferrari shadow and can
-        // look like a second stacked car at distance. Keep the ordered body but
-        // discard only that just-created generic shadow entry for now.
-        const uint16_t shadows_before = osprites.spr_cnt_shadow;
-        multiplayer.draw_remote_ferrari();
-        if (osprites.spr_cnt_shadow > shadows_before)
-            osprites.spr_cnt_shadow = shadows_before;
+        // Match the preserved Ferrari exactly and submit on both buffer phases.
+        // Restricting the peer to !tick_frame was the source of the alternating
+        // flicker/stale duplicate seen in the two sprite buffers.
+        draw_multiplayer_live_peer();
     }
 }
