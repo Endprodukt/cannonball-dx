@@ -10,7 +10,6 @@
 // Keep the multiplayer include first on Windows so Winsock2 is loaded before
 // any platform headers that may be reached through SDL/config includes.
 #include "engine/multiplayer.hpp"
-#include <iostream>
 #include "engine/car_palette_hotkey.hpp"
 #include "engine/car_palette_state.hpp"
 
@@ -42,7 +41,6 @@
 namespace
 {
     bool ttrial_goal_randomized = false;
-    bool multiplayer_ingame_debug_printed = false;
 }
 
 void OFerrari::cycle_car_palette()
@@ -108,22 +106,9 @@ void OFerrari::tick()
 
     tick_base();
 
-    // Draw lobby text after the normal Attract/Music/Ferrari logic so the
-    // underlying game cannot immediately overwrite the multiplayer overlay.
+    // Draw the lobby text after the normal Attract/Music/Ferrari logic so the
+    // underlying game cannot immediately overwrite JOIN GAME NOW / PLAYER 2
+    // JOINED. The remote Ferrari itself remains an in-race-only road sprite.
     multiplayer.draw_lobby_overlay();
-
-    // Crash-isolation build: deliberately do NOT render the peer Ferrari yet.
-    // The previous crash happens exactly as gameplay becomes active, which is
-    // also the first point where draw_remote_ferrari() can run. Keeping all UDP,
-    // lobby, setup and synchronized-start logic active while removing only this
-    // renderer tells us unambiguously whether the renderer is responsible.
-    if (!multiplayer_ingame_debug_printed &&
-        multiplayer.enabled() && outrun.game_state == GS_INGAME)
-    {
-        multiplayer_ingame_debug_printed = true;
-        std::cout << "[Multiplayer] Entered GS_INGAME - remote Ferrari rendering disabled for crash isolation" << std::endl;
-    }
-
-    if (outrun.game_state == GS_ATTRACT)
-        multiplayer_ingame_debug_printed = false;
+    multiplayer.draw_remote_ferrari();
 }
