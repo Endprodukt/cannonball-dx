@@ -1,13 +1,9 @@
 /***************************************************************************
     CannonBall DX experimental two-player multiplayer prototype.
 
-    This first step deliberately keeps both game instances authoritative for
-    their own physics. It exchanges only the state needed to draw the remote
-    Ferrari in the local road scene.
-
-    Configuration is intentionally kept in a tiny multiplayer.cfg next to the
-    game for this test branch. This lets two copied CannonBall folders use
-    different master/slave settings without touching the normal config.xml.
+    Each instance remains authoritative for its own physics. The prototype
+    exchanges live car/road state over UDP and renders the peer Ferrari as a
+    real OutRun sprite in the local road scene.
 ***************************************************************************/
 
 #pragma once
@@ -36,6 +32,7 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -48,9 +45,9 @@
 
 namespace multiplayer_detail
 {
-    constexpr uint32_t MAGIC = 0x43424458; // "CBDX"
+    constexpr uint32_t MAGIC = 0x43424458; // CBDX
     constexpr uint16_t VERSION = 1;
-    constexpr size_t PACKET_SIZE = 32;
+    constexpr std::size_t PACKET_SIZE = 32;
     constexpr uint16_t DEFAULT_PORT = 51337;
     constexpr int PEER_TIMEOUT_MS = 1500;
 
@@ -97,11 +94,9 @@ namespace multiplayer_detail
 
     inline std::string trim(std::string value)
     {
-        auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
-        value.erase(value.begin(), std::find_if(value.begin(), value.end(),
-            [&](unsigned char c) { return !is_space(c); }));
-        value.erase(std::find_if(value.rbegin(), value.rend(),
-            [&](unsigned char c) { return !is_space(c); }).base(), value.end());
+        const auto non_space = [](unsigned char c) { return std::isspace(c) == 0; };
+        value.erase(value.begin(), std::find_if(value.begin(), value.end(), non_space));
+        value.erase(std::find_if(value.rbegin(), value.rend(), non_space).base(), value.end());
         return value;
     }
 
@@ -126,19 +121,18 @@ namespace multiplayer_detail
             if (line.empty() || line[0] == '#' || line[0] == ';')
                 continue;
 
-            const size_t equals = line.find('=');
-            if (equals == std::string::npos)
+            const std::size_t separator = line.find('=');
+            if (separator == std::string::npos)
                 continue;
 
-            const std::string key = lower(trim(line.substr(0, equals)));
-            const std::string value = trim(line.substr(equals + 1));
+            const std::string key = lower(trim(line.substr(0, separator)));
+            const std::string value = trim(line.substr(separator + 1));
             const std::string value_lower = lower(value);
 
             if (key == "enabled")
             {
-                settings.enabled =
-                    value_lower == "1" || value_lower == "true" ||
-                    value_lower == "yes" || value_lower == "on";
+                settings.enabled = value_lower == "1" || value_lower == "true" ||
+                                   value_lower == "yes" || value_lower == "on";
             }
             else if (key == "role")
             {
@@ -149,10 +143,9 @@ namespace multiplayer_detail
                 else
                     settings.role = ROLE_OFF;
             }
-            else if (key == "host")
+            else if (key == "host" && !value.empty())
             {
-                if (!value.empty())
-                    settings.host = value;
+                settings.host = value;
             }
             else if (key == "port")
             {
@@ -164,7 +157,6 @@ namespace multiplayer_detail
                 }
                 catch (...)
                 {
-                    // Keep the default for malformed prototype config values.
                 }
             }
         }
@@ -175,27 +167,26 @@ namespace multiplayer_detail
         return settings;
     }
 
-    inline void write_u16(uint8_t* dst, uint16_t value)
+    inline void write16(uint8_t* dst, uint16_t value)
     {
-        dst[0] = static_cast<uint8_t>((value >> 8) & 0xFF);
-        dst[1] = static_cast<uint8_t>(value & 0xFF);
+        dst[0] = static_cast<uint8_t>(value >> 8);
+        dst[1] = static_cast<uint8_t>(value);
     }
 
-    inline void write_u32(uint8_t* dst, uint32_t value)
+    inline void write32(uint8_t* dst, uint32_t value)
     {
-        dst[0] = static_cast<uint8_t>((value >> 24) & 0xFF);
-        dst[1] = static_cast<uint8_t>((value >> 16) & 0xFF);
-        dst[2] = static_cast<uint8_t>((value >> 8) & 0xFF);
-        dst[3] = static_cast<uint8_t>(value & 0xFF);
+        dst[0] = static_cast<uint8_t>(value >> 24);
+        dst[1] = static_cast<uint8_t>(value >> 16);
+        dst[2] = static_cast<uint8_t>(value >> 8);
+        dst[3] = static_cast<uint8_t>(value);
     }
 
-    inline uint16_t read_u16(const uint8_t* src)
+    inline uint16_t read16(const uint8_t* src)
     {
-        return static_cast<uint16_t>((static_cast<uint16_t>(src[0]) << 8) |
-                                     static_cast<uint16_t>(src[1]));
+        return static_cast<uint16_t>((static_cast<uint16_t>(src[0]) << 8) | src[1]);
     }
 
-    inline uint32_t read_u32(const uint8_t* src)
+    inline uint32_t read32(const uint8_t* src)
     {
         return (static_cast<uint32_t>(src[0]) << 24) |
                (static_cast<uint32_t>(src[1]) << 16) |
@@ -206,56 +197,54 @@ namespace multiplayer_detail
     inline std::array<uint8_t, PACKET_SIZE> encode(const State& state)
     {
         std::array<uint8_t, PACKET_SIZE> data{};
-        size_t p = 0;
+        std::size_t p = 0;
 
-        write_u32(&data[p], MAGIC); p += 4;
-        write_u16(&data[p], VERSION); p += 2;
+        write32(&data[p], MAGIC); p += 4;
+        write16(&data[p], VERSION); p += 2;
         data[p++] = state.role;
         data[p++] = state.active ? 1 : 0;
-        write_u32(&data[p], state.sequence); p += 4;
+        write32(&data[p], state.sequence); p += 4;
         data[p++] = state.game_state;
         data[p++] = state.mode;
-        write_u16(&data[p], static_cast<uint16_t>(state.stage_lookup_off)); p += 2;
-        write_u16(&data[p], static_cast<uint16_t>(state.stage)); p += 2;
-        write_u32(&data[p], static_cast<uint32_t>(state.road_pos)); p += 4;
-        write_u16(&data[p], static_cast<uint16_t>(state.car_x)); p += 2;
-        write_u16(&data[p], state.speed); p += 2;
-        write_u16(&data[p], static_cast<uint16_t>(state.steering)); p += 2;
+        write16(&data[p], static_cast<uint16_t>(state.stage_lookup_off)); p += 2;
+        write16(&data[p], static_cast<uint16_t>(state.stage)); p += 2;
+        write32(&data[p], static_cast<uint32_t>(state.road_pos)); p += 4;
+        write16(&data[p], static_cast<uint16_t>(state.car_x)); p += 2;
+        write16(&data[p], state.speed); p += 2;
+        write16(&data[p], static_cast<uint16_t>(state.steering)); p += 2;
         data[p++] = static_cast<uint8_t>(state.route_selected);
         data[p++] = state.split_state;
-        write_u16(&data[p], state.ferrari_pal);
-
+        write16(&data[p], state.ferrari_pal);
         return data;
     }
 
-    inline bool decode(const uint8_t* data, size_t size, State& state)
+    inline bool decode(const uint8_t* data, std::size_t size, State& state)
     {
         if (!data || size != PACKET_SIZE)
             return false;
 
-        size_t p = 0;
-        if (read_u32(&data[p]) != MAGIC)
+        std::size_t p = 0;
+        if (read32(&data[p]) != MAGIC)
             return false;
         p += 4;
-
-        if (read_u16(&data[p]) != VERSION)
+        if (read16(&data[p]) != VERSION)
             return false;
         p += 2;
 
         state.role = data[p++];
         state.active = (data[p++] & 1) != 0;
-        state.sequence = read_u32(&data[p]); p += 4;
+        state.sequence = read32(&data[p]); p += 4;
         state.game_state = data[p++];
         state.mode = data[p++];
-        state.stage_lookup_off = static_cast<int16_t>(read_u16(&data[p])); p += 2;
-        state.stage = static_cast<int16_t>(read_u16(&data[p])); p += 2;
-        state.road_pos = static_cast<int32_t>(read_u32(&data[p])); p += 4;
-        state.car_x = static_cast<int16_t>(read_u16(&data[p])); p += 2;
-        state.speed = read_u16(&data[p]); p += 2;
-        state.steering = static_cast<int16_t>(read_u16(&data[p])); p += 2;
+        state.stage_lookup_off = static_cast<int16_t>(read16(&data[p])); p += 2;
+        state.stage = static_cast<int16_t>(read16(&data[p])); p += 2;
+        state.road_pos = static_cast<int32_t>(read32(&data[p])); p += 4;
+        state.car_x = static_cast<int16_t>(read16(&data[p])); p += 2;
+        state.speed = read16(&data[p]); p += 2;
+        state.steering = static_cast<int16_t>(read16(&data[p])); p += 2;
         state.route_selected = static_cast<int8_t>(data[p++]);
         state.split_state = data[p++];
-        state.ferrari_pal = read_u16(&data[p]);
+        state.ferrari_pal = read16(&data[p]);
 
         return state.role == ROLE_MASTER || state.role == ROLE_SLAVE;
     }
@@ -275,15 +264,15 @@ namespace multiplayer_detail
     inline bool set_nonblocking(socket_t socket)
     {
 #ifdef _WIN32
-        u_long mode = 1;
-        return ioctlsocket(socket, FIONBIO, &mode) == 0;
+        u_long enabled = 1;
+        return ioctlsocket(socket, FIONBIO, &enabled) == 0;
 #else
         const int flags = fcntl(socket, F_GETFL, 0);
         return flags >= 0 && fcntl(socket, F_SETFL, flags | O_NONBLOCK) == 0;
 #endif
     }
 
-    inline bool resolve_ipv4(const std::string& host, uint16_t port, sockaddr_in& out)
+    inline bool resolve_ipv4(const std::string& host, uint16_t port, sockaddr_in& address)
     {
         addrinfo hints{};
         hints.ai_family = AF_INET;
@@ -294,16 +283,14 @@ namespace multiplayer_detail
         if (getaddrinfo(host.c_str(), service.c_str(), &hints, &result) != 0 || !result)
             return false;
 
-        std::memcpy(&out, result->ai_addr, sizeof(sockaddr_in));
+        std::memcpy(&address, result->ai_addr, sizeof(sockaddr_in));
         freeaddrinfo(result);
         return true;
     }
 
     inline int lane_offset(Role role)
     {
-        // OutRun's positive car-X direction is visually left. Give the two
-        // roles a small conceptual lane offset so two freshly started games
-        // are immediately visible next to one another instead of overlapping.
+        // Positive car-X is visually left in OutRun.
         if (role == ROLE_MASTER)
             return 0x30;
         if (role == ROLE_SLAVE)
@@ -316,11 +303,7 @@ class Multiplayer
 {
 public:
     Multiplayer() = default;
-
-    ~Multiplayer()
-    {
-        shutdown();
-    }
+    ~Multiplayer() { shutdown(); }
 
     void tick()
     {
@@ -328,7 +311,6 @@ public:
         {
             settings = multiplayer_detail::load_settings();
             settings_loaded = true;
-
             if (settings.enabled)
             {
                 std::cout << "[Multiplayer] Prototype enabled as "
@@ -337,10 +319,7 @@ public:
             }
         }
 
-        if (!settings.enabled)
-            return;
-
-        if (!ensure_socket())
+        if (!settings.enabled || !ensure_socket())
             return;
 
         receive_packets();
@@ -349,10 +328,7 @@ public:
         draw_remote_ferrari();
     }
 
-    bool connected() const
-    {
-        return peer_connected;
-    }
+    bool connected() const { return peer_connected; }
 
 private:
     using clock = std::chrono::steady_clock;
@@ -361,12 +337,12 @@ private:
     multiplayer_detail::State remote;
     multiplayer_detail::socket_t socket = multiplayer_detail::INVALID_SOCKET_VALUE;
     sockaddr_in peer_addr{};
-    bool peer_addr_valid = false;
     bool settings_loaded = false;
     bool socket_ready = false;
-    bool peer_connected = false;
+    bool peer_addr_valid = false;
     bool have_remote = false;
-    bool socket_error_reported = false;
+    bool peer_connected = false;
+    bool error_reported = false;
     uint32_t sequence = 0;
     clock::time_point last_received{};
 #ifdef _WIN32
@@ -376,14 +352,21 @@ private:
     void shutdown()
     {
         multiplayer_detail::close_socket(socket);
-        socket_ready = false;
 #ifdef _WIN32
         if (winsock_started)
-        {
             WSACleanup();
-            winsock_started = false;
-        }
+        winsock_started = false;
 #endif
+        socket_ready = false;
+    }
+
+    void error_once(const std::string& text)
+    {
+        if (!error_reported)
+        {
+            std::cerr << "[Multiplayer] " << text << std::endl;
+            error_reported = true;
+        }
     }
 
     bool ensure_socket()
@@ -397,7 +380,7 @@ private:
             WSADATA data{};
             if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
             {
-                report_socket_error("WSAStartup failed");
+                error_once("WSAStartup failed");
                 return false;
             }
             winsock_started = true;
@@ -407,13 +390,13 @@ private:
         socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (socket == multiplayer_detail::INVALID_SOCKET_VALUE)
         {
-            report_socket_error("could not create UDP socket");
+            error_once("could not create UDP socket");
             return false;
         }
 
         if (!multiplayer_detail::set_nonblocking(socket))
         {
-            report_socket_error("could not make UDP socket non-blocking");
+            error_once("could not make UDP socket non-blocking");
             multiplayer_detail::close_socket(socket);
             return false;
         }
@@ -424,26 +407,22 @@ private:
             local.sin_family = AF_INET;
             local.sin_addr.s_addr = htonl(INADDR_ANY);
             local.sin_port = htons(settings.port);
-
             if (::bind(socket, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) != 0)
             {
-                report_socket_error("could not bind UDP port (is another master using it?)");
+                error_once("could not bind UDP port (is another master using it?)");
                 multiplayer_detail::close_socket(socket);
                 return false;
             }
-
-            std::cout << "[Multiplayer] Waiting for slave on UDP "
-                      << settings.port << std::endl;
+            std::cout << "[Multiplayer] Waiting for slave on UDP " << settings.port << std::endl;
         }
         else
         {
             if (!multiplayer_detail::resolve_ipv4(settings.host, settings.port, peer_addr))
             {
-                report_socket_error("could not resolve master host " + settings.host);
+                error_once("could not resolve master host " + settings.host);
                 multiplayer_detail::close_socket(socket);
                 return false;
             }
-
             peer_addr_valid = true;
             std::cout << "[Multiplayer] Connecting to master "
                       << settings.host << ':' << settings.port << std::endl;
@@ -453,16 +432,7 @@ private:
         return true;
     }
 
-    void report_socket_error(const std::string& message)
-    {
-        if (!socket_error_reported)
-        {
-            std::cerr << "[Multiplayer] " << message << std::endl;
-            socket_error_reported = true;
-        }
-    }
-
-    multiplayer_detail::State local_state()
+    multiplayer_detail::State make_local_state()
     {
         multiplayer_detail::State state;
         state.sequence = ++sequence;
@@ -487,20 +457,18 @@ private:
         if (!peer_addr_valid)
             return;
 
-        const auto packet = multiplayer_detail::encode(local_state());
-        ::sendto(
-            socket,
-            reinterpret_cast<const char*>(packet.data()),
-            static_cast<int>(packet.size()),
-            0,
-            reinterpret_cast<const sockaddr*>(&peer_addr),
-            sizeof(peer_addr));
+        const auto packet = multiplayer_detail::encode(make_local_state());
+        ::sendto(socket,
+                 reinterpret_cast<const char*>(packet.data()),
+                 static_cast<int>(packet.size()),
+                 0,
+                 reinterpret_cast<const sockaddr*>(&peer_addr),
+                 static_cast<int>(sizeof(peer_addr)));
     }
 
     void receive_packets()
     {
         std::array<uint8_t, multiplayer_detail::PACKET_SIZE> packet{};
-
         for (;;)
         {
             sockaddr_in from{};
@@ -521,14 +489,12 @@ private:
                 break;
 
             multiplayer_detail::State incoming;
-            if (!multiplayer_detail::decode(packet.data(), static_cast<size_t>(received), incoming))
+            if (!multiplayer_detail::decode(packet.data(), static_cast<std::size_t>(received), incoming) ||
+                incoming.role == settings.role)
+            {
                 continue;
+            }
 
-            if (incoming.role == settings.role)
-                continue;
-
-            // The master learns the slave's actual source port. This makes two
-            // local instances work without assigning two different listen ports.
             if (settings.role == multiplayer_detail::ROLE_MASTER)
             {
                 peer_addr = from;
@@ -543,80 +509,76 @@ private:
 
     void update_connection_state()
     {
-        bool now_connected = false;
+        bool connected_now = false;
         if (have_remote)
         {
             const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
                 clock::now() - last_received).count();
-            now_connected = age <= multiplayer_detail::PEER_TIMEOUT_MS;
+            connected_now = age <= multiplayer_detail::PEER_TIMEOUT_MS;
         }
 
-        if (now_connected == peer_connected)
+        if (connected_now == peer_connected)
             return;
 
-        peer_connected = now_connected;
-        if (peer_connected)
-            std::cout << "[Multiplayer] Peer connected" << std::endl;
-        else
-            std::cout << "[Multiplayer] Peer connection lost" << std::endl;
+        peer_connected = connected_now;
+        std::cout << (peer_connected ? "[Multiplayer] Peer connected"
+                                     : "[Multiplayer] Peer connection lost")
+                  << std::endl;
     }
 
-    int road_curve_only(uint16_t z) const
+    int32_t road_curve_at(uint16_t z) const
     {
-        // road0_h contains curve + local car/camera displacement - road width.
-        // Remove that displacement to recover the road curve at this depth.
-        const int32_t local_term =
-            static_cast<int32_t>(oroad.car_x_bak) -
-            static_cast<int32_t>(oroad.road_width_bak) +
-            static_cast<int32_t>(oinitengine.camera_x_off);
+        const int32_t camera = oinitengine.camera_x_off;
+        const int32_t car = oroad.car_x_bak;
+        const int32_t width = oroad.road_width_bak;
 
-        return static_cast<int32_t>(oroad.road0_h[z]) -
-               ((local_term * static_cast<int32_t>(z)) >> 9);
+        if (oroad.road_ctrl == ORoad::ROAD_R1)
+        {
+            const int32_t displacement = ((car + width + camera) * z) >> 9;
+            return static_cast<int32_t>(oroad.road1_h[z]) - displacement;
+        }
+
+        if (oroad.road_ctrl == ORoad::ROAD_R1_SPLIT)
+        {
+            const int32_t displacement = ((car + width + camera) * z) >> 9;
+            return displacement - static_cast<int32_t>(oroad.road1_h[z]);
+        }
+
+        const int32_t displacement = ((car - width + camera) * z) >> 9;
+        return static_cast<int32_t>(oroad.road0_h[z]) - displacement;
     }
 
     void draw_remote_ferrari()
     {
-        if (!peer_connected || !remote.active)
+        if (!peer_connected || !remote.active ||
+            outrun.game_state < GS_START1 || outrun.game_state > GS_INGAME ||
+            remote.mode != static_cast<uint8_t>(outrun.cannonball_mode) ||
+            remote.stage_lookup_off != oroad.stage_lookup_off ||
+            oroad.road_ctrl == ORoad::ROAD_OFF)
+        {
             return;
+        }
 
-        if (outrun.game_state < GS_START1 || outrun.game_state > GS_INGAME)
-            return;
-
-        if (remote.mode != static_cast<uint8_t>(outrun.cannonball_mode))
-            return;
-
-        // For the first prototype both instances still progress independently.
-        // Do not draw a car against a different stage's road data.
-        if (remote.stage_lookup_off != oroad.stage_lookup_off)
-            return;
-
-        const int64_t road_delta =
-            static_cast<int64_t>(remote.road_pos) -
-            static_cast<int64_t>(static_cast<int32_t>(oroad.road_pos));
-
-        // Approximate world distance -> OutRun sprite depth. Equal road
-        // positions sit near the camera; a car roughly 60 road units ahead is
-        // near the horizon. A car behind the camera is intentionally hidden.
+        const int64_t road_delta = static_cast<int64_t>(remote.road_pos) -
+                                   static_cast<int64_t>(static_cast<int32_t>(oroad.road_pos));
         const int32_t depth_delta = static_cast<int32_t>((road_delta * 8) >> 16);
-        const int32_t z_calc = 0x1E0 - depth_delta;
+        const int32_t z_calc = 0x1F0 - depth_delta;
+
+        // There is no rear-view camera in the prototype. Once the peer falls
+        // behind the local camera plane it simply stops being submitted.
         if (z_calc < 4 || z_calc >= 0x1FC)
             return;
 
         const uint16_t z = static_cast<uint16_t>(z_calc);
+        const int local_x = static_cast<int>(oinitengine.car_x_pos) +
+                            multiplayer_detail::lane_offset(settings.role);
+        const int remote_x = static_cast<int>(remote.car_x) +
+                             multiplayer_detail::lane_offset(
+                                 static_cast<multiplayer_detail::Role>(remote.role));
 
-        const int local_world_x =
-            static_cast<int>(oinitengine.car_x_pos) +
-            multiplayer_detail::lane_offset(settings.role);
-        const int remote_world_x =
-            static_cast<int>(remote.car_x) +
-            multiplayer_detail::lane_offset(
-                static_cast<multiplayer_detail::Role>(remote.role));
+        int32_t screen_x = road_curve_at(z) +
+                           (((local_x - remote_x) * static_cast<int32_t>(z)) >> 9);
 
-        int32_t screen_x = road_curve_only(z);
-        screen_x += ((local_world_x - remote_world_x) * static_cast<int32_t>(z)) >> 9;
-
-        // Reuse an otherwise unused special sprite slot. JUMP_ENTRIES_TOTAL
-        // deliberately has two entries after SPRITE_FLAG available here.
         constexpr uint8_t REMOTE_SPRITE = OSprites::SPRITE_FLAG + 1;
         oentry* sprite = &osprites.jump_table[REMOTE_SPRITE];
         sprite->init(REMOTE_SPRITE);
@@ -625,23 +587,35 @@ private:
         sprite->shadow = 3;
         sprite->priority = z;
         sprite->road_priority = z;
-        sprite->y = -(oroad.road_y[oroad.road_p0 + z] >> 4) + 223;
+        sprite->y = static_cast<int16_t>(oroad.get_road_y(z) - 2);
 
         uint16_t zoom = static_cast<uint16_t>((z >> 2) + 4);
         if (zoom > 0x7F)
             zoom = 0x7F;
         sprite->zoom = static_cast<uint8_t>(zoom);
 
-        int16_t turn = remote.steering >> 2;
-        int16_t abs_turn = turn < 0 ? static_cast<int16_t>(-turn) : turn;
+        int16_t steering = remote.steering;
+        if ((steering >= -8 && steering <= 7) || remote.speed < 0x14)
+            steering = 0;
+        const int16_t turn = steering >> 2;
+        const int16_t abs_turn = turn < 0 ? static_cast<int16_t>(-turn) : turn;
+
         int16_t turn_frame_offset = 0;
-        if (abs_turn >= 0x12)
-            turn_frame_offset += 0x18;
-        if (abs_turn >= 0x1E)
-            turn_frame_offset += 0x18;
+        if (abs_turn >= 0x12) turn_frame_offset += 0x18;
+        if (abs_turn >= 0x1E) turn_frame_offset += 0x18;
+
+        // Match the original Ferrari's three incline frames, but sample the
+        // road around the remote car's perspective depth instead of the local
+        // player's fixed near-camera positions.
+        const uint16_t slope_far = z >= 8 ? static_cast<uint16_t>(z - 8) : z;
+        const int16_t slope = oroad.road_y[oroad.road_p0 + slope_far] -
+                              oroad.road_y[oroad.road_p0 + z];
+        int16_t incline_frame_offset = 0;
+        if (slope >= 0x12) incline_frame_offset += 8;
+        if (slope >= 0x13) incline_frame_offset += 8;
 
         const uint32_t frame = outrun.adr.sprite_ferrari_frames +
-                               static_cast<uint32_t>(turn_frame_offset) + 8;
+                               static_cast<uint32_t>(turn_frame_offset + incline_frame_offset);
         sprite->addr = roms.rom0p->read32(frame);
 
         int16_t frame_x = static_cast<int16_t>(roms.rom0p->read16(frame + 6));
@@ -650,13 +624,7 @@ private:
             sprite->control |= OSprites::HFLIP;
             frame_x = static_cast<int16_t>(-frame_x);
         }
-        else
-        {
-            sprite->control &= ~OSprites::HFLIP;
-        }
 
-        // Ferrari frame offsets are authored for full-size zoom. Scale the
-        // small steering offset along with the remote car's perspective size.
         screen_x += (static_cast<int32_t>(frame_x) * zoom) / 0x7F;
         sprite->x = static_cast<int16_t>(screen_x);
 
