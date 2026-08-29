@@ -12,6 +12,8 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 ![CannonBall DX Start Line](screenshots/CannonBall-DX-Startline.jpg)
 
+![CannonBall DX 21:9 Gameplay](screenshots/cannonballdx219.jpg)
+
 ---
 
 ## CannonBall DX Features
@@ -44,6 +46,8 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 - **Eight Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver
 - **Configurable selection timers** - 15 sec, 30 sec or OFF
 - **Dedicated Time Trial and Endless results / high-score presentation**
+
+![CannonBall DX 21:9 Scaler](screenshots/cannonballdxscaler219.jpg)
 
 ### Arcade Cabinet Features
 
@@ -262,6 +266,8 @@ Game mode selection is integrated directly into the Music Select Screen:
 - **VIEW3** selects Time Trial
 - **LOW / HIGH gear** changes Ferrari colour
 - **START** confirms the selection
+
+![CannonBall DX 21:9 Music Select](screenshots/cannonballdxselect219.jpg)
 
 Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**. The Music Select Screen colour applies **only to the next race** and does not replace the saved default. After the run, Attract Mode returns to the default colour selected with **F10**.
 
