@@ -1,9 +1,10 @@
 /***************************************************************************
     CannonBall DX experimental two-player multiplayer prototype.
 
-    Each instance remains authoritative for its own physics. The prototype
-    exchanges live car/road state over UDP, synchronizes the transition into
-    a race, and renders the peer Ferrari as a real OutRun sprite.
+    The network master/slave roles only establish the UDP connection. The
+    player who presses START first becomes the race leader for that race.
+    The leader selects the shared race setup; the other cabinet can join from
+    Attract Mode and keeps only its own Ferrari colour as a local choice.
 ***************************************************************************/
 
 #pragma once
@@ -34,21 +35,25 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <string>
 
 #include "engine/oferrari.hpp"
+#include "engine/ohiscore.hpp"
+#include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
+#include "engine/omusic.hpp"
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
 
 namespace multiplayer_detail
 {
     constexpr uint32_t MAGIC = 0x43424458; // CBDX
-    constexpr uint16_t VERSION = 2;
-    constexpr std::size_t PACKET_SIZE = 40;
+    constexpr uint16_t VERSION = 3;
+    constexpr std::size_t PACKET_SIZE = 64;
     constexpr uint16_t DEFAULT_PORT = 51337;
     constexpr int PEER_TIMEOUT_MS = 1500;
     constexpr int DEFAULT_CONNECT_TIMEOUT_MS = 15000;
@@ -77,8 +82,13 @@ namespace multiplayer_detail
         uint8_t role = ROLE_OFF;
         bool active = false;
         bool ready = false;
+        bool lobby_offer = false;
+        bool joined = false;
+        bool setup_locked = false;
         uint8_t game_state = 0;
         uint8_t mode = 0;
+        uint8_t player_no = 0;
+        bool japanese = false;
         int16_t stage_lookup_off = 0;
         int16_t stage = 0;
         int32_t road_pos = 0;
@@ -88,8 +98,20 @@ namespace multiplayer_detail
         int8_t route_selected = 0;
         uint8_t split_state = 0;
         uint16_t ferrari_pal = OFerrari::PAL_RED;
+        uint32_t lobby_token = 0;
+        uint32_t join_remaining_ms = 0;
         uint32_t start_token = 0;
         uint16_t start_after_ms = 0;
+        bool endless = false;
+        uint8_t ttrial_level = 0;
+        uint8_t ttrial_traffic = 0;
+        uint8_t ttrial_laps = 0;
+        uint8_t music_selected = 0;
+        uint8_t custom_traffic = 0;
+        bool freeze_timer = false;
+        uint8_t dip_time = 0;
+        uint8_t dip_traffic = 0;
+        bool prototype = false;
     };
 
 #ifdef _WIN32
@@ -189,7 +211,6 @@ namespace multiplayer_detail
 
         if (settings.role == ROLE_OFF)
             settings.enabled = false;
-
         return settings;
     }
 
@@ -228,10 +249,18 @@ namespace multiplayer_detail
         write32(&data[p], MAGIC); p += 4;
         write16(&data[p], VERSION); p += 2;
         data[p++] = state.role;
-        data[p++] = static_cast<uint8_t>((state.active ? 1 : 0) | (state.ready ? 2 : 0));
+        uint8_t flags = 0;
+        if (state.active) flags |= 0x01;
+        if (state.ready) flags |= 0x02;
+        if (state.lobby_offer) flags |= 0x04;
+        if (state.joined) flags |= 0x08;
+        if (state.setup_locked) flags |= 0x10;
+        data[p++] = flags;
         write32(&data[p], state.sequence); p += 4;
         data[p++] = state.game_state;
         data[p++] = state.mode;
+        data[p++] = state.player_no;
+        data[p++] = state.japanese ? 1 : 0;
         write16(&data[p], static_cast<uint16_t>(state.stage_lookup_off)); p += 2;
         write16(&data[p], static_cast<uint16_t>(state.stage)); p += 2;
         write32(&data[p], static_cast<uint32_t>(state.road_pos)); p += 4;
@@ -241,9 +270,20 @@ namespace multiplayer_detail
         data[p++] = static_cast<uint8_t>(state.route_selected);
         data[p++] = state.split_state;
         write16(&data[p], state.ferrari_pal); p += 2;
+        write32(&data[p], state.lobby_token); p += 4;
+        write32(&data[p], state.join_remaining_ms); p += 4;
         write32(&data[p], state.start_token); p += 4;
         write16(&data[p], state.start_after_ms); p += 2;
-        write16(&data[p], 0);
+        data[p++] = state.endless ? 1 : 0;
+        data[p++] = state.ttrial_level;
+        data[p++] = state.ttrial_traffic;
+        data[p++] = state.ttrial_laps;
+        data[p++] = state.music_selected;
+        data[p++] = state.custom_traffic;
+        data[p++] = state.freeze_timer ? 1 : 0;
+        data[p++] = state.dip_time;
+        data[p++] = state.dip_traffic;
+        data[p++] = state.prototype ? 1 : 0;
         return data;
     }
 
@@ -262,11 +302,16 @@ namespace multiplayer_detail
 
         state.role = data[p++];
         const uint8_t flags = data[p++];
-        state.active = (flags & 1) != 0;
-        state.ready = (flags & 2) != 0;
+        state.active = (flags & 0x01) != 0;
+        state.ready = (flags & 0x02) != 0;
+        state.lobby_offer = (flags & 0x04) != 0;
+        state.joined = (flags & 0x08) != 0;
+        state.setup_locked = (flags & 0x10) != 0;
         state.sequence = read32(&data[p]); p += 4;
         state.game_state = data[p++];
         state.mode = data[p++];
+        state.player_no = data[p++];
+        state.japanese = data[p++] != 0;
         state.stage_lookup_off = static_cast<int16_t>(read16(&data[p])); p += 2;
         state.stage = static_cast<int16_t>(read16(&data[p])); p += 2;
         state.road_pos = static_cast<int32_t>(read32(&data[p])); p += 4;
@@ -276,8 +321,20 @@ namespace multiplayer_detail
         state.route_selected = static_cast<int8_t>(data[p++]);
         state.split_state = data[p++];
         state.ferrari_pal = read16(&data[p]); p += 2;
+        state.lobby_token = read32(&data[p]); p += 4;
+        state.join_remaining_ms = read32(&data[p]); p += 4;
         state.start_token = read32(&data[p]); p += 4;
-        state.start_after_ms = read16(&data[p]);
+        state.start_after_ms = read16(&data[p]); p += 2;
+        state.endless = data[p++] != 0;
+        state.ttrial_level = data[p++];
+        state.ttrial_traffic = data[p++];
+        state.ttrial_laps = data[p++];
+        state.music_selected = data[p++];
+        state.custom_traffic = data[p++];
+        state.freeze_timer = data[p++] != 0;
+        state.dip_time = data[p++];
+        state.dip_traffic = data[p++];
+        state.prototype = data[p++] != 0;
 
         return state.role == ROLE_MASTER || state.role == ROLE_SLAVE;
     }
@@ -321,13 +378,11 @@ namespace multiplayer_detail
         return true;
     }
 
-    inline int lane_offset(Role role)
+    inline int lane_offset(uint8_t player_no)
     {
-        // Keep the two logical player origins separated by roughly one lane.
-        // Positive car-X is visually left in OutRun.
-        if (role == ROLE_MASTER)
+        if (player_no == 1)
             return 0x50;
-        if (role == ROLE_SLAVE)
+        if (player_no == 2)
             return -0x50;
         return 0;
     }
@@ -346,9 +401,9 @@ public:
     }
 
     bool connected() const { return peer_connected; }
+    bool keep_lobby_color() const { return local_joiner && !race_started; }
+    uint8_t player_number() const { return local_player_no; }
 
-    // Called from the application tick, including menus and Music Select. This
-    // keeps the UDP session alive before either game has entered the race.
     void network_tick()
     {
         load_settings_once();
@@ -357,18 +412,13 @@ public:
 
         receive_packets();
         update_connection_state();
+        handle_lobby_input();
+        update_lobby_state();
+        apply_remote_race_setup_if_ready();
         send_state();
-
-        // A timed-out race stays single-player for that run, but returning to
-        // Music Select arms multiplayer again for the next attempt.
-        if (session_bypassed && outrun.game_state == GS_MUSIC)
-            session_bypassed = false;
+        draw_lobby_overlay();
     }
 
-    // Called immediately before Outrun::tick while GS_INIT_GAME is pending.
-    // Returning true freezes the engine on the pre-race frame. Both instances
-    // therefore initialize the road, traffic, intro animation and countdown on
-    // the same scheduled launch instead of trying to correct them afterwards.
     bool hold_game_start()
     {
         load_settings_once();
@@ -378,37 +428,33 @@ public:
             return false;
         }
 
-        const auto now = clock::now();
-        if (!race_waiting)
-        {
-            race_waiting = true;
-            wait_started = now;
-            std::cout << "[Multiplayer] Race ready. Waiting for player 2 (timeout "
-                      << (settings.connect_timeout_ms / 1000) << "s)" << std::endl;
-        }
+        if (!local_leader && !local_joiner)
+            return false;
 
-        const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - wait_started).count();
-        if (waited >= settings.connect_timeout_ms)
+        const auto now = clock::now();
+        race_waiting = true;
+
+        if (local_leader && !peer_joined_for_race())
         {
+            if (now < offer_deadline)
+                return true;
+
             session_bypassed = true;
             race_waiting = false;
-            start_scheduled = false;
-            std::cout << "[Multiplayer] Start timeout - continuing this race without sync"
-                      << std::endl;
+            std::cout << "[Multiplayer] Join timeout - starting single player" << std::endl;
             return false;
         }
 
-        if (!peer_connected || !remote.ready)
+        if (!peer_connected || !remote.ready || remote.lobby_token != active_lobby_token)
             return true;
 
         if (settings.role == multiplayer_detail::ROLE_MASTER)
         {
             if (advertised_start_token <= consumed_start_token)
             {
-                advertised_start_token = ++master_token_counter;
+                advertised_start_token = ++start_token_counter;
                 if (advertised_start_token == 0)
-                    advertised_start_token = ++master_token_counter;
+                    advertised_start_token = ++start_token_counter;
 
                 scheduled_start_token = advertised_start_token;
                 start_deadline = now + std::chrono::milliseconds(settings.start_delay_ms);
@@ -417,10 +463,9 @@ public:
                           << settings.start_delay_ms << " ms" << std::endl;
             }
         }
-        else
+        else if (!start_scheduled || scheduled_start_token <= consumed_start_token)
         {
-            if (!start_scheduled || scheduled_start_token <= consumed_start_token)
-                return true;
+            return true;
         }
 
         if (!start_scheduled || now < start_deadline)
@@ -428,10 +473,7 @@ public:
 
         consumed_start_token = scheduled_start_token;
         race_waiting = false;
-
-        // Both engines now begin from the same deterministic random stream.
-        // This is important because Attract Mode can otherwise consume a
-        // different number of random values before the players press START.
+        race_started = true;
         outils::reset_random_seed();
         outrun.tick_counter = 0;
 
@@ -439,15 +481,53 @@ public:
         return false;
     }
 
-    // Called after the local Ferrari has submitted its normal in-game sprite.
-    // Network traffic itself is handled separately by network_tick().
+    void draw_lobby_overlay()
+    {
+        if (!settings.enabled || session_bypassed || race_started)
+            return;
+
+        if (local_joiner)
+        {
+            char color_line[32];
+            std::snprintf(color_line, sizeof(color_line), "CAR COLOR  %s", color_name(config.engine.car_pal));
+            ohud.blit_text_big(8, "PLAYER 2 JOINED");
+            ohud.blit_text_new(11, 12, color_line, OHud::GREEN);
+            ohud.blit_text_new(6, 15, "LEFT RIGHT OR GEAR CHANGES COLOR", OHud::GREY);
+            ohud.blit_text_new(8, 18, "WAITING FOR PLAYER 1...", OHud::PINK);
+            return;
+        }
+
+        if (remote_offer_available())
+        {
+            const uint32_t remaining = remote_join_remaining_ms();
+            const uint32_t seconds = (remaining + 999) / 1000;
+            char timer_line[32];
+            std::snprintf(timer_line, sizeof(timer_line), "JOIN TIME  %u", static_cast<unsigned>(seconds));
+            ohud.blit_text_big(8, "JOIN GAME NOW");
+            ohud.blit_text_new(14, 12, timer_line, OHud::PINK);
+            ohud.blit_text_new(9, 15, "PRESS START TO JOIN", OHud::GREEN);
+            return;
+        }
+
+        if (local_leader && outrun.game_state == GS_INIT_GAME && !peer_joined_for_race())
+        {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                offer_deadline - clock::now()).count();
+            const int seconds = remaining <= 0 ? 0 : static_cast<int>((remaining + 999) / 1000);
+            char timer_line[32];
+            std::snprintf(timer_line, sizeof(timer_line), "WAITING FOR PLAYER 2  %d", seconds);
+            ohud.blit_text_big(8, "MULTIPLAYER");
+            ohud.blit_text_new(8, 13, timer_line, OHud::PINK);
+        }
+    }
+
     void draw_remote_ferrari()
     {
-        if (session_bypassed || !peer_connected || !remote.active ||
-            outrun.game_state != GS_INGAME ||
-            remote.game_state != GS_INGAME ||
+        if (session_bypassed || !race_started || !peer_connected || !remote.active ||
+            outrun.game_state != GS_INGAME || remote.game_state != GS_INGAME ||
             remote.mode != static_cast<uint8_t>(outrun.cannonball_mode) ||
             remote.stage_lookup_off != oroad.stage_lookup_off ||
+            remote.player_no == 0 || local_player_no == 0 ||
             oroad.road_ctrl == ORoad::ROAD_OFF)
         {
             return;
@@ -457,16 +537,14 @@ public:
                                    static_cast<int64_t>(static_cast<int32_t>(oroad.road_pos));
         const int32_t depth_delta = static_cast<int32_t>((road_delta * 8) >> 16);
         const int32_t z_calc = 0x1F0 - depth_delta;
-
         if (z_calc < 4 || z_calc >= 0x1FC)
             return;
 
         const uint16_t z = static_cast<uint16_t>(z_calc);
         const int local_x = static_cast<int>(oinitengine.car_x_pos) +
-                            multiplayer_detail::lane_offset(settings.role);
+                            multiplayer_detail::lane_offset(local_player_no);
         const int remote_x = static_cast<int>(remote.car_x) +
-                             multiplayer_detail::lane_offset(
-                                 static_cast<multiplayer_detail::Role>(remote.role));
+                             multiplayer_detail::lane_offset(remote.player_no);
 
         int32_t screen_x = road_curve_at(z) +
                            (((local_x - remote_x) * static_cast<int32_t>(z)) >> 9);
@@ -536,17 +614,34 @@ private:
     bool have_remote = false;
     bool peer_connected = false;
     bool error_reported = false;
+
+    bool local_leader = false;
+    bool local_joiner = false;
+    bool remote_joined = false;
+    bool remote_setup_applied = false;
+    bool join_window_expired = false;
     bool race_waiting = false;
+    bool race_started = false;
     bool session_bypassed = false;
     bool start_scheduled = false;
+    uint8_t local_player_no = 0;
+
     uint32_t sequence = 0;
-    uint32_t master_token_counter = 0;
+    uint32_t lobby_token_counter = 0;
+    uint32_t active_lobby_token = 0;
+    uint32_t start_token_counter = 0;
     uint32_t advertised_start_token = 0;
     uint32_t scheduled_start_token = 0;
     uint32_t consumed_start_token = 0;
+
     clock::time_point last_received{};
-    clock::time_point wait_started{};
+    clock::time_point offer_deadline{};
+    clock::time_point remote_offer_deadline{};
     clock::time_point start_deadline{};
+
+    bool join_shifter_initialized = false;
+    bool join_shifter_low = false;
+
 #ifdef _WIN32
     bool winsock_started = false;
 #endif
@@ -555,7 +650,6 @@ private:
     {
         if (settings_loaded)
             return;
-
         settings = multiplayer_detail::load_settings();
         settings_loaded = true;
         if (settings.enabled)
@@ -590,7 +684,6 @@ private:
     {
         if (socket_ready)
             return true;
-
 #ifdef _WIN32
         if (!winsock_started)
         {
@@ -603,14 +696,12 @@ private:
             winsock_started = true;
         }
 #endif
-
         socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (socket == multiplayer_detail::INVALID_SOCKET_VALUE)
         {
             error_once("could not create UDP socket");
             return false;
         }
-
         if (!multiplayer_detail::set_nonblocking(socket))
         {
             error_once("could not make UDP socket non-blocking");
@@ -644,9 +735,182 @@ private:
             std::cout << "[Multiplayer] Connecting to master "
                       << settings.host << ':' << settings.port << std::endl;
         }
-
         socket_ready = true;
         return true;
+    }
+
+    bool can_claim_lobby() const
+    {
+        return outrun.game_state == GS_INIT || outrun.game_state == GS_ATTRACT ||
+               outrun.game_state == GS_BEST1 || outrun.game_state == GS_LOGO;
+    }
+
+    bool remote_offer_available() const
+    {
+        return peer_connected && remote.lobby_offer && remote.lobby_token != 0 &&
+               !local_leader && !local_joiner && clock::now() < remote_offer_deadline;
+    }
+
+    uint32_t remote_join_remaining_ms() const
+    {
+        if (!remote_offer_available())
+            return 0;
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            remote_offer_deadline - clock::now()).count();
+        return remaining <= 0 ? 0 : static_cast<uint32_t>(remaining);
+    }
+
+    bool peer_joined_for_race() const
+    {
+        return peer_connected && remote.joined && remote.lobby_token == active_lobby_token;
+    }
+
+    void begin_leader_lobby()
+    {
+        local_leader = true;
+        local_joiner = false;
+        local_player_no = 1;
+        remote_joined = false;
+        remote_setup_applied = false;
+        join_window_expired = false;
+        race_started = false;
+        session_bypassed = false;
+        start_scheduled = false;
+        advertised_start_token = consumed_start_token;
+        scheduled_start_token = 0;
+        active_lobby_token = ++lobby_token_counter;
+        if (active_lobby_token == 0)
+            active_lobby_token = ++lobby_token_counter;
+        offer_deadline = clock::now() + std::chrono::milliseconds(settings.connect_timeout_ms);
+        std::cout << "[Multiplayer] Player 1 opened join window for "
+                  << (settings.connect_timeout_ms / 1000) << " seconds" << std::endl;
+    }
+
+    void accept_remote_lobby()
+    {
+        local_joiner = true;
+        local_leader = false;
+        local_player_no = 2;
+        active_lobby_token = remote.lobby_token;
+        remote_setup_applied = false;
+        race_started = false;
+        session_bypassed = false;
+        join_shifter_initialized = false;
+        input.keys[Input::START] = false;
+        std::cout << "[Multiplayer] Player 2 joined race " << active_lobby_token << std::endl;
+    }
+
+    void handle_lobby_input()
+    {
+        if (race_started || session_bypassed)
+            return;
+
+        const bool start_pressed = input.has_pressed(Input::START);
+
+        if (start_pressed && remote_offer_available())
+            accept_remote_lobby();
+        else if (start_pressed && !local_leader && !local_joiner && can_claim_lobby())
+            begin_leader_lobby();
+
+        if (!local_joiner)
+            return;
+
+        input.keys[Input::START] = false;
+        input.keys[Input::VIEWPOINT] = false;
+        input.keys[Input::VIEW1] = false;
+        input.keys[Input::VIEW2] = false;
+        input.keys[Input::VIEW3] = false;
+
+        int direction = 0;
+        if (input.has_pressed(Input::LEFT) || input.has_pressed(Input::GEAR1))
+            direction = -1;
+        else if (input.has_pressed(Input::RIGHT) || input.has_pressed(Input::GEAR2))
+            direction = 1;
+
+        if (config.controls.gear == config.controls.GEAR_PRESS)
+        {
+            const bool low_now = input.is_pressed(Input::GEAR1);
+            if (!join_shifter_initialized)
+            {
+                join_shifter_initialized = true;
+                join_shifter_low = low_now;
+            }
+            else if (low_now != join_shifter_low)
+            {
+                direction = low_now ? -1 : 1;
+                join_shifter_low = low_now;
+            }
+        }
+
+        if (direction != 0)
+        {
+            int color = config.engine.car_pal + direction;
+            while (color < 0) color += 8;
+            while (color >= 8) color -= 8;
+            config.engine.car_pal = color;
+            oferrari.ferrari_pal = palette_for_color(color);
+            osoundint.queue_sound(sound::BEEP1);
+            input.keys[Input::LEFT] = false;
+            input.keys[Input::RIGHT] = false;
+        }
+    }
+
+    void update_lobby_state()
+    {
+        const auto now = clock::now();
+
+        if (remote.lobby_offer && remote.lobby_token != 0 && !local_leader)
+            remote_offer_deadline = now + std::chrono::milliseconds(remote.join_remaining_ms);
+
+        if (local_leader && !peer_joined_for_race() && now >= offer_deadline)
+            join_window_expired = true;
+
+        if (local_joiner && !peer_connected)
+            reset_lobby();
+
+        if (race_started && outrun.game_state == GS_ATTRACT)
+            reset_lobby();
+    }
+
+    void apply_remote_race_setup_if_ready()
+    {
+        if (!local_joiner || remote_setup_applied || !peer_connected ||
+            !remote.setup_locked || remote.lobby_token != active_lobby_token ||
+            remote.player_no != 1)
+        {
+            return;
+        }
+
+        if (remote.japanese && !roms.load_japanese_roms())
+        {
+            std::cerr << "[Multiplayer] Japanese ROMs unavailable on Player 2" << std::endl;
+            session_bypassed = true;
+            return;
+        }
+
+        config.engine.jap = remote.japanese ? 1 : 0;
+        config.engine.prototype = remote.prototype ? 1 : 0;
+        config.engine.dip_time = remote.dip_time;
+        config.engine.dip_traffic = remote.dip_traffic;
+        outrun.select_course(remote.japanese, remote.prototype);
+
+        outrun.cannonball_mode = remote.mode;
+        outrun.endless_mode = remote.endless;
+        outrun.custom_traffic = remote.custom_traffic;
+        outrun.freeze_timer = remote.freeze_timer;
+        outrun.ttrial.level = remote.ttrial_level;
+        outrun.ttrial.traffic = remote.ttrial_traffic;
+        outrun.ttrial.laps = remote.ttrial_laps;
+        omusic.set_multiplayer_music_selected(remote.music_selected);
+
+        ohiscore.init_def_scores();
+        if (outrun.cannonball_mode != Outrun::MODE_TTRIAL)
+            config.load_scores(outrun.cannonball_mode == Outrun::MODE_ORIGINAL);
+
+        outrun.game_state = GS_INIT_GAME;
+        remote_setup_applied = true;
+        video.clear_text_ram();
+        std::cout << "[Multiplayer] Player 2 applied Player 1 race setup" << std::endl;
     }
 
     multiplayer_detail::State make_local_state()
@@ -654,10 +918,16 @@ private:
         multiplayer_detail::State state;
         state.sequence = ++sequence;
         state.role = settings.role;
-        state.active = outrun.game_state == GS_INGAME;
-        state.ready = outrun.game_state == GS_INIT_GAME && !session_bypassed;
+        state.active = race_started && outrun.game_state == GS_INGAME;
+        state.ready = outrun.game_state == GS_INIT_GAME && !session_bypassed &&
+                      (local_leader || (local_joiner && remote_setup_applied));
+        state.lobby_offer = local_leader && !join_window_expired && !race_started;
+        state.joined = local_joiner && !race_started;
+        state.setup_locked = local_leader && outrun.game_state == GS_INIT_GAME && !session_bypassed;
         state.game_state = static_cast<uint8_t>(outrun.game_state);
         state.mode = static_cast<uint8_t>(outrun.cannonball_mode);
+        state.player_no = local_player_no;
+        state.japanese = config.engine.jap != 0;
         state.stage_lookup_off = oroad.stage_lookup_off;
         state.stage = ostats.cur_stage;
         state.road_pos = static_cast<int32_t>(oroad.road_pos);
@@ -667,6 +937,14 @@ private:
         state.route_selected = oinitengine.route_selected;
         state.split_state = static_cast<uint8_t>(oinitengine.rd_split_state & 0xFF);
         state.ferrari_pal = oferrari.ferrari_pal;
+        state.lobby_token = active_lobby_token;
+
+        if (state.lobby_offer)
+        {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                offer_deadline - clock::now()).count();
+            state.join_remaining_ms = remaining <= 0 ? 0 : static_cast<uint32_t>(remaining);
+        }
 
         if (settings.role == multiplayer_detail::ROLE_MASTER &&
             advertised_start_token > consumed_start_token)
@@ -678,6 +956,20 @@ private:
                 remaining <= 0 ? 0 : std::min<int64_t>(remaining, 65535));
         }
 
+        if (local_leader)
+        {
+            state.endless = outrun.endless_mode;
+            state.ttrial_level = outrun.ttrial.level;
+            state.ttrial_traffic = outrun.ttrial.traffic;
+            state.ttrial_laps = outrun.ttrial.laps;
+            state.music_selected = static_cast<uint8_t>(std::max(0, omusic.get_music_selected()));
+            state.custom_traffic = static_cast<uint8_t>(outrun.custom_traffic);
+            state.freeze_timer = outrun.freeze_timer;
+            state.dip_time = static_cast<uint8_t>(config.engine.dip_time);
+            state.dip_traffic = static_cast<uint8_t>(config.engine.dip_traffic);
+            state.prototype = config.engine.prototype != 0;
+        }
+
         return state;
     }
 
@@ -685,12 +977,10 @@ private:
     {
         if (!peer_addr_valid)
             return;
-
         const auto packet = multiplayer_detail::encode(make_local_state());
         ::sendto(socket,
                  reinterpret_cast<const char*>(packet.data()),
-                 static_cast<int>(packet.size()),
-                 0,
+                 static_cast<int>(packet.size()), 0,
                  reinterpret_cast<const sockaddr*>(&peer_addr),
                  static_cast<int>(sizeof(peer_addr)));
     }
@@ -707,13 +997,9 @@ private:
             socklen_t from_len = sizeof(from);
 #endif
             const int received = static_cast<int>(::recvfrom(
-                socket,
-                reinterpret_cast<char*>(packet.data()),
-                static_cast<int>(packet.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &from_len));
-
+                socket, reinterpret_cast<char*>(packet.data()),
+                static_cast<int>(packet.size()), 0,
+                reinterpret_cast<sockaddr*>(&from), &from_len));
             if (received <= 0)
                 break;
 
@@ -734,16 +1020,21 @@ private:
             have_remote = true;
             last_received = clock::now();
 
+            if (local_leader && incoming.joined && incoming.lobby_token == active_lobby_token && !remote_joined)
+            {
+                remote_joined = true;
+                std::cout << "[Multiplayer] Player 2 joined" << std::endl;
+            }
+
             if (settings.role == multiplayer_detail::ROLE_SLAVE &&
                 outrun.game_state == GS_INIT_GAME &&
                 incoming.start_token > consumed_start_token &&
                 incoming.start_token != scheduled_start_token)
             {
                 scheduled_start_token = incoming.start_token;
-                start_deadline = clock::now() +
-                                 std::chrono::milliseconds(incoming.start_after_ms);
+                start_deadline = clock::now() + std::chrono::milliseconds(incoming.start_after_ms);
                 start_scheduled = true;
-                std::cout << "[Multiplayer] Master scheduled synchronized start in "
+                std::cout << "[Multiplayer] Shared start scheduled in "
                           << incoming.start_after_ms << " ms" << std::endl;
             }
         }
@@ -758,7 +1049,6 @@ private:
                 clock::now() - last_received).count();
             connected_now = age <= multiplayer_detail::PEER_TIMEOUT_MS;
         }
-
         if (connected_now == peer_connected)
             return;
 
@@ -779,6 +1069,48 @@ private:
                   << std::endl;
     }
 
+    void reset_lobby()
+    {
+        local_leader = false;
+        local_joiner = false;
+        remote_joined = false;
+        remote_setup_applied = false;
+        join_window_expired = false;
+        race_waiting = false;
+        race_started = false;
+        session_bypassed = false;
+        start_scheduled = false;
+        local_player_no = 0;
+        active_lobby_token = 0;
+        advertised_start_token = consumed_start_token;
+        scheduled_start_token = 0;
+        join_shifter_initialized = false;
+    }
+
+    static uint16_t palette_for_color(int color)
+    {
+        static const uint16_t palettes[] =
+        {
+            OFerrari::PAL_RED, OFerrari::PAL_BLUE, OFerrari::PAL_YELLOW,
+            OFerrari::PAL_GREEN, OFerrari::PAL_CYAN, OFerrari::PAL_BLACK,
+            OFerrari::PAL_WHITE, OFerrari::PAL_SILVER,
+        };
+        if (color < 0 || color >= 8)
+            color = 0;
+        return palettes[color];
+    }
+
+    static const char* color_name(int color)
+    {
+        static const char* names[] =
+        {
+            "RED", "BLUE", "YELLOW", "GREEN", "CYAN", "BLACK", "WHITE", "SILVER"
+        };
+        if (color < 0 || color >= 8)
+            color = 0;
+        return names[color];
+    }
+
     int32_t road_curve_at(uint16_t z) const
     {
         const int32_t camera = oinitengine.camera_x_off;
@@ -790,13 +1122,11 @@ private:
             const int32_t displacement = ((car + width + camera) * z) >> 9;
             return static_cast<int32_t>(oroad.road1_h[z]) - displacement;
         }
-
         if (oroad.road_ctrl == ORoad::ROAD_R1_SPLIT)
         {
             const int32_t displacement = ((car + width + camera) * z) >> 9;
             return displacement - static_cast<int32_t>(oroad.road1_h[z]);
         }
-
         const int32_t displacement = ((car - width + camera) * z) >> 9;
         return static_cast<int32_t>(oroad.road0_h[z]) - displacement;
     }
