@@ -10,6 +10,7 @@
 // Keep the multiplayer include first on Windows so Winsock2 is loaded before
 // any platform headers that may be reached through SDL/config includes.
 #include "engine/multiplayer.hpp"
+#include "main.hpp"
 #include "engine/car_palette_hotkey.hpp"
 #include "engine/car_palette_state.hpp"
 
@@ -41,6 +42,7 @@
 namespace
 {
     bool ttrial_goal_randomized = false;
+    bool multiplayer_audio_rewound = false;
 
     // The final two entries in OSprites::jump_table are unused by the original
     // game. The network Ferrari already uses +22, so use that same dedicated
@@ -172,11 +174,33 @@ void OFerrari::tick()
     // state before the preserved tick sees START1.
     multiplayer.prepare_grid_ferrari();
 
-    // Keep Player 2 on the already proven crash-free audio path. Calling
-    // play_music() a second time from Player 2's first START1 Ferrari tick has
-    // repeatedly crashed that instance, especially with external MP3/WAV audio.
-    // Player 1 may restart its preview here; proper two-sided synchronization
-    // will use preload + common playback release instead of reloading on P2.
+    if (!multiplayer.grid_start_active())
+        multiplayer_audio_rewound = false;
+
+#ifdef COMPILE_SOUND_CODE
+    // MP3/WAV tracks are already loaded (or loading) by the normal music path.
+    // Rewind the existing decoded stream exactly once at the shared START1
+    // boundary on BOTH machines. This never reopens the file and never touches
+    // the loader thread, so Player 2 stays on the proven crash-free path while
+    // both external tracks get the same sample-zero time origin.
+    if (multiplayer.grid_start_active() &&
+        outrun.game_state == GS_START1 &&
+        !multiplayer_audio_rewound)
+    {
+        const bool rewound = cannonball::audio.rewind_audio_file();
+        multiplayer_audio_rewound = true;
+
+        if (rewound)
+        {
+            std::cout << "[Multiplayer] External audio rewound at shared grid" << std::endl;
+        }
+    }
+#endif
+
+    // Keep Player 2 away from the second play_music()/loader call that has
+    // repeatedly crashed it. Player 1 may still reset its preview/YM path here;
+    // external MP3/WAV synchronization is handled safely above by rewinding the
+    // already loaded stream on both machines.
     if (multiplayer.player_number() == 1)
         multiplayer.start_grid_music_once();
 
