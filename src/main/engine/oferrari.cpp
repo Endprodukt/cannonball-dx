@@ -52,6 +52,7 @@ namespace
     bool join_right_down = false;
     bool join_gear1_down = false;
     bool join_gear2_down = false;
+    int join_last_colour = -1;
 
     int normalize_join_colour(int colour)
     {
@@ -66,6 +67,7 @@ namespace
         join_right_down = false;
         join_gear1_down = false;
         join_gear2_down = false;
+        join_last_colour = -1;
     }
 
     void handle_join_colour_input(bool active)
@@ -80,12 +82,30 @@ namespace
         const bool right_now = input.is_pressed(Input::RIGHT);
         const bool gear1_now = input.is_pressed(Input::GEAR1);
         const bool gear2_now = input.is_pressed(Input::GEAR2);
+        const int configured_colour = normalize_join_colour(config.engine.car_pal);
+
+        // multiplayer.hpp still contains the original has_pressed()-based colour
+        // path. If it already handled this input earlier in OInputs::tick, adopt
+        // that result and do not apply a second step here.
+        if (join_last_colour >= 0 && configured_colour != join_last_colour)
+        {
+            join_last_colour = configured_colour;
+            oferrari.ferrari_pal = FERRARI_PALETTES[configured_colour];
+            join_left_down = left_now;
+            join_right_down = right_now;
+            join_gear1_down = gear1_now;
+            join_gear2_down = gear2_now;
+            return;
+        }
+
+        if (join_last_colour < 0)
+            join_last_colour = configured_colour;
 
         int direction = 0;
 
         // Use our own edge latches here. Multiplayer networking runs at the
-        // beginning of OInputs::tick, so relying on has_pressed() there can miss
-        // the user's LEFT/RIGHT edge depending on the input backend/order.
+        // beginning of OInputs::tick, so relying only on has_pressed() there can
+        // miss LEFT/RIGHT on some keyboard, D-pad and wheel button paths.
         if (left_now && !join_left_down)
             direction = -1;
         else if (right_now && !join_right_down)
@@ -103,14 +123,10 @@ namespace
         if (direction == 0)
             return;
 
-        const int colour = normalize_join_colour(config.engine.car_pal + direction);
+        const int colour = normalize_join_colour(configured_colour + direction);
         config.engine.car_pal = colour;
         oferrari.ferrari_pal = FERRARI_PALETTES[colour];
-
-        // Do not let the colour-select buttons steer the Attract car underneath
-        // the waiting overlay after they have been consumed here.
-        input.keys[Input::LEFT] = false;
-        input.keys[Input::RIGHT] = false;
+        join_last_colour = colour;
 
         osoundint.queue_sound(sound::BEEP1);
         std::cout << "[Multiplayer] Player 2 colour -> " << colour << std::endl;
