@@ -256,8 +256,14 @@ void OFerrari::tick()
     }
     else if (outrun.game_state == GS_INGAME && !outrun.tick_frame)
     {
-        // Gameplay goes back to the original single network-Ferrari path. No
-        // extra handoff copy, no near-grid clone and no car_x_pos manipulation.
+        // Gameplay goes back to the original single network-Ferrari path. The
+        // current multiplayer renderer still asks OSprites for a generic object
+        // shadow, which does not match OutRun's dedicated Ferrari shadow and can
+        // look like a second stacked car at distance. Keep the ordered body but
+        // discard only that just-created generic shadow entry for now.
+        const uint16_t shadows_before = osprites.spr_cnt_shadow;
         multiplayer.draw_remote_ferrari();
+        if (osprites.spr_cnt_shadow > shadows_before)
+            osprites.spr_cnt_shadow = shadows_before;
     }
 }
