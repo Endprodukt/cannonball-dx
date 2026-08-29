@@ -42,6 +42,19 @@ public:
     // rumble. This exposes the real cursor and has no side effects on FFB.
     int get_music_position() const { return cursor_pos; }
 
+    // Multiplayer Player 2 never enters Music Select. The race leader sends the
+    // selected track and this setter primes the same normal play_music() path
+    // before both instances cross the synchronized GS_INIT_GAME barrier.
+    void set_multiplayer_music_selected(int selection)
+    {
+        if (selection < 0)
+            selection = 0;
+
+        music_selected = static_cast<uint8_t>(selection);
+        cursor_pos = selection;
+        last_music_selected = selection;
+    }
+
     // Selected game mode while the music screen is active. External cabinet
     // outputs use this to blink only the matching VIEW 1/2/3 lamp. Endless is
     // intentionally reported as Continuous because both live on VIEW2.
