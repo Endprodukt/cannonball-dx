@@ -105,7 +105,7 @@ namespace
 
         const int colour = normalize_join_colour(config.engine.car_pal + direction);
         config.engine.car_pal = colour;
-        ferrari_pal = FERRARI_PALETTES[colour];
+        oferrari.ferrari_pal = FERRARI_PALETTES[colour];
 
         // Do not let the colour-select buttons steer the Attract car underneath
         // the waiting overlay after they have been consumed here.
@@ -148,7 +148,7 @@ namespace
         peer->y = 221;
         peer->zoom = 0x7F;
         peer->addr = roms.rom0p->read32(outrun.adr.sprite_ferrari_frames);
-        peer->pal_src = ferrari_pal;
+        peer->pal_src = oferrari.ferrari_pal;
         peer->hidden = 0;
 
         osprites.map_palette(peer);
