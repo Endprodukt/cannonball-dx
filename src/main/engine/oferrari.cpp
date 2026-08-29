@@ -7,6 +7,9 @@
     car_palette_hotkey.hpp so the key can also be handled there safely.
 ***************************************************************************/
 
+// Keep the multiplayer include first on Windows so Winsock2 is loaded before
+// any platform headers that may be reached through SDL/config includes.
+#include "engine/multiplayer.hpp"
 #include "engine/car_palette_hotkey.hpp"
 #include "engine/car_palette_state.hpp"
 
@@ -96,4 +99,9 @@ void OFerrari::tick()
     }
 
     tick_base();
+
+    // The normal Ferrari has now submitted its sprites, while sprite_copy()
+    // has not run yet. This is the safe point to exchange network state and
+    // submit the remote Ferrari into the same sprite-ordering pass.
+    multiplayer.tick();
 }
