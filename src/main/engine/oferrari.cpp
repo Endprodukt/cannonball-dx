@@ -56,9 +56,14 @@ void OFerrari::cycle_car_palette()
 
 void OFerrari::tick()
 {
-    // Once the game has returned to the attract/front-end sequence, discard
-    // any temporary Music Select/race colour and restore the saved default.
-    if (outrun.game_state >= GS_INIT && outrun.game_state <= GS_LOGO)
+    // Player 2 deliberately remains in the Attract engine while waiting for
+    // Player 1 to finish the shared race setup. During that lobby state the
+    // joiner owns a temporary per-race colour, so do not restore the saved
+    // attract/default colour every frame.
+    const bool multiplayer_lobby_colour = multiplayer.keep_lobby_color();
+
+    if (!multiplayer_lobby_colour &&
+        outrun.game_state >= GS_INIT && outrun.game_state <= GS_LOGO)
     {
         const int color =
             car_palette_state::get_default(config.engine.car_pal);
@@ -70,9 +75,10 @@ void OFerrari::tick()
     {
         cycle_car_palette();
 
-        // Only F10 changes made while the actual attract drive is running
-        // become the persistent default. In-game F10 changes stay temporary.
-        if (outrun.game_state == GS_ATTRACT)
+        // F10 is also useful on Player 2's waiting screen, but that temporary
+        // choice belongs only to this race. Never turn it into the persistent
+        // Attract default while the multiplayer lobby owns the colour.
+        if (!multiplayer_lobby_colour && outrun.game_state == GS_ATTRACT)
         {
             car_palette_state::set_default(config.engine.car_pal);
             config.save();
@@ -100,11 +106,9 @@ void OFerrari::tick()
 
     tick_base();
 
-    // Networking is serviced globally by OInputs::tick so it remains alive in
-    // menus and Music Select. Only submit the peer sprite here, after the local
-    // Ferrari has been processed and before sprite_copy() orders the frame.
-    // draw_remote_ferrari() deliberately renders only during GS_INGAME; mixing
-    // a normal road sprite with the scripted START1/2/3 Ferrari caused the two
-    // cars to overlap or jump during the old unsynchronised intro.
+    // Draw the lobby text after the normal Attract/Music/Ferrari logic so the
+    // underlying game cannot immediately overwrite JOIN GAME NOW / PLAYER 2
+    // JOINED. The remote Ferrari itself remains an in-race-only road sprite.
+    multiplayer.draw_lobby_overlay();
     multiplayer.draw_remote_ferrari();
 }
