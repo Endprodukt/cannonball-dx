@@ -112,6 +112,16 @@ void OFerrari::tick()
     multiplayer.prepare_grid_ferrari();
     multiplayer.start_grid_music_once();
 
+    // The original START1 counter contains an extra 50 ticks for the Ferrari
+    // drive-in. There is no drive-in in multiplayer, so remove that dead time.
+    // START1/2/3 then become three equal countdown phases before GO.
+    if (multiplayer.grid_start_active() &&
+        outrun.game_state == GS_START1 &&
+        ostats.frame_counter > ostats.frame_reset)
+    {
+        ostats.frame_counter = ostats.frame_reset;
+    }
+
     tick_base();
 
     // Draw the lobby text after the normal Attract/Music/Ferrari logic so the
