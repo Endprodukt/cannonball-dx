@@ -32,6 +32,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 - **True multi-device input** - wheel, pedals, shifter and buttons can come from different USB devices
 - **Unified binding matrix** - separate Keyboard, Gamepad and Wheel assignments
+- **Selectable Gamepad / Wheel input mode** - only the selected device family controls the car and receives its matching feedback, while both remain usable in the frontend menus
 - **Direct VIEW1 / VIEW2 / VIEW3 controls** plus the original view-cycle button
 - **Expanded force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
 - **Gamepad rumble** with separate enable and strength settings
@@ -136,6 +137,17 @@ The binding editor provides separate **Keyboard**, **Gamepad** and **Wheel** col
 
 Device bindings store a persistent device signature so assignments survive changes in SDL device order.
 
+### Input Mode: Gamepad / Wheel
+
+The Controls menu includes an **INPUT MODE** setting that can be switched with Left/Right between **GAMEPAD** and **WHEEL**. This selects which physical input family is allowed to control the car during gameplay; changing the mode does **not** erase or replace any saved bindings.
+
+- **GAMEPAD:** Gamepad bindings control the car. Gamepad rumble remains active, while wheel force feedback and centering are disabled. Wheel-specific FFB settings are hidden from the normal Controls menu.
+- **WHEEL:** Wheel bindings control the car. Wheel force feedback and centering are active according to the saved FFB settings, while gamepad rumble is disabled. Gamepad-rumble settings are hidden from the normal Controls menu.
+- **Frontend menus:** Keyboard, Gamepad and Wheel controls remain available regardless of the selected Input Mode, so a gamepad can still navigate the menus while WHEEL is selected and wheel buttons can still navigate while GAMEPAD is selected.
+- **Binding editor:** Keyboard, Gamepad and Wheel columns are always available, allowing both setups to be configured before switching modes.
+
+For existing configuration files that do not yet contain an Input Mode setting, CannonBall DX selects **WHEEL** when existing Wheel bindings are present; otherwise it defaults to **GAMEPAD**.
+
 ### Default Keyboard Controls
 
 - **Start:** `S`
@@ -170,10 +182,11 @@ While the car is driving in Attract Mode, press **F10** to cycle the Ferrari col
 
 | XML option | Values | Description |
 |---|---:|---|
-| `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback |
+| `controls.input_mode` | `0` / `1` | Active gameplay input family: `0` = Gamepad, `1` = Wheel |
+| `controls.analog.haptic enabled` | `0` / `1` | Enables steering-wheel force feedback when WHEEL input mode is active |
 | `controls.analog.haptic.strength` | `10`-`100` | Overall FFB strength in percent |
 | `controls.analog.haptic.centering_strength` | `0`-`100` | Spring reference strength used by the configurable spring curve |
-| `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level |
+| `controls.rumble` | `0.0`-`1.0` | Gamepad rumble level when GAMEPAD input mode is active |
 
 The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the centering reference level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available. The default configuration intentionally leaves headroom so individual effects can be increased without starting at the 100 ceiling. Effect strengths and spring percentages use a clear **0-100** range.
 
