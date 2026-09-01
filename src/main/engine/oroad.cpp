@@ -10,12 +10,7 @@
 #include <string>
 
 #include "stdint.hpp"
-
-// Extend ORoad with a private base tick declaration while preserving the
-// original public tick() API used by the rest of the engine.
-#define tick tick_base(); void tick
 #include "engine/oroad.hpp"
-#undef tick
 
 // Pre-include every dependency used by the preserved implementation before the
 // temporary tick macro below so it can affect only ORoad::tick's definition.
