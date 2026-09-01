@@ -55,6 +55,7 @@ public:
     const std::vector<InputDevice>& get_devices() const;
     std::string get_device_signature(SDL_JoystickID device) const;
     SDL_JoystickID get_gamepad_device() const;
+    bool is_gamepad_device(SDL_JoystickID device) const;
 
     // Convert bindings created by the first matrix implementation into the
     // new logical GAMEPAD/WHEEL groups when the editor is opened.
@@ -185,6 +186,7 @@ private:
     // SDL Joystick / Keypad
     SDL_Joystick *stick;
     SDL_GameController* controller;
+    std::vector<SDL_GameController*> secondary_controllers;
     SDL_Haptic* haptic;
     int hidraw_device = -1; // used for gamepad haptics where not supported by SDL
 
@@ -233,6 +235,7 @@ private:
     void scan_joysticks_base();
     void add_joystick_base(int);
     void remove_joystick_base(SDL_JoystickID);
+    void close_joy_base();
     void set_button_binding_base(int, int, SDL_JoystickID);
     void handle_key_down_base(SDL_Keysym*);
     void handle_key_up_base(SDL_Keysym*);
