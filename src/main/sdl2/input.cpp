@@ -49,6 +49,23 @@ namespace
     SDL_Keycode display_toggle_key = SDLK_UNKNOWN;
     int last_fullscreen_mode = video_settings_t::MODE_FULL;
 
+    bool is_vjoy_device(int device_index)
+    {
+        const Uint16 vendor = SDL_JoystickGetDeviceVendor(device_index);
+        const Uint16 product = SDL_JoystickGetDeviceProduct(device_index);
+
+        // vJoy's standard virtual HID descriptor uses 1234:BEAD. Keep these
+        // devices on the raw SDL_Joystick/WHEEL path even if SDL's controller
+        // database happens to classify them as a GameController.
+        if (vendor == 0x1234 && product == 0xBEAD)
+            return true;
+
+        // Some vJoy variants do not expose VID/PID consistently through every
+        // SDL backend, so retain a conservative name fallback as well.
+        const char* name = SDL_JoystickNameForIndex(device_index);
+        return name && std::string(name).find("vJoy") != std::string::npos;
+    }
+
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
         if (!keysym)
@@ -185,6 +202,9 @@ void Input::ensure_gamecontroller_open()
 
     for (int i = 0; i < count; i++)
     {
+        if (is_vjoy_device(i))
+            continue;
+
         if (!SDL_IsGameController(i))
             continue;
 
@@ -263,6 +283,9 @@ SDL_JoystickID Input::get_gamepad_device() const
 
     for (int i = 0; i < count; i++)
     {
+        if (is_vjoy_device(i))
+            continue;
+
         if (!SDL_IsGameController(i))
             continue;
 
@@ -1018,6 +1041,9 @@ void Input::set_rumble(bool enable, float strength, int mode)
 
         for (int i = 0; i < count; i++)
         {
+            if (is_vjoy_device(i))
+                continue;
+
             if (!SDL_IsGameController(i))
                 continue;
 
