@@ -301,7 +301,6 @@ void Audio::tick()
         // and unpause the device
         SDL_PauseAudioDevice(dev, 0);
         audio_paused = 0;
-        std::cout << "Audio started" << std::endl;
     }
 }
 
@@ -477,7 +476,6 @@ void Audio::load_audio(const char* filename)
 
     // now launch a new loader
     if ((ext == "wav") || (ext == "mp3")) {
-        std::cout << "Loading audio file " << filename << std::endl;
         load_wav(filename);
     }
     else {
@@ -630,9 +628,7 @@ void Audio::thread_load_wav(std::string filename)
         uint32_t i = i_samples;
         while (i>0) { if (wavfile.data[--i] > lowerthreshold) break; }
         if (i>0) i_samples = i; // chop off any quiet bit at the end
-        // 5) Log fully loaded
-        std::cout << "Audio file " << filename << " loaded (" << wavfile.total_length << " samples)." << std::endl;
-        // 6) Mark load complete; set fade position (for cross-fade on repeat)
+        // 5) Mark load complete; set fade position (for cross-fade on repeat)
         {
             std::lock_guard<std::mutex> lock(wav_mutex);
             wavfile.total_length  = i_samples; // trim to what we actually filled
@@ -641,8 +637,6 @@ void Audio::thread_load_wav(std::string filename)
             wavfile.fade_pos      =   (wavfile.total_length > FADE_LEN)
                                     ? (wavfile.total_length - FADE_LEN) : 0;
         }
-    } else {
-        std::cout << "Audio file load cancelled." << std::endl;
     }
 }
 
