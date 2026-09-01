@@ -61,29 +61,6 @@ namespace
         return joystick ? SDL_JoystickInstanceID(joystick) : -1;
     }
 
-    bool raw_axis_is_mapped_to_controller(SDL_JoystickID device, int raw_axis)
-    {
-        SDL_GameController* pad = SDL_GameControllerFromInstanceID(device);
-        if (!pad)
-            return false;
-
-        for (int ax = 0; ax < SDL_CONTROLLER_AXIS_MAX; ax++)
-        {
-            const SDL_GameControllerButtonBind binding =
-                SDL_GameControllerGetBindForAxis(
-                    pad,
-                    static_cast<SDL_GameControllerAxis>(ax));
-
-            if (binding.bindType == SDL_CONTROLLER_BINDTYPE_AXIS &&
-                binding.value.axis == raw_axis)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
         if (!keysym)
@@ -128,6 +105,8 @@ namespace
 
         config.videoRestartRequired = true;
 
+        // Hotkeys operate outside the frontend save latch, so persist the new
+        // mode immediately just like the existing F-key enhancement toggles.
         if (!config.save())
             std::cerr << "Unable to save display mode setting." << std::endl;
     }
@@ -170,12 +149,22 @@ namespace
         const std::string& signature,
         int group)
     {
+        // Runtime GAMEPAD/WHEEL inputs are mutually exclusive. The binding
+        // editor does not use this matcher, so both columns remain configurable
+        // regardless of which family currently drives the game.
+        if (group != config.input_mode())
+            return false;
+
         if (!binding_is_group(stored_device, group))
             return false;
 
         const std::string stored_signature =
             raw_binding_signature(stored_device);
 
+        // Wildcards came from the old single-pad configuration where the
+        // physical device was not stored. They are unsafe in the new grouped
+        // input model because the same physical gamepad also emits raw joystick
+        // events with different button numbers. Never execute them.
         if (stored_signature == "*")
             return false;
 
@@ -441,6 +430,32 @@ bool Input::is_gamepad_device(SDL_JoystickID device) const
     return false;
 }
 
+bool Input::raw_axis_is_mapped_to_controller(
+    SDL_JoystickID device,
+    int raw_axis) const
+{
+    SDL_GameController* pad =
+        SDL_GameControllerFromInstanceID(device);
+    if (!pad || raw_axis < 0)
+        return false;
+
+    for (int ax = 0; ax < SDL_CONTROLLER_AXIS_MAX; ax++)
+    {
+        const SDL_GameControllerAxisBind bind =
+            SDL_GameControllerGetBindForAxis(
+                pad,
+                static_cast<SDL_GameControllerAxis>(ax));
+
+        if (bind.bindType == SDL_CONTROLLER_BINDTYPE_AXIS &&
+            bind.value.axis == raw_axis)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Input::normalize_device_bindings()
 {
     auto signature_is_gamepad = [&](const std::string& signature)
@@ -462,6 +477,9 @@ void Input::normalize_device_bindings()
 
     auto& bindings = config.controls.device_bindings;
 
+    // The old single-pad configuration did not remember a physical device.
+    // Those wildcard bindings cannot be mapped safely because SDL raw joystick
+    // button numbers and SDL GameController button numbers are not the same.
     bindings.erase(
         std::remove_if(
             bindings.begin(),
@@ -481,11 +499,19 @@ void Input::normalize_device_bindings()
             continue;
 
         if (signature_is_gamepad(binding.device))
+        {
             binding.device = std::string(GAMEPAD_PREFIX) + binding.device;
+        }
         else
+        {
             binding.device = std::string(WHEEL_PREFIX) + binding.device;
+        }
     }
 
+    // Every matrix cell represents exactly one logical assignment. Older
+    // versions allowed WHEEL bindings to accumulate and could therefore show
+    // MULTI after rebinding. Keep only the most recently stored binding for
+    // each target in each logical column.
     std::vector<int> last_gamepad_binding(
         device_binding_t::TARGET_VIEW3 + 1,
         -1);
@@ -568,6 +594,8 @@ void Input::set_device_binding(
 
     auto& bindings = config.controls.device_bindings;
 
+    // A matrix cell is a single assignment. Rebinding always replaces the
+    // previous button, hat or axis for that target in the selected column.
     bindings.erase(
         std::remove_if(
             bindings.begin(),
@@ -774,6 +802,10 @@ void Input::apply_device_axis(
         {
             int raw = value;
 
+            // wheel_zone is a WHEEL saturation setting, not a gamepad-stick
+            // setting. Applying the default 75% wheel zone to a GameController
+            // makes a thumbstick far too sensitive. Only raw wheel devices use
+            // the saturation boost.
             if (group == BINDING_WHEEL &&
                 wheel_zone > 0 && wheel_zone < 100)
             {
@@ -785,6 +817,9 @@ void Input::apply_device_axis(
             else if (raw > SDL_JOYSTICK_AXIS_MAX)
                 raw = SDL_JOYSTICK_AXIS_MAX;
 
+            // Map the signed SDL range exactly to OutRun's 0x40..0xC0 range.
+            // This keeps 0 exactly centred and allows both endpoints to reach
+            // the game's full steering limits symmetrically.
             int adjusted = CENTRE;
 
             if (raw >= 0)
@@ -834,6 +869,9 @@ void Input::reset_axis_config()
 {
     reset_axis_config_base();
 
+    // Snapshot every raw axis at the moment a new cell starts listening. Axis
+    // detection is then based on movement away from that position instead of
+    // assuming a particular centre/rest value. This is important for pedals.
     axis_capture_baseline.clear();
     SDL_JoystickUpdate();
 
@@ -921,6 +959,8 @@ void Input::capture_raw_axis_motion(
         return;
     }
 
+    // A device/axis may have appeared after the snapshot. Remember its current
+    // value; the next real movement can then be detected normally.
     AxisCaptureBaseline baseline;
     baseline.device = device;
     baseline.axis = ax;
@@ -966,8 +1006,12 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+    const bool wheel_runtime = config.input_mode_is_wheel();
 
-    if (!controller_side)
+    // Only the active WHEEL family is allowed to run the legacy raw joystick
+    // mapping. Raw events are still captured below when the editor explicitly
+    // listens to WHEEL, even if GAMEPAD is the current runtime mode.
+    if (!controller_side && wheel_runtime)
     {
         const int saved_steer = axis[0];
         const int saved_accel = axis[1];
@@ -1024,7 +1068,11 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
     const SDL_JoystickID saved_axis_last_device = axis_last_device;
     const SDL_JoystickID saved_axis_config_device = axis_config_device;
 
-    handle_axis(evt->which, evt->axis, evt->value);
+    // The old single-controller mapping is runtime input, not capture input.
+    // Keep it dormant in WHEEL mode while retaining the dedicated GAMEPAD
+    // capture logic below.
+    if (config.input_mode_is_gamepad())
+        handle_axis(evt->which, evt->axis, evt->value);
 
     if (capture_group != -1)
     {
@@ -1082,14 +1130,16 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+    const bool wheel_runtime = config.input_mode_is_wheel();
+    const bool wheel_capture = capture_group == BINDING_WHEEL;
 
-    if (!controller_side || capture_group == BINDING_WHEEL)
+    if (wheel_capture || (!controller_side && wheel_runtime))
     {
         joy_button = evt->button;
         joy_button_device = evt->which;
     }
 
-    if (!controller_side)
+    if (!controller_side && wheel_runtime)
         handle_joy(evt->which, evt->button, true);
 
     apply_device_button(
@@ -1098,7 +1148,7 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
         true,
         BINDING_WHEEL);
 
-    if (!controller_side)
+    if (!controller_side && wheel_runtime)
     {
         auto matches = [&](int slot)
         {
@@ -1116,8 +1166,10 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+    const bool wheel_runtime = config.input_mode_is_wheel();
+    const bool wheel_capture = capture_group == BINDING_WHEEL;
 
-    if ((!controller_side || capture_group == BINDING_WHEEL) &&
+    if ((wheel_capture || (!controller_side && wheel_runtime)) &&
         joy_button == evt->button &&
         joy_button_device == evt->which)
     {
@@ -1125,7 +1177,7 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
         joy_button_device = -1;
     }
 
-    if (!controller_side)
+    if (!controller_side && wheel_runtime)
         handle_joy(evt->which, evt->button, false);
 
     apply_device_button(
@@ -1134,7 +1186,7 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
         false,
         BINDING_WHEEL);
 
-    if (!controller_side)
+    if (!controller_side && wheel_runtime)
     {
         auto matches = [&](int slot)
         {
@@ -1153,7 +1205,7 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
 
-    if (!controller_side)
+    if (!controller_side && config.input_mode_is_wheel())
     {
         handle_joy_hat_base(evt);
     }
@@ -1186,33 +1238,43 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 {
+    const bool gamepad_runtime = config.input_mode_is_gamepad();
+    const bool gamepad_capture = capture_group == BINDING_GAMEPAD;
     const int16_t saved_button = joy_button;
     const SDL_JoystickID saved_button_device = joy_button_device;
 
-    handle_controller_down_base(evt);
+    if (gamepad_runtime || gamepad_capture)
+        handle_controller_down_base(evt);
 
+    // When WHEEL is being captured the raw joystick button number must survive
+    // the duplicate standardized controller event.
     if (capture_group == BINDING_WHEEL)
     {
         joy_button = saved_button;
         joy_button_device = saved_button_device;
     }
 
-    switch (evt->button)
+    // The D-pad is a permanent menu/navigation fallback only while GAMEPAD is
+    // the selected runtime family. Keyboard arrows remain available in both.
+    if (gamepad_runtime)
     {
-        case SDL_CONTROLLER_BUTTON_DPAD_UP:
-            keys[UP] = true;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-            keys[DOWN] = true;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-            keys[LEFT] = true;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-            keys[RIGHT] = true;
-            break;
-        default:
-            break;
+        switch (evt->button)
+        {
+            case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                keys[UP] = true;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                keys[DOWN] = true;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+                keys[LEFT] = true;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                keys[RIGHT] = true;
+                break;
+            default:
+                break;
+        }
     }
 
     apply_device_button(
@@ -1221,23 +1283,29 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
         true,
         BINDING_GAMEPAD);
 
-    auto matches = [&](int slot)
+    if (gamepad_runtime)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = true;
-    if (matches(16)) keys[VIEW2] = true;
-    if (matches(17)) keys[VIEW3] = true;
+        if (matches(15)) keys[VIEW1] = true;
+        if (matches(16)) keys[VIEW2] = true;
+        if (matches(17)) keys[VIEW3] = true;
+    }
 }
 
 void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
 {
+    const bool gamepad_runtime = config.input_mode_is_gamepad();
+    const bool gamepad_capture = capture_group == BINDING_GAMEPAD;
     const int16_t saved_button = joy_button;
     const SDL_JoystickID saved_button_device = joy_button_device;
 
-    handle_controller_up_base(evt);
+    if (gamepad_runtime || gamepad_capture)
+        handle_controller_up_base(evt);
 
     if (capture_group == BINDING_WHEEL)
     {
@@ -1245,22 +1313,25 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
         joy_button_device = saved_button_device;
     }
 
-    switch (evt->button)
+    if (gamepad_runtime)
     {
-        case SDL_CONTROLLER_BUTTON_DPAD_UP:
-            keys[UP] = false;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-            keys[DOWN] = false;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-            keys[LEFT] = false;
-            break;
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-            keys[RIGHT] = false;
-            break;
-        default:
-            break;
+        switch (evt->button)
+        {
+            case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                keys[UP] = false;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                keys[DOWN] = false;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+                keys[LEFT] = false;
+                break;
+            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                keys[RIGHT] = false;
+                break;
+            default:
+                break;
+        }
     }
 
     apply_device_button(
@@ -1269,19 +1340,43 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
         false,
         BINDING_GAMEPAD);
 
-    auto matches = [&](int slot)
+    if (gamepad_runtime)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = false;
-    if (matches(16)) keys[VIEW2] = false;
-    if (matches(17)) keys[VIEW3] = false;
+        if (matches(15)) keys[VIEW1] = false;
+        if (matches(16)) keys[VIEW2] = false;
+        if (matches(17)) keys[VIEW3] = false;
+    }
 }
 
 void Input::set_rumble(bool enable, float strength, int mode)
 {
+    static bool blocked_by_input_mode = false;
+
+    // GAMEPAD rumble is mutually exclusive with wheel mode. Stop it once when
+    // the mode changes, then leave the controller motors untouched until the
+    // user selects GAMEPAD again.
+    if (!config.input_mode_is_gamepad())
+    {
+        if (!blocked_by_input_mode && controller)
+            SDL_GameControllerRumble(controller, 0, 0, 0);
+
+        blocked_by_input_mode = true;
+        return;
+    }
+
+    blocked_by_input_mode = false;
+
+    // Gamepad rumble is a completely separate output path from steering-wheel
+    // force feedback. Never route this through forcefeedback::set(), because
+    // that backend belongs to the wheel and previously swallowed pad rumble.
+
+    // Drop a stale controller handle after hot-unplug.
     if (controller && !SDL_GameControllerGetAttached(controller))
     {
         SDL_GameControllerClose(controller);
@@ -1289,12 +1384,17 @@ void Input::set_rumble(bool enable, float strength, int mode)
         rumble_supported = false;
     }
 
+    // Lazily ensure that SDL GameControllers are open. The primary controller
+    // remains the rumble target; secondary devices are input-only.
     if (!controller)
         ensure_gamecontroller_open();
 
     if (!controller || !rumble_supported)
     {
 #ifndef WIN32
+        // Preserve the legacy Linux-specific hidraw/evdev fallback. Windows is
+        // intentionally excluded: its DirectInput backend is wheel FFB, not
+        // gamepad rumble.
         set_rumble_base(enable, strength, mode);
 #endif
         return;
@@ -1306,6 +1406,10 @@ void Input::set_rumble(bool enable, float strength, int mode)
         return;
     }
 
+    // During the game the contextual mixer is authoritative. In particular,
+    // do not let the old D_MOTOR-derived 'enable' argument gate pad effects:
+    // D_MOTOR changes with the wheel/cabinet FFB mode and caused off-road
+    // rumble to disappear whenever FFB was enabled.
     if (cannonball::state == cannonball::STATE_GAME)
     {
         if (gamepad_rumble::dispatch(controller, 0, 0, 45) != 0)
@@ -1329,6 +1433,7 @@ void Input::set_rumble(bool enable, float strength, int mode)
     const Uint16 intensity =
         static_cast<Uint16>(strength * 65535.0f);
 
+    // Retain the legacy non-game behaviour for compatibility/probing.
     const Uint16 low_frequency = mode == 1 ? 0 : intensity;
     const Uint16 high_frequency = intensity;
 
@@ -1338,6 +1443,8 @@ void Input::set_rumble(bool enable, float strength, int mode)
             high_frequency,
             40) != 0)
     {
+        // Treat a failed request as a stale/unusable handle. A later call can
+        // probe again, which also makes reconnects recover automatically.
         SDL_GameControllerClose(controller);
         controller = nullptr;
         rumble_supported = false;
