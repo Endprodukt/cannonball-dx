@@ -12,6 +12,7 @@
 #define scan_joysticks        scan_joysticks_base
 #define add_joystick          add_joystick_base
 #define remove_joystick       remove_joystick_base
+#define close_joy             close_joy_base
 #define set_button_binding     set_button_binding_base
 #define handle_key_down        handle_key_down_base
 #define handle_key_up          handle_key_up_base
@@ -28,6 +29,7 @@
 #undef scan_joysticks
 #undef add_joystick
 #undef remove_joystick
+#undef close_joy
 #undef set_button_binding
 #undef handle_key_down
 #undef handle_key_up
@@ -49,6 +51,15 @@ namespace
 
     SDL_Keycode display_toggle_key = SDLK_UNKNOWN;
     int last_fullscreen_mode = video_settings_t::MODE_FULL;
+
+    SDL_JoystickID controller_instance(SDL_GameController* pad)
+    {
+        if (!pad)
+            return -1;
+
+        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(pad);
+        return joystick ? SDL_JoystickInstanceID(joystick) : -1;
+    }
 
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
@@ -173,15 +184,50 @@ namespace
 
 void Input::ensure_gamecontroller_open()
 {
-    if (controller && SDL_GameControllerGetAttached(controller))
-        return;
-
-    if (controller)
+    if (controller && !SDL_GameControllerGetAttached(controller))
     {
         SDL_GameControllerClose(controller);
         controller = nullptr;
         rumble_supported = false;
     }
+
+    for (auto it = secondary_controllers.begin();
+         it != secondary_controllers.end();)
+    {
+        SDL_GameController* pad = *it;
+        if (!pad || !SDL_GameControllerGetAttached(pad))
+        {
+            if (pad)
+                SDL_GameControllerClose(pad);
+            it = secondary_controllers.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    if (!controller && !secondary_controllers.empty())
+    {
+        controller = secondary_controllers.front();
+        secondary_controllers.erase(secondary_controllers.begin());
+        rumble_supported =
+            SDL_GameControllerRumble(controller, 0, 0, 0) == 0;
+    }
+
+    auto already_open = [&](SDL_JoystickID instance_id)
+    {
+        if (controller_instance(controller) == instance_id)
+            return true;
+
+        for (SDL_GameController* pad : secondary_controllers)
+        {
+            if (controller_instance(pad) == instance_id)
+                return true;
+        }
+
+        return false;
+    };
 
     const int count = SDL_NumJoysticks();
 
@@ -190,24 +236,45 @@ void Input::ensure_gamecontroller_open()
         if (!SDL_IsGameController(i))
             continue;
 
+        const SDL_JoystickID instance_id =
+            SDL_JoystickGetDeviceInstanceID(i);
+
+        if (instance_id < 0 || already_open(instance_id))
+            continue;
+
         SDL_GameController* candidate = SDL_GameControllerOpen(i);
         if (!candidate)
             continue;
 
-        controller = candidate;
-        gamepad = true;
-        rumble_supported =
-            SDL_GameControllerRumble(controller, 0, 0, 0) == 0;
+        const bool primary = controller == nullptr;
+        if (primary)
+        {
+            controller = candidate;
+            rumble_supported =
+                SDL_GameControllerRumble(controller, 0, 0, 0) == 0;
+        }
+        else
+        {
+            secondary_controllers.push_back(candidate);
+        }
 
-        const char* name = SDL_GameControllerName(controller);
+        const char* name = SDL_GameControllerName(candidate);
         std::cout
-            << "GameController input enabled: "
-            << (name ? name : "Unknown GameController")
-            << (rumble_supported ? " with rumble" : " without rumble")
-            << std::endl;
+            << (primary
+                ? "GameController input enabled: "
+                : "Additional GameController input enabled: ")
+            << (name ? name : "Unknown GameController");
 
-        return;
+        if (primary)
+            std::cout << (rumble_supported ? " with rumble" : " without rumble");
+
+        std::cout << std::endl;
     }
+
+    gamepad =
+        controller != nullptr ||
+        !secondary_controllers.empty() ||
+        !devices.empty();
 }
 
 void Input::scan_joysticks()
@@ -268,22 +335,43 @@ void Input::add_joystick(int device_index)
 
 void Input::remove_joystick(SDL_JoystickID instance_id)
 {
-    if (controller)
+    if (controller_instance(controller) == instance_id)
     {
-        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
+        SDL_GameControllerRumble(controller, 0, 0, 0);
+        SDL_GameControllerClose(controller);
+        controller = nullptr;
+        rumble_supported = false;
+    }
 
-        if (joystick && SDL_JoystickInstanceID(joystick) == instance_id)
+    for (auto it = secondary_controllers.begin();
+         it != secondary_controllers.end();)
+    {
+        if (controller_instance(*it) == instance_id)
         {
-            SDL_GameControllerRumble(controller, 0, 0, 0);
-            SDL_GameControllerClose(controller);
-            controller = nullptr;
-            rumble_supported = false;
+            SDL_GameControllerClose(*it);
+            it = secondary_controllers.erase(it);
+        }
+        else
+        {
+            ++it;
         }
     }
 
     remove_joystick_base(instance_id);
     ensure_gamecontroller_open();
     normalize_device_bindings();
+}
+
+void Input::close_joy()
+{
+    for (SDL_GameController* pad : secondary_controllers)
+    {
+        if (pad)
+            SDL_GameControllerClose(pad);
+    }
+    secondary_controllers.clear();
+
+    close_joy_base();
 }
 
 const std::vector<InputDevice>& Input::get_devices() const
@@ -299,35 +387,55 @@ std::string Input::get_device_signature(SDL_JoystickID device) const
 
 SDL_JoystickID Input::get_gamepad_device() const
 {
-    const int count = SDL_NumJoysticks();
+    const SDL_JoystickID primary = controller_instance(controller);
+    if (primary >= 0)
+        return primary;
 
-    for (int i = 0; i < count; i++)
+    for (SDL_GameController* pad : secondary_controllers)
     {
-        if (!SDL_IsGameController(i))
-            continue;
-
-        const SDL_JoystickID instance_id =
-            SDL_JoystickGetDeviceInstanceID(i);
-
+        const SDL_JoystickID instance_id = controller_instance(pad);
         if (instance_id >= 0)
             return instance_id;
-    }
-
-    if (controller)
-    {
-        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
-        if (joystick)
-            return SDL_JoystickInstanceID(joystick);
     }
 
     return -1;
 }
 
+bool Input::is_gamepad_device(SDL_JoystickID device) const
+{
+    if (device < 0)
+        return false;
+
+    if (controller_instance(controller) == device)
+        return true;
+
+    for (SDL_GameController* pad : secondary_controllers)
+    {
+        if (controller_instance(pad) == device)
+            return true;
+    }
+
+    return false;
+}
+
 void Input::normalize_device_bindings()
 {
-    const SDL_JoystickID gamepad_device = get_gamepad_device();
-    const std::string gamepad_signature =
-        get_device_signature(gamepad_device);
+    auto signature_is_gamepad = [&](const std::string& signature)
+    {
+        if (signature.empty())
+            return false;
+
+        for (const auto& device : devices)
+        {
+            if (make_device_signature(device) == signature &&
+                is_gamepad_device(device.instance_id))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    };
 
     auto& bindings = config.controls.device_bindings;
 
@@ -349,15 +457,10 @@ void Input::normalize_device_bindings()
         if (has_group_prefix(binding.device))
             continue;
 
-        if (!gamepad_signature.empty() &&
-            binding.device == gamepad_signature)
-        {
+        if (signature_is_gamepad(binding.device))
             binding.device = std::string(GAMEPAD_PREFIX) + binding.device;
-        }
         else
-        {
             binding.device = std::string(WHEEL_PREFIX) + binding.device;
-        }
     }
 
     std::vector<int> last_gamepad_binding(
@@ -429,9 +532,7 @@ void Input::set_device_binding(
         return;
     }
 
-    const SDL_JoystickID gamepad_device = get_gamepad_device();
-
-    if (group == BINDING_GAMEPAD && device != gamepad_device)
+    if (group == BINDING_GAMEPAD && !is_gamepad_device(device))
         return;
 
     const std::string signature = get_device_signature(device);
@@ -724,31 +825,32 @@ void Input::reset_axis_config()
         }
     }
 
-    // The old controller capture required a large excursion followed by a
-    // return through a second threshold. Snapshot the standardized controller
-    // axes as well so GAMEPAD capture can use the same one-movement behaviour
-    // as raw WHEEL capture.
-    if (controller && SDL_GameControllerGetAttached(controller))
-    {
-        SDL_GameControllerUpdate();
-        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
-        const SDL_JoystickID device =
-            joystick ? SDL_JoystickInstanceID(joystick) : -1;
+    SDL_GameControllerUpdate();
 
-        if (device >= 0)
+    auto snapshot_controller = [&](SDL_GameController* pad)
+    {
+        if (!pad || !SDL_GameControllerGetAttached(pad))
+            return;
+
+        const SDL_JoystickID device = controller_instance(pad);
+        if (device < 0)
+            return;
+
+        for (int ax = 0; ax < SDL_CONTROLLER_AXIS_MAX; ax++)
         {
-            for (int ax = 0; ax < SDL_CONTROLLER_AXIS_MAX; ax++)
-            {
-                AxisCaptureBaseline baseline;
-                baseline.device = device;
-                baseline.axis = CONTROLLER_AXIS_BASE + ax;
-                baseline.value = SDL_GameControllerGetAxis(
-                    controller,
-                    static_cast<SDL_GameControllerAxis>(ax));
-                axis_capture_baseline.push_back(baseline);
-            }
+            AxisCaptureBaseline baseline;
+            baseline.device = device;
+            baseline.axis = CONTROLLER_AXIS_BASE + ax;
+            baseline.value = SDL_GameControllerGetAxis(
+                pad,
+                static_cast<SDL_GameControllerAxis>(ax));
+            axis_capture_baseline.push_back(baseline);
         }
-    }
+    };
+
+    snapshot_controller(controller);
+    for (SDL_GameController* pad : secondary_controllers)
+        snapshot_controller(pad);
 }
 
 void Input::capture_raw_axis_motion(
@@ -862,9 +964,6 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
     if (any_matrix_axis_target(device_binding_t::TARGET_BRAKE))
         axis[2] = -1;
 
-    // The matrix editor owns axis capture while either device column is
-    // listening. Preserve the legacy wizard state around handle_axis(), then
-    // detect the selected standardized GAMEPAD axis from its captured baseline.
     const int saved_axis_last = axis_last;
     const int saved_axis_counter = axis_counter;
     const int saved_axis_config = axis_config;
@@ -1137,32 +1236,7 @@ void Input::set_rumble(bool enable, float strength, int mode)
     }
 
     if (!controller)
-    {
-        const int count = SDL_NumJoysticks();
-
-        for (int i = 0; i < count; i++)
-        {
-            if (!SDL_IsGameController(i))
-                continue;
-
-            SDL_GameController* candidate = SDL_GameControllerOpen(i);
-            if (!candidate)
-                continue;
-
-            controller = candidate;
-            gamepad = true;
-            rumble_supported =
-                SDL_GameControllerRumble(controller, 0, 0, 0) == 0;
-
-            const char* name = SDL_GameControllerName(controller);
-            std::cout
-                << "GameController input enabled: "
-                << (name ? name : "Unknown GameController")
-                << (rumble_supported ? " with rumble" : " without rumble")
-                << std::endl;
-            break;
-        }
-    }
+        ensure_gamecontroller_open();
 
     if (!controller || !rumble_supported)
     {
