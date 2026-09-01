@@ -43,9 +43,9 @@ public:
     void set_hat_binding(int slot, int hat, int value, SDL_JoystickID device);
 
     // The editor has three logical input groups. KEYBOARD is handled by the
-    // existing keyconfig array. GAMEPAD uses the primary SDL GameController.
-    // WHEEL is an aggregate bucket for raw non-gamepad SDL joystick devices
-    // such as wheels, pedals, shifters, button boxes and joysticks.
+    // existing keyconfig array. GAMEPAD uses the standardized SDL controller
+    // path. WHEEL uses raw SDL joystick events. A physical device may expose
+    // both paths and can therefore be assigned in either column deliberately.
     enum binding_groups
     {
         BINDING_GAMEPAD = 0,
@@ -67,6 +67,10 @@ public:
         int value,
         SDL_JoystickID device,
         int group);
+
+    // Tell the input layer which logical event path the binding editor is
+    // currently listening to. Runtime bindings always keep both paths active.
+    void set_capture_group(int group);
 
     // Clear all assignments for one action in one logical group. WHEEL may
     // contain several physical devices and several controls per action.
@@ -193,6 +197,9 @@ private:
 
     int wheel_zone;
     int wheel_dead;
+
+    // Binding editor capture source. -1 means normal runtime/browse mode.
+    int capture_group = -1;
 
     // Last axis used
     int axis_last , axis_counter, axis_config;
