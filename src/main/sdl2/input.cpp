@@ -61,6 +61,29 @@ namespace
         return joystick ? SDL_JoystickInstanceID(joystick) : -1;
     }
 
+    bool raw_axis_is_mapped_to_controller(SDL_JoystickID device, int raw_axis)
+    {
+        SDL_GameController* pad = SDL_GameControllerFromInstanceID(device);
+        if (!pad)
+            return false;
+
+        for (int ax = 0; ax < SDL_CONTROLLER_AXIS_MAX; ax++)
+        {
+            const SDL_GameControllerButtonBind binding =
+                SDL_GameControllerGetBindForAxis(
+                    pad,
+                    static_cast<SDL_GameControllerAxis>(ax));
+
+            if (binding.bindType == SDL_CONTROLLER_BINDTYPE_AXIS &&
+                binding.value.axis == raw_axis)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
         if (!keysym)
@@ -730,6 +753,10 @@ void Input::apply_device_axis(
     if (!analog)
         return;
 
+    const bool raw_gamepad_axis =
+        group == BINDING_GAMEPAD &&
+        ax >= RAW_GAMEPAD_AXIS_BASE;
+
     const std::string signature = get_device_signature(device);
     if (signature.empty())
         return;
@@ -786,7 +813,7 @@ void Input::apply_device_axis(
 
             int working = invert[invert_slot] ? -value : value;
             int scaled =
-                group == BINDING_GAMEPAD
+                group == BINDING_GAMEPAD && !raw_gamepad_axis
                     ? working / 0x80
                     : (working + 0x8000) / 0x100;
 
@@ -858,8 +885,22 @@ void Input::capture_raw_axis_motion(
     const uint8_t ax,
     const int16_t value)
 {
-    if (capture_group != BINDING_WHEEL)
+    bool raw_gamepad_fallback = false;
+
+    if (capture_group == BINDING_GAMEPAD)
+    {
+        if (!is_gamepad_device(device) ||
+            raw_axis_is_mapped_to_controller(device, ax))
+        {
+            return;
+        }
+
+        raw_gamepad_fallback = true;
+    }
+    else if (capture_group != BINDING_WHEEL)
+    {
         return;
+    }
 
     const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
 
@@ -870,7 +911,10 @@ void Input::capture_raw_axis_motion(
 
         if (std::abs(static_cast<int>(value) - baseline.value) >= threshold)
         {
-            axis_config = ax;
+            axis_config =
+                raw_gamepad_fallback
+                    ? RAW_GAMEPAD_AXIS_BASE + ax
+                    : ax;
             axis_config_device = device;
             axis_counter = 2;
         }
@@ -944,11 +988,21 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
     }
 
     capture_raw_axis_motion(evt->which, evt->axis, evt->value);
+
     apply_device_axis(
         evt->which,
         evt->axis,
         evt->value,
         BINDING_WHEEL);
+
+    if (controller_side)
+    {
+        apply_device_axis(
+            evt->which,
+            RAW_GAMEPAD_AXIS_BASE + evt->axis,
+            evt->value,
+            BINDING_GAMEPAD);
+    }
 }
 
 void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
