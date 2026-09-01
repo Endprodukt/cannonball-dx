@@ -228,6 +228,7 @@ private:
     void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void capture_raw_axis_motion(SDL_JoystickID device, const uint8_t axis, const int16_t value);
+    bool raw_axis_is_mapped_to_controller(SDL_JoystickID device, int raw_axis) const;
     int scale_trigger(const int);
 
     void apply_device_button(SDL_JoystickID device, int button, bool is_pressed, int group);
