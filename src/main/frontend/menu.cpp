@@ -48,6 +48,7 @@ namespace
     const int COL_GAMEPAD = 1;
     const int COL_WHEEL = 2;
 
+    const char* INPUT_MODE_LABEL = "INPUT MODE ";
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
@@ -68,6 +69,12 @@ namespace
         return (config.controls.centering_strength * 40 + 50) / 100;
     }
 
+    std::string input_mode_menu_text()
+    {
+        return std::string(INPUT_MODE_LABEL) +
+            (config.input_mode_is_wheel() ? "WHEEL" : "GAMEPAD");
+    }
+
     std::string gamepad_rumble_menu_text()
     {
         return std::string(GAMEPAD_RUMBLE_LABEL) +
@@ -86,6 +93,42 @@ namespace
         const int seconds = config.selection_timer_seconds();
         return std::string(SELECTION_TIMER_LABEL) +
             (seconds == 0 ? "OFF" : std::to_string(seconds) + " SEC");
+    }
+
+    void sync_feedback_for_input_mode()
+    {
+        if (config.input_mode_is_gamepad())
+        {
+            // Keep every stored FFB preference intact, but stop all wheel
+            // effects while GAMEPAD owns the driving controls.
+            forcefeedback::set_enabled(false);
+            return;
+        }
+
+        // WHEEL mode owns feedback. Stop any gamepad motors immediately; the
+        // input layer blocks future rumble calls until GAMEPAD is selected.
+        input.set_rumble(false, config.controls.rumble, 0);
+
+        if (!config.controls.haptic)
+        {
+            forcefeedback::set_enabled(false);
+            return;
+        }
+
+        if (!forcefeedback::is_supported())
+        {
+            forcefeedback::init(
+                config.controls.max_force,
+                config.controls.min_force,
+                config.controls.force_duration);
+        }
+
+        if (forcefeedback::is_supported())
+        {
+            forcefeedback::set_gain(config.controls.ffb_strength);
+            forcefeedback::set_enabled(true);
+            forcefeedback::set_centering_strength(low_speed_spring_strength());
+        }
     }
 
     const char* ROW_LABELS[BINDING_ROWS] =
@@ -275,6 +318,17 @@ void Menu::tick()
     MenuBase::tick();
     oinputs.input_steering = steering_before;
 
+    // Apply feedback ownership once when INPUT MODE changes, including the
+    // first frontend tick after startup. This prevents a connected inactive
+    // wheel or gamepad from physically reacting to the other control family.
+    static int synced_input_mode = -1;
+    const int current_input_mode = config.input_mode();
+    if (current_input_mode != synced_input_mode)
+    {
+        sync_feedback_for_input_mode();
+        synced_input_mode = current_input_mode;
+    }
+
     // Persist every changed menu setting without requiring an explicit SAVE
     // item. A renderer restart is completed by the outer main loop after this
     // tick, so defer that one write until the following menu tick.
@@ -295,7 +349,9 @@ void Menu::tick()
         cannonball::state == cannonball::STATE_MENU &&
         state == STATE_MENU;
 
-    if (!frontend_menu || !config.controls.haptic)
+    if (!frontend_menu ||
+        !config.controls.haptic ||
+        !config.input_mode_is_wheel())
     {
         menu_spring_active = false;
         menu_spring_strength = -1;
@@ -362,39 +418,75 @@ void Menu::populate_controls()
     // rumble options should be visible. enable=false guarantees no vibration.
     input.set_rumble(false, config.controls.rumble, 0);
 
-    // Use the short label requested by the new unified binding editor and put
-    // it first whenever the Controls menu is rebuilt.
     ENTRY_REDEFJOY = "CONFIG INPUTS";
     MenuBase::populate_controls();
 
-    // Rumble now has a real enable switch. Strength remains a separate setting
-    // and no longer doubles as an OFF state, so disabling it preserves level.
-    const auto rumble_strength = std::find_if(
-        menu_controls.begin(),
-        menu_controls.end(),
-        [](const std::string& entry)
-        {
-            return starts_with_label(entry, ENTRY_RUMBLE);
-        });
-
-    if (rumble_strength != menu_controls.end())
-        menu_controls.insert(rumble_strength, gamepad_rumble_menu_text());
-
-    const auto it = std::find(
-        menu_controls.begin(),
-        menu_controls.end(),
-        std::string(ENTRY_REDEFJOY));
-
-    if (it != menu_controls.end() && it != menu_controls.begin())
+    auto erase_entry = [&](const char* label)
     {
-        const std::string entry = *it;
-        menu_controls.erase(it);
-        menu_controls.insert(menu_controls.begin(), entry);
+        menu_controls.erase(
+            std::remove_if(
+                menu_controls.begin(),
+                menu_controls.end(),
+                [&](const std::string& entry)
+                {
+                    return starts_with_label(entry, label);
+                }),
+            menu_controls.end());
+    };
+
+    if (config.input_mode_is_gamepad())
+    {
+        // Wheel-output settings are irrelevant while GAMEPAD owns the game.
+        erase_entry(ENTRY_FFB);
+        erase_entry(ENTRY_FFB_STRENGTH);
+        erase_entry(ENTRY_CENTERING_STRENGTH);
+
+        // Rumble enable remains independent from the saved strength.
+        const auto rumble_strength = std::find_if(
+            menu_controls.begin(),
+            menu_controls.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, ENTRY_RUMBLE);
+            });
+
+        if (rumble_strength != menu_controls.end())
+            menu_controls.insert(rumble_strength, gamepad_rumble_menu_text());
     }
+    else
+    {
+        // WHEEL mode never drives gamepad motors, so hide both rumble controls.
+        erase_entry(ENTRY_RUMBLE);
+        erase_entry(GAMEPAD_RUMBLE_LABEL);
+    }
+
+    // INPUT MODE is always the first item. CONFIG INPUTS remains available in
+    // both modes so the inactive device family can be prepared before switching.
+    erase_entry(INPUT_MODE_LABEL);
+    erase_entry(ENTRY_REDEFJOY);
+    menu_controls.insert(menu_controls.begin(), input_mode_menu_text());
+    menu_controls.insert(menu_controls.begin() + 1, std::string(ENTRY_REDEFJOY));
 }
 
 bool Menu::select_pressed()
 {
+    // INPUT MODE uses left/right like the other value-style settings. Keyboard
+    // arrows remain active in both modes; the selected physical input family
+    // may also provide them when appropriate.
+    if (menu_selected == &menu_controls &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_controls.size()) &&
+        starts_with_label(menu_controls[cursor], INPUT_MODE_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        config.cycle_input_mode();
+        config_save_pending = true;
+        populate_controls();
+        cursor = 0;
+        osoundint.queue_sound(sound::BEEP1);
+        return false;
+    }
+
     // RETURN is a permanent frontend confirm key. Use an edge rather than
     // key_press so holding the key cannot confirm several nested menus at once.
     static bool return_was_down = false;
@@ -466,7 +558,17 @@ bool Menu::select_pressed()
         cursor >= 0 &&
         cursor < static_cast<int>(menu_controls.size()))
     {
-        const std::string& option = menu_controls[cursor];
+        const std::string option = menu_controls[cursor];
+
+        if (starts_with_label(option, INPUT_MODE_LABEL))
+        {
+            // Enter remains a convenient fallback for cabinets without a
+            // separate left/right pair.
+            config.cycle_input_mode();
+            populate_controls();
+            cursor = 0;
+            return false;
+        }
 
         if (starts_with_label(option, GAMEPAD_RUMBLE_LABEL))
         {

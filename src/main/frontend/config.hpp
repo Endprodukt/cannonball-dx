@@ -274,6 +274,12 @@ public:
     const static int CABINET_UPRIGHT = 1;
     const static int CABINET_MINI    = 2;
 
+    // Active driving-input family. Keyboard controls remain available in both
+    // modes, while physical GAMEPAD/WHEEL bindings and their feedback outputs
+    // are mutually exclusive at runtime.
+    const static int INPUT_GAMEPAD = 0;
+    const static int INPUT_WHEEL   = 1;
+
     // Internal screen width and height
     uint16_t s16_width, s16_height;
 
@@ -306,6 +312,53 @@ public:
     void set_fps(int fps);
     void inc_time();
     void inc_traffic();
+
+    int input_mode()
+    {
+        const int stored = cfg.get_int("controls.input_mode", -1);
+        if (stored == INPUT_GAMEPAD || stored == INPUT_WHEEL)
+            return stored;
+
+        // Migration for configs created before INPUT MODE existed. Existing
+        // wheel users generally already have a W: binding; otherwise prefer
+        // GAMEPAD so a standard controller remains immediately usable.
+        for (const auto& binding : controls.device_bindings)
+        {
+            if (binding.device.size() >= 2 &&
+                binding.device.compare(0, 2, "W:") == 0)
+            {
+                return INPUT_WHEEL;
+            }
+        }
+
+        return INPUT_GAMEPAD;
+    }
+
+    bool input_mode_is_gamepad()
+    {
+        return input_mode() == INPUT_GAMEPAD;
+    }
+
+    bool input_mode_is_wheel()
+    {
+        return input_mode() == INPUT_WHEEL;
+    }
+
+    void set_input_mode(int mode)
+    {
+        if (mode != INPUT_WHEEL)
+            mode = INPUT_GAMEPAD;
+
+        cfg.put_int("controls.input_mode", mode);
+    }
+
+    void cycle_input_mode()
+    {
+        set_input_mode(
+            input_mode() == INPUT_WHEEL
+                ? INPUT_GAMEPAD
+                : INPUT_WHEEL);
+    }
 
     // Per-effect wheel FFB tuning lives directly in config.xml. Effect and
     // spring strength values use a clear 0..100 range. The two spring speed

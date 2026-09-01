@@ -14,6 +14,11 @@
 #include <vector>
 #include <string>
 
+// SDL2 uses SDL_GameControllerButtonBind as the return type for both
+// SDL_GameControllerGetBindForButton() and SDL_GameControllerGetBindForAxis().
+// Keep a descriptive local alias for the axis-mapping helper in input.cpp.
+using SDL_GameControllerAxisBind = SDL_GameControllerButtonBind;
+
 struct InputDevice
 {
     SDL_Joystick* joystick = nullptr;
@@ -228,6 +233,7 @@ private:
     void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void capture_raw_axis_motion(SDL_JoystickID device, const uint8_t axis, const int16_t value);
+    bool raw_axis_is_mapped_to_controller(SDL_JoystickID device, int raw_axis) const;
     int scale_trigger(const int);
 
     void apply_device_button(SDL_JoystickID device, int button, bool is_pressed, int group);
