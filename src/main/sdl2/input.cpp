@@ -217,14 +217,56 @@ void Input::ensure_gamecontroller_open()
 
 void Input::scan_joysticks()
 {
-    scan_joysticks_base();
+    const int count = SDL_NumJoysticks();
+
+    for (int i = 0; i < count; i++)
+        add_joystick(i);
+
     ensure_gamecontroller_open();
     normalize_device_bindings();
 }
 
 void Input::add_joystick(int device_index)
 {
-    add_joystick_base(device_index);
+    const SDL_JoystickID prospective_id =
+        SDL_JoystickGetDeviceInstanceID(device_index);
+
+    for (const auto& device : devices)
+    {
+        if (device.instance_id == prospective_id)
+            return;
+    }
+
+    SDL_Joystick* joystick = SDL_JoystickOpen(device_index);
+    if (!joystick)
+    {
+        std::cout
+            << "Failed to open joystick " << device_index
+            << ": " << SDL_GetError() << std::endl;
+        return;
+    }
+
+    InputDevice device;
+    device.joystick = joystick;
+    device.instance_id = SDL_JoystickInstanceID(joystick);
+    device.guid = SDL_JoystickGetGUID(joystick);
+
+    char guid_string[33] = {};
+    SDL_JoystickGetGUIDString(
+        device.guid,
+        guid_string,
+        sizeof(guid_string));
+    device.guid_string = guid_string;
+
+    const char* name = SDL_JoystickName(joystick);
+    device.name = name ? name : "Unknown SDL Device";
+    device.axes = SDL_JoystickNumAxes(joystick);
+    device.buttons = SDL_JoystickNumButtons(joystick);
+    device.hats = SDL_JoystickNumHats(joystick);
+
+    devices.push_back(std::move(device));
+    gamepad = !devices.empty();
+
     ensure_gamecontroller_open();
     normalize_device_bindings();
 }
