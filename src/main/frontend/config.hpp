@@ -524,9 +524,9 @@ public:
         seed_spring("crash_recovery", 49);
         seed_spring("crash_flip_start", 32);
         seed_spring("crash_flip_airborne", 7);
-        seed_spring("crash_flip_transition", 25);
-        seed_spring("crash_flip_landing", 45);
-        seed_spring("crash_flip_recovery", 70);
+        seed_spring("crash_flip_transition", 18);
+        seed_spring("crash_flip_landing", 32);
+        seed_spring("crash_flip_recovery", 49);
     }
 
     // Shared Music Select / Time Trial selector duration. 0 disables the
