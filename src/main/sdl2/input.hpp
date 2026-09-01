@@ -13,9 +13,145 @@
 #include <SDL.h>
 #include <vector>
 #include <string>
+#include <fstream>
+#include <mutex>
+
+namespace input_diagnostic
+{
+    inline std::ofstream log_file;
+    inline std::mutex log_mutex;
+    inline bool started = false;
+    inline Uint32 start_ticks = 0;
+
+    inline const char* safe_name(SDL_JoystickID instance_id)
+    {
+        SDL_Joystick* joystick = SDL_JoystickFromInstanceID(instance_id);
+        if (!joystick)
+            return "Unknown SDL Device";
+
+        const char* name = SDL_JoystickName(joystick);
+        return name ? name : "Unknown SDL Device";
+    }
+
+    inline int event_watch(void*, SDL_Event* event)
+    {
+        if (!event)
+            return 1;
+
+        std::lock_guard<std::mutex> guard(log_mutex);
+        if (!log_file.is_open())
+            return 1;
+
+        const Uint32 elapsed = SDL_GetTicks() - start_ticks;
+
+        if (event->type == SDL_JOYAXISMOTION)
+        {
+            SDL_Joystick* joystick =
+                SDL_JoystickFromInstanceID(event->jaxis.which);
+
+            log_file
+                << "[" << elapsed << " ms] JOYAXIS"
+                << " device=" << event->jaxis.which
+                << " name=\"" << safe_name(event->jaxis.which) << "\""
+                << " axis=" << static_cast<int>(event->jaxis.axis)
+                << " value=" << event->jaxis.value
+                << " axes=" << (joystick ? SDL_JoystickNumAxes(joystick) : -1)
+                << " gamecontroller="
+                << (SDL_GameControllerFromInstanceID(event->jaxis.which) ? "yes" : "no")
+                << '\n';
+            log_file.flush();
+        }
+        else if (event->type == SDL_CONTROLLERAXISMOTION)
+        {
+            log_file
+                << "[" << elapsed << " ms] CONTROLLERAXIS"
+                << " device=" << event->caxis.which
+                << " name=\"" << safe_name(event->caxis.which) << "\""
+                << " axis=" << static_cast<int>(event->caxis.axis)
+                << " value=" << event->caxis.value
+                << '\n';
+            log_file.flush();
+        }
+
+        return 1;
+    }
+
+    inline void ensure_started()
+    {
+        std::lock_guard<std::mutex> guard(log_mutex);
+        if (started)
+            return;
+
+        started = true;
+        start_ticks = SDL_GetTicks();
+
+        char* base_path = SDL_GetBasePath();
+        std::string path = base_path ? std::string(base_path) : std::string();
+        if (base_path)
+            SDL_free(base_path);
+
+        path += "cannonball_input_diagnostic.txt";
+        log_file.open(path, std::ios::out | std::ios::trunc);
+        if (!log_file.is_open())
+            return;
+
+        SDL_version linked_version{};
+        SDL_GetVersion(&linked_version);
+
+        log_file
+            << "CannonBall DX SDL input diagnostic\n"
+            << "SDL version: "
+            << static_cast<int>(linked_version.major) << '.'
+            << static_cast<int>(linked_version.minor) << '.'
+            << static_cast<int>(linked_version.patch) << "\n"
+            << "Log path: " << path << "\n"
+            << "Purpose: diagnose vJoy/BackForceFeeder brake-axis detection\n\n"
+            << "=== SDL DEVICE INVENTORY ===\n";
+
+        const int count = SDL_NumJoysticks();
+        log_file << "Devices found: " << count << '\n';
+
+        for (int i = 0; i < count; i++)
+        {
+            char guid_string[33] = {};
+            SDL_JoystickGetGUIDString(
+                SDL_JoystickGetDeviceGUID(i),
+                guid_string,
+                sizeof(guid_string));
+
+            const char* name = SDL_JoystickNameForIndex(i);
+            const SDL_JoystickID instance_id =
+                SDL_JoystickGetDeviceInstanceID(i);
+
+            log_file
+                << "device_index=" << i
+                << " instance=" << instance_id
+                << " name=\"" << (name ? name : "Unknown SDL Device") << "\""
+                << " gamecontroller=" << (SDL_IsGameController(i) ? "yes" : "no")
+                << " guid=" << guid_string
+                << '\n';
+        }
+
+        log_file
+            << "============================\n\n"
+            << "Move steering, accelerator and brake through their full travel.\n"
+            << "Then try binding the brake in CannonBall DX and close the game.\n\n"
+            << "=== AXIS EVENTS ===\n";
+        log_file.flush();
+
+        SDL_AddEventWatch(event_watch, nullptr);
+    }
+}
 
 struct InputDevice
 {
+    InputDevice()
+    {
+        // The first InputDevice is created after SDL has opened a joystick,
+        // which makes this a safe point to attach the diagnostic event watch.
+        input_diagnostic::ensure_started();
+    }
+
     SDL_Joystick* joystick = nullptr;
     SDL_JoystickID instance_id = -1;
     SDL_JoystickGUID guid{};
