@@ -49,23 +49,6 @@ namespace
     SDL_Keycode display_toggle_key = SDLK_UNKNOWN;
     int last_fullscreen_mode = video_settings_t::MODE_FULL;
 
-    bool is_vjoy_device(int device_index)
-    {
-        const Uint16 vendor = SDL_JoystickGetDeviceVendor(device_index);
-        const Uint16 product = SDL_JoystickGetDeviceProduct(device_index);
-
-        // vJoy's standard virtual HID descriptor uses 1234:BEAD. Keep these
-        // devices on the raw SDL_Joystick/WHEEL path even if SDL's controller
-        // database happens to classify them as a GameController.
-        if (vendor == 0x1234 && product == 0xBEAD)
-            return true;
-
-        // Some vJoy variants do not expose VID/PID consistently through every
-        // SDL backend, so retain a conservative name fallback as well.
-        const char* name = SDL_JoystickNameForIndex(device_index);
-        return name && std::string(name).find("vJoy") != std::string::npos;
-    }
-
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
         if (!keysym)
@@ -184,6 +167,13 @@ namespace
 
         return false;
     }
+
+    bool any_matrix_axis_target(int target)
+    {
+        return
+            group_has_axis_target(target, Input::BINDING_GAMEPAD) ||
+            group_has_axis_target(target, Input::BINDING_WHEEL);
+    }
 }
 
 void Input::ensure_gamecontroller_open()
@@ -202,9 +192,6 @@ void Input::ensure_gamecontroller_open()
 
     for (int i = 0; i < count; i++)
     {
-        if (is_vjoy_device(i))
-            continue;
-
         if (!SDL_IsGameController(i))
             continue;
 
@@ -283,9 +270,6 @@ SDL_JoystickID Input::get_gamepad_device() const
 
     for (int i = 0; i < count; i++)
     {
-        if (is_vjoy_device(i))
-            continue;
-
         if (!SDL_IsGameController(i))
             continue;
 
@@ -319,24 +303,16 @@ void Input::normalize_device_bindings()
     // The old single-pad configuration did not remember a physical device.
     // Those wildcard bindings cannot be mapped safely because SDL raw joystick
     // button numbers and SDL GameController button numbers are not the same.
-    // Also remove any WHEEL binding that points at the primary GameController;
-    // that device belongs exclusively to the GAMEPAD column now.
     bindings.erase(
         std::remove_if(
             bindings.begin(),
             bindings.end(),
             [&](const device_binding_t& binding)
             {
-                if (binding.device == "*" ||
+                return
+                    binding.device == "*" ||
                     binding.device == "W:*" ||
-                    binding.device == "G:*")
-                {
-                    return true;
-                }
-
-                return !gamepad_signature.empty() &&
-                    binding_is_group(binding.device, BINDING_WHEEL) &&
-                    raw_binding_signature(binding.device) == gamepad_signature;
+                    binding.device == "G:*";
             }),
         bindings.end());
 
@@ -431,14 +407,11 @@ void Input::set_device_binding(
 
     const SDL_JoystickID gamepad_device = get_gamepad_device();
 
-    // One physical GameController has one logical home. Never let its raw SDL
-    // joystick side leak into the WHEEL column, and never let wheel/raw devices
-    // be stored in the GAMEPAD column.
-    if ((group == BINDING_GAMEPAD && device != gamepad_device) ||
-        (group == BINDING_WHEEL && device == gamepad_device))
-    {
+    // GAMEPAD bindings use SDL's standardized controller numbering and must
+    // therefore belong to the active GameController. WHEEL deliberately uses
+    // the raw joystick side and may target that very same physical device.
+    if (group == BINDING_GAMEPAD && device != gamepad_device)
         return;
-    }
 
     const std::string signature = get_device_signature(device);
     if (signature.empty())
@@ -470,6 +443,14 @@ void Input::set_device_binding(
     binding.value = value;
     binding.device = stored_device;
     bindings.push_back(binding);
+}
+
+void Input::set_capture_group(int group)
+{
+    if (group == BINDING_GAMEPAD || group == BINDING_WHEEL)
+        capture_group = group;
+    else
+        capture_group = -1;
 }
 
 void Input::clear_device_bindings(int target, int group)
@@ -740,6 +721,9 @@ void Input::capture_raw_axis_motion(
     const uint8_t ax,
     const int16_t value)
 {
+    if (capture_group != BINDING_WHEEL)
+        return;
+
     const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
 
     for (const auto& baseline : axis_capture_baseline)
@@ -801,31 +785,31 @@ void Input::handle_key_up(SDL_Keysym* keysym)
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
-    // An opened SDL GameController also emits raw joystick events with a
-    // different numbering scheme. Ignore that duplicate path completely: the
-    // standardized SDL_CONTROLLER event belongs to the GAMEPAD group.
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
+    const bool controller_side =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
 
-    // Matrix axis bindings take ownership target-by-target. Temporarily hide
-    // the corresponding legacy slots so an old axis cannot overwrite the new
-    // steering/pedal value on the next SDL event.
-    const int saved_steer = axis[0];
-    const int saved_accel = axis[1];
-    const int saved_brake = axis[2];
+    // A recognized GameController also emits raw joystick events. Keep those
+    // events available to explicit WHEEL bindings, but do not run the legacy
+    // joystick mapping a second time for the same physical device.
+    if (!controller_side)
+    {
+        const int saved_steer = axis[0];
+        const int saved_accel = axis[1];
+        const int saved_brake = axis[2];
 
-    if (group_has_axis_target(device_binding_t::TARGET_STEER, BINDING_WHEEL))
-        axis[0] = -1;
-    if (group_has_axis_target(device_binding_t::TARGET_ACCEL, BINDING_WHEEL))
-        axis[1] = -1;
-    if (group_has_axis_target(device_binding_t::TARGET_BRAKE, BINDING_WHEEL))
-        axis[2] = -1;
+        if (group_has_axis_target(device_binding_t::TARGET_STEER, BINDING_WHEEL))
+            axis[0] = -1;
+        if (group_has_axis_target(device_binding_t::TARGET_ACCEL, BINDING_WHEEL))
+            axis[1] = -1;
+        if (group_has_axis_target(device_binding_t::TARGET_BRAKE, BINDING_WHEEL))
+            axis[2] = -1;
 
-    handle_axis(evt->which, evt->axis, evt->value);
+        handle_axis(evt->which, evt->axis, evt->value);
 
-    axis[0] = saved_steer;
-    axis[1] = saved_accel;
-    axis[2] = saved_brake;
+        axis[0] = saved_steer;
+        axis[1] = saved_accel;
+        axis[2] = saved_brake;
+    }
 
     capture_raw_axis_motion(evt->which, evt->axis, evt->value);
     apply_device_axis(
@@ -837,23 +821,37 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 
 void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 {
-    // Same ownership rule as raw WHEEL axes: once a GAMEPAD target has a
-    // matrix binding, stale legacy axis slots must no longer write that target.
+    // Once either matrix column owns a target, the old single-device axis slots
+    // must not overwrite it through the standardized controller path.
     const int saved_steer = axis[0];
     const int saved_accel = axis[1];
     const int saved_brake = axis[2];
 
-    if (group_has_axis_target(device_binding_t::TARGET_STEER, BINDING_GAMEPAD))
+    if (any_matrix_axis_target(device_binding_t::TARGET_STEER))
         axis[0] = -1;
-    if (group_has_axis_target(device_binding_t::TARGET_ACCEL, BINDING_GAMEPAD))
+    if (any_matrix_axis_target(device_binding_t::TARGET_ACCEL))
         axis[1] = -1;
-    if (group_has_axis_target(device_binding_t::TARGET_BRAKE, BINDING_GAMEPAD))
+    if (any_matrix_axis_target(device_binding_t::TARGET_BRAKE))
         axis[2] = -1;
 
-    // handle_axis() also retains the existing axis-capture behaviour used by
-    // the binding editor, so no functionality is lost by bypassing the tiny
-    // base wrapper here.
+    // While the editor listens to WHEEL, preserve its raw-axis capture state so
+    // the duplicate SDL_CONTROLLER event cannot replace the raw axis number.
+    const int saved_axis_last = axis_last;
+    const int saved_axis_counter = axis_counter;
+    const int saved_axis_config = axis_config;
+    const SDL_JoystickID saved_axis_last_device = axis_last_device;
+    const SDL_JoystickID saved_axis_config_device = axis_config_device;
+
     handle_axis(evt->which, evt->axis, evt->value);
+
+    if (capture_group == BINDING_WHEEL)
+    {
+        axis_last = saved_axis_last;
+        axis_counter = saved_axis_counter;
+        axis_config = saved_axis_config;
+        axis_last_device = saved_axis_last_device;
+        axis_config_device = saved_axis_config_device;
+    }
 
     axis[0] = saved_steer;
     axis[1] = saved_accel;
@@ -868,69 +866,106 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 
 void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
-    // Do not expose the raw duplicate from an SDL GameController to either the
-    // binding editor or runtime mappings. For example, one physical RB press
-    // can be raw button 5 but standardized GameController button 10.
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
+    const bool controller_side =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
 
-    joy_button = evt->button;
-    joy_button_device = evt->which;
+    // During WHEEL capture the raw numbering is authoritative. Outside that
+    // case an opened GameController leaves capture/navigation to its standardized
+    // controller event so duplicate button numbers cannot leak across columns.
+    if (!controller_side || capture_group == BINDING_WHEEL)
+    {
+        joy_button = evt->button;
+        joy_button_device = evt->which;
+    }
 
-    handle_joy(evt->which, evt->button, true);
+    if (!controller_side)
+        handle_joy(evt->which, evt->button, true);
+
     apply_device_button(
         evt->which,
         evt->button,
         true,
         BINDING_WHEEL);
 
-    auto matches = [&](int slot)
+    if (!controller_side)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = true;
-    if (matches(16)) keys[VIEW2] = true;
-    if (matches(17)) keys[VIEW3] = true;
+        if (matches(15)) keys[VIEW1] = true;
+        if (matches(16)) keys[VIEW2] = true;
+        if (matches(17)) keys[VIEW3] = true;
+    }
 }
 
 void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
+    const bool controller_side =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
 
-    if (joy_button == evt->button &&
+    if ((!controller_side || capture_group == BINDING_WHEEL) &&
+        joy_button == evt->button &&
         joy_button_device == evt->which)
     {
         joy_button = -1;
         joy_button_device = -1;
     }
 
-    handle_joy(evt->which, evt->button, false);
+    if (!controller_side)
+        handle_joy(evt->which, evt->button, false);
+
     apply_device_button(
         evt->which,
         evt->button,
         false,
         BINDING_WHEEL);
 
-    auto matches = [&](int slot)
+    if (!controller_side)
     {
-        return evt->button == pad_config[slot] &&
-               (button_device[slot] == -1 || button_device[slot] == evt->which);
-    };
+        auto matches = [&](int slot)
+        {
+            return evt->button == pad_config[slot] &&
+                   (button_device[slot] == -1 || button_device[slot] == evt->which);
+        };
 
-    if (matches(15)) keys[VIEW1] = false;
-    if (matches(16)) keys[VIEW2] = false;
-    if (matches(17)) keys[VIEW3] = false;
+        if (matches(15)) keys[VIEW1] = false;
+        if (matches(16)) keys[VIEW2] = false;
+        if (matches(17)) keys[VIEW3] = false;
+    }
 }
 
 void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 {
-    if (SDL_GameControllerFromInstanceID(evt->which) != nullptr)
-        return;
+    const bool controller_side =
+        SDL_GameControllerFromInstanceID(evt->which) != nullptr;
 
-    handle_joy_hat_base(evt);
+    if (!controller_side)
+    {
+        handle_joy_hat_base(evt);
+    }
+    else if (capture_group == BINDING_WHEEL)
+    {
+        const Uint8 value = evt->value;
+        if (value == SDL_HAT_UP ||
+            value == SDL_HAT_DOWN ||
+            value == SDL_HAT_LEFT ||
+            value == SDL_HAT_RIGHT)
+        {
+            joy_hat = evt->hat;
+            joy_hat_value = value;
+            joy_hat_device = evt->which;
+        }
+        else if (value == SDL_HAT_CENTERED &&
+                 joy_hat == evt->hat &&
+                 joy_hat_device == evt->which)
+        {
+            joy_hat_value = SDL_HAT_CENTERED;
+        }
+    }
+
     apply_device_hat(
         evt->which,
         evt->hat,
@@ -940,7 +975,18 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 {
+    const int16_t saved_button = joy_button;
+    const SDL_JoystickID saved_button_device = joy_button_device;
+
     handle_controller_down_base(evt);
+
+    // When WHEEL is being captured the raw joystick button number must survive
+    // the duplicate standardized controller event.
+    if (capture_group == BINDING_WHEEL)
+    {
+        joy_button = saved_button;
+        joy_button_device = saved_button_device;
+    }
 
     // The D-pad is a permanent menu/navigation fallback, just like the arrow
     // keys. This must not depend on old padconfig values being present.
@@ -981,7 +1027,16 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 
 void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
 {
+    const int16_t saved_button = joy_button;
+    const SDL_JoystickID saved_button_device = joy_button_device;
+
     handle_controller_up_base(evt);
+
+    if (capture_group == BINDING_WHEEL)
+    {
+        joy_button = saved_button;
+        joy_button_device = saved_button_device;
+    }
 
     switch (evt->button)
     {
@@ -1041,9 +1096,6 @@ void Input::set_rumble(bool enable, float strength, int mode)
 
         for (int i = 0; i < count; i++)
         {
-            if (is_vjoy_device(i))
-                continue;
-
             if (!SDL_IsGameController(i))
                 continue;
 
