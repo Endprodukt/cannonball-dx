@@ -61,6 +61,11 @@ namespace
         return joystick ? SDL_JoystickInstanceID(joystick) : -1;
     }
 
+    bool frontend_accepts_all_input_groups()
+    {
+        return cannonball::state == cannonball::STATE_MENU;
+    }
+
     bool is_display_toggle(const SDL_Keysym* keysym)
     {
         if (!keysym)
@@ -149,11 +154,14 @@ namespace
         const std::string& signature,
         int group)
     {
-        // Runtime GAMEPAD/WHEEL inputs are mutually exclusive. The binding
-        // editor does not use this matcher, so both columns remain configurable
-        // regardless of which family currently drives the game.
-        if (group != config.input_mode())
+        // In gameplay only the selected family is active. The frontend is
+        // intentionally shared so a connected gamepad can still operate menus
+        // in WHEEL mode and wheel buttons can still operate them in GAMEPAD mode.
+        if (!frontend_accepts_all_input_groups() &&
+            group != config.input_mode())
+        {
             return false;
+        }
 
         if (!binding_is_group(stored_device, group))
             return false;
@@ -728,6 +736,9 @@ void Input::apply_device_button(
     bool is_pressed,
     int group)
 {
+    if (capture_group != -1)
+        return;
+
     const std::string signature = get_device_signature(device);
     if (signature.empty())
         return;
@@ -751,6 +762,9 @@ void Input::apply_device_hat(
     int value,
     int group)
 {
+    if (capture_group != -1)
+        return;
+
     const std::string signature = get_device_signature(device);
     if (signature.empty())
         return;
@@ -778,7 +792,7 @@ void Input::apply_device_axis(
     int value,
     int group)
 {
-    if (!analog)
+    if (!analog || capture_group != -1)
         return;
 
     const bool raw_gamepad_axis =
@@ -1006,11 +1020,11 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
-    const bool wheel_runtime = config.input_mode_is_wheel();
+    const bool wheel_runtime =
+        config.input_mode_is_wheel() || frontend_accepts_all_input_groups();
 
-    // Only the active WHEEL family is allowed to run the legacy raw joystick
-    // mapping. Raw events are still captured below when the editor explicitly
-    // listens to WHEEL, even if GAMEPAD is the current runtime mode.
+    // Raw joystick runtime is shared in the frontend but restricted to the
+    // selected WHEEL family once gameplay starts.
     if (!controller_side && wheel_runtime)
     {
         const int saved_steer = axis[0];
@@ -1068,10 +1082,9 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
     const SDL_JoystickID saved_axis_last_device = axis_last_device;
     const SDL_JoystickID saved_axis_config_device = axis_config_device;
 
-    // The old single-controller mapping is runtime input, not capture input.
-    // Keep it dormant in WHEEL mode while retaining the dedicated GAMEPAD
-    // capture logic below.
-    if (config.input_mode_is_gamepad())
+    // GameController runtime is shared in the frontend but restricted to the
+    // selected GAMEPAD family once gameplay starts.
+    if (config.input_mode_is_gamepad() || frontend_accepts_all_input_groups())
         handle_axis(evt->which, evt->axis, evt->value);
 
     if (capture_group != -1)
@@ -1130,7 +1143,8 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
-    const bool wheel_runtime = config.input_mode_is_wheel();
+    const bool wheel_runtime =
+        config.input_mode_is_wheel() || frontend_accepts_all_input_groups();
     const bool wheel_capture = capture_group == BINDING_WHEEL;
 
     if (wheel_capture || (!controller_side && wheel_runtime))
@@ -1166,7 +1180,8 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
-    const bool wheel_runtime = config.input_mode_is_wheel();
+    const bool wheel_runtime =
+        config.input_mode_is_wheel() || frontend_accepts_all_input_groups();
     const bool wheel_capture = capture_group == BINDING_WHEEL;
 
     if ((wheel_capture || (!controller_side && wheel_runtime)) &&
@@ -1204,8 +1219,10 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 {
     const bool controller_side =
         SDL_GameControllerFromInstanceID(evt->which) != nullptr;
+    const bool wheel_runtime =
+        config.input_mode_is_wheel() || frontend_accepts_all_input_groups();
 
-    if (!controller_side && config.input_mode_is_wheel())
+    if (!controller_side && wheel_runtime)
     {
         handle_joy_hat_base(evt);
     }
@@ -1238,7 +1255,8 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 {
-    const bool gamepad_runtime = config.input_mode_is_gamepad();
+    const bool gamepad_runtime =
+        config.input_mode_is_gamepad() || frontend_accepts_all_input_groups();
     const bool gamepad_capture = capture_group == BINDING_GAMEPAD;
     const int16_t saved_button = joy_button;
     const SDL_JoystickID saved_button_device = joy_button_device;
@@ -1254,8 +1272,8 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
         joy_button_device = saved_button_device;
     }
 
-    // The D-pad is a permanent menu/navigation fallback only while GAMEPAD is
-    // the selected runtime family. Keyboard arrows remain available in both.
+    // D-pad navigation is always available in the frontend. In gameplay it is
+    // restricted to GAMEPAD mode just like the rest of that device family.
     if (gamepad_runtime)
     {
         switch (evt->button)
@@ -1299,7 +1317,8 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
 
 void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
 {
-    const bool gamepad_runtime = config.input_mode_is_gamepad();
+    const bool gamepad_runtime =
+        config.input_mode_is_gamepad() || frontend_accepts_all_input_groups();
     const bool gamepad_capture = capture_group == BINDING_GAMEPAD;
     const int16_t saved_button = joy_button;
     const SDL_JoystickID saved_button_device = joy_button_device;
