@@ -63,49 +63,43 @@ void OInputs::tick()
     auto has_active_axis = [&](int target, int legacy_slot)
     {
         bool target_has_matrix_binding = false;
-
-        const SDL_JoystickID gamepad_device = input.get_gamepad_device();
-        const std::string gamepad_signature =
-            input.get_device_signature(gamepad_device);
+        const char active_group =
+            config.input_mode_is_gamepad() ? 'G' : 'W';
 
         for (const auto& binding : config.controls.device_bindings)
         {
-            if (binding.target != target)
-                continue;
-
-            // Once a target exists in the DX matrix, its matrix binding type
-            // owns that target. This prevents an old legacy axis from leaking
-            // through after the user deliberately rebinds e.g. GAS to a button.
-            target_has_matrix_binding = true;
-
-            if (binding.type != device_binding_t::TYPE_AXIS ||
+            if (binding.target != target ||
                 binding.device.size() < 3 ||
-                binding.device[1] != ':')
+                binding.device[1] != ':' ||
+                binding.device[0] != active_group)
             {
                 continue;
             }
+
+            // Only the selected input family owns this target. Bindings in the
+            // inactive GAMEPAD/WHEEL column must not make an old/stale analog
+            // value look active to the engine.
+            target_has_matrix_binding = true;
+
+            if (binding.type != device_binding_t::TYPE_AXIS)
+                continue;
 
             const std::string signature = binding.device.substr(2);
             if (signature.empty() || signature == "*")
                 continue;
 
-            if (binding.device[0] == 'G')
+            for (const auto& device : input.get_devices())
             {
-                if (!gamepad_signature.empty() &&
-                    signature == gamepad_signature)
+                if (input.get_device_signature(device.instance_id) != signature)
+                    continue;
+
+                // GAMEPAD bindings must belong to an SDL GameController.
+                // WHEEL bindings deliberately accept the raw side of any SDL
+                // joystick, including dual-role devices such as vJoy.
+                if (active_group == 'W' ||
+                    input.is_gamepad_device(device.instance_id))
                 {
                     return true;
-                }
-            }
-            else if (binding.device[0] == 'W')
-            {
-                for (const auto& device : input.get_devices())
-                {
-                    if (device.instance_id == gamepad_device)
-                        continue;
-
-                    if (input.get_device_signature(device.instance_id) == signature)
-                        return true;
                 }
             }
         }
