@@ -14,6 +14,11 @@
 #include <vector>
 #include <string>
 
+// SDL2 uses SDL_GameControllerButtonBind as the return type for both
+// SDL_GameControllerGetBindForButton() and SDL_GameControllerGetBindForAxis().
+// Keep a descriptive local alias for the axis-mapping helper in input.cpp.
+using SDL_GameControllerAxisBind = SDL_GameControllerButtonBind;
+
 struct InputDevice
 {
     SDL_Joystick* joystick = nullptr;
