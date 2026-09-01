@@ -766,17 +766,14 @@ void Menu::redefine_joystick()
         // devices such as vJoy.
         input.set_capture_group(group);
 
-        const SDL_JoystickID gamepad_device = input.get_gamepad_device();
-
         auto accepts_device = [&](SDL_JoystickID device)
         {
             if (device < 0)
                 return false;
 
-            // WHEEL intentionally accepts every raw SDL input device, including
-            // a device that SDL also exposes as GameController. GAMEPAD remains
-            // restricted to the standardized active GameController path.
-            return group == Input::BINDING_WHEEL || device == gamepad_device;
+            return
+                group == Input::BINDING_WHEEL ||
+                input.is_gamepad_device(device);
         };
 
         const int target = ROW_TARGETS[selected_row];
