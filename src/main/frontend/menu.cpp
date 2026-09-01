@@ -210,7 +210,16 @@ namespace
         switch (binding.type)
         {
             case device_binding_t::TYPE_AXIS:
-                text = "AX" + std::to_string(binding.index);
+                if (binding.device.rfind("G:", 0) == 0 &&
+                    binding.index >= Input::RAW_GAMEPAD_AXIS_BASE)
+                {
+                    text = "RAW" + std::to_string(
+                        binding.index - Input::RAW_GAMEPAD_AXIS_BASE);
+                }
+                else
+                {
+                    text = "AX" + std::to_string(binding.index);
+                }
                 break;
 
             case device_binding_t::TYPE_HAT:
