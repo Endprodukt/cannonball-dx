@@ -52,6 +52,12 @@ public:
         BINDING_WHEEL = 1,
     };
 
+    // GAMEPAD normally stores SDL_GameController axis numbers (0..5). Raw
+    // joystick axes that SDL leaves unmapped are encoded above this base so a
+    // virtual/extended controller can still use them without colliding with
+    // the standardized controller namespace.
+    static const int RAW_GAMEPAD_AXIS_BASE = 0x100;
+
     const std::vector<InputDevice>& get_devices() const;
     std::string get_device_signature(SDL_JoystickID device) const;
     SDL_JoystickID get_gamepad_device() const;
