@@ -324,6 +324,7 @@ void Menu::handle_escape()
     // for a new key/axis/button, where the normal MENU action is not polled.
     if (state == STATE_REDEFINE_KEYS || state == STATE_REDEFINE_JOY)
     {
+        input.set_capture_group(-1);
         input.key_press = -1;
         input.joy_button = -1;
         input.joy_button_device = -1;
@@ -522,6 +523,7 @@ void Menu::redefine_joystick()
 
     auto leave_editor = [&]()
     {
+        input.set_capture_group(-1);
         clear_latches();
         capturing = false;
         waiting_release = false;
@@ -548,6 +550,7 @@ void Menu::redefine_joystick()
         waiting_release = false;
         capture_after_release = false;
         wait_type = WAIT_NONE;
+        input.set_capture_group(-1);
         clear_latches();
         redef_state = 1;
     }
@@ -705,6 +708,9 @@ void Menu::redefine_joystick()
 
             capturing = capture_after_release;
             capture_after_release = false;
+
+            if (!capturing)
+                input.set_capture_group(-1);
         }
 
         draw_editor();
@@ -715,6 +721,8 @@ void Menu::redefine_joystick()
     {
         if (selected_col == COL_KEYBOARD)
         {
+            input.set_capture_group(-1);
+
             if (input.key_press != -1)
             {
                 const SDL_Keycode captured_key = input.key_press;
@@ -753,6 +761,11 @@ void Menu::redefine_joystick()
                 ? Input::BINDING_GAMEPAD
                 : Input::BINDING_WHEEL;
 
+        // Capture only the event stream represented by the selected column.
+        // Runtime processing still keeps both streams alive for dual-role
+        // devices such as vJoy.
+        input.set_capture_group(group);
+
         const SDL_JoystickID gamepad_device = input.get_gamepad_device();
 
         auto accepts_device = [&](SDL_JoystickID device)
@@ -760,8 +773,9 @@ void Menu::redefine_joystick()
             if (device < 0)
                 return false;
 
-            // WHEEL intentionally accepts every raw SDL input device. GAMEPAD
-            // remains restricted to the SDL GameController device.
+            // WHEEL intentionally accepts every raw SDL input device, including
+            // a device that SDL also exposes as GameController. GAMEPAD remains
+            // restricted to the standardized active GameController path.
             return group == Input::BINDING_WHEEL || device == gamepad_device;
         };
 
@@ -788,6 +802,7 @@ void Menu::redefine_joystick()
 
                     config_save_pending = true;
                     capturing = false;
+                    input.set_capture_group(-1);
                     clear_latches();
                 }
 
@@ -863,6 +878,9 @@ void Menu::redefine_joystick()
         draw_editor();
         return;
     }
+
+    // Browse mode never owns either device event stream.
+    input.set_capture_group(-1);
 
     // Browse mode: move through the fixed KEYBOARD / GAMEPAD / WHEEL matrix
     // and the final BACK entry.
@@ -963,6 +981,11 @@ void Menu::redefine_joystick()
         capturing = false;
         steering_key_step = 0;
         capture_after_release = true;
+
+        // Keep capture disabled while the control that opened the cell is still
+        // held. The selected GAMEPAD/WHEEL stream becomes active only once the
+        // editor actually starts listening on the following frame.
+        input.set_capture_group(-1);
 
         if (input.joy_button != -1)
         {
