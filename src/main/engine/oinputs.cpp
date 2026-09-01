@@ -71,18 +71,21 @@ void OInputs::tick()
             if (binding.target != target ||
                 binding.device.size() < 3 ||
                 binding.device[1] != ':' ||
-                binding.device[0] != active_group)
+                (binding.device[0] != 'G' && binding.device[0] != 'W'))
             {
                 continue;
             }
 
-            // Only the selected input family owns this target. Bindings in the
-            // inactive GAMEPAD/WHEEL column must not make an old/stale analog
-            // value look active to the engine.
+            // Once a target exists in the DX matrix, no legacy axis is allowed
+            // to leak through. Only bindings from the currently selected input
+            // family are candidates for the active analog path below.
             target_has_matrix_binding = true;
 
-            if (binding.type != device_binding_t::TYPE_AXIS)
+            if (binding.device[0] != active_group ||
+                binding.type != device_binding_t::TYPE_AXIS)
+            {
                 continue;
+            }
 
             const std::string signature = binding.device.substr(2);
             if (signature.empty() || signature == "*")
