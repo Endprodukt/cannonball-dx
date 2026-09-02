@@ -73,7 +73,7 @@ void Config::get_custom_music(const std::string& respath)
     static const std::map<std::string,int> ext_priority = {
         { "WAV", 0 },
         { "MP3", 1 },
-        { "YM",  2 }
+        { "YM", 2 }
     };
 #else
     static const std::map<std::string,int> ext_priority = {
@@ -391,7 +391,7 @@ void Config::load()
     engine.fix_bugs_backup = 
     engine.fix_bugs        = cfg.get_int("engine.fix_bugs",      1) != 0;
     engine.fix_timer       = cfg.get_int("engine.fix_timer",     0) != 0;
-    engine.layout_debug    = cfg.get_int("engine.layout_debug",  0) != 0;
+    engine.layout_debug    = cfg.get_int("engine.layout_debug",   0) != 0;
     engine.hiscore_delete  = cfg.get_int("scores.delete_last_entry", 1);
     engine.hiscore_timer   = cfg.get_int("scores.hiscore_timer", 0);
     engine.new_attract     = cfg.get_int("engine.new_attract",   1) != 0;
@@ -414,7 +414,7 @@ void Config::load()
     // Time Trial Mode
     // ------------------------------------------------------------------------
 
-    ttrial.laps    = cfg.get_int("time_trial.laps",    5);
+    ttrial.laps    = cfg.get_int("time_trial.laps",    3);
     ttrial.traffic = cfg.get_int("time_trial.traffic", 3);
     cont_traffic   = cfg.get_int("continuous.traffic", 3);
 
@@ -566,7 +566,7 @@ bool Config::save()
     cfg.put_int("continuous.traffic", cont_traffic);
 
     // Sync back from doc (mirrors original behavior)
-    ttrial.laps    = cfg.get_int("time_trial.laps",    5);
+    ttrial.laps    = cfg.get_int("time_trial.laps",    3);
     ttrial.traffic = cfg.get_int("time_trial.traffic", 3);
     cont_traffic   = cfg.get_int("continuous.traffic", 3);
 
