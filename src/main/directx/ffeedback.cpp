@@ -228,6 +228,7 @@ namespace forcefeedback
     static bool g_tyre_slip_prestart = false;
     static bool g_logged_constant_update_error = false;
     static bool g_logged_constant_run_error = false;
+    static bool g_logged_spring_start = false;
 
     static unsigned int g_haptic_caps = 0;
     static int g_gain_percent = 100;
@@ -690,8 +691,10 @@ namespace forcefeedback
 
         for (int pass = 0; pass < 4; ++pass)
         {
-            const bool require_target = pass == 0 || pass == 2;
-            const bool require_wheel = pass == 0 || pass == 1;
+            // Prefer an explicitly targeted device even when SDL does not
+            // classify it as a wheel (for example vJoy/BackForceFeeder).
+            const bool require_target = pass == 0 || pass == 1;
+            const bool require_wheel = pass == 0 || pass == 2;
 
             if (require_target && !have_target)
                 continue;
@@ -741,9 +744,29 @@ namespace forcefeedback
                     << ":0x" << static_cast<unsigned>(SDL_JoystickGetProduct(joystick))
                     << std::dec
                     << " | wheel=" << (g_is_wheel ? "yes" : "no")
+                    << " | axes=" << SDL_HapticNumAxes(g_haptic)
                     << " | caps=0x" << std::hex << g_haptic_caps << std::dec
                     << " | effects=" << SDL_HapticNumEffects(g_haptic)
                     << " | playing=" << SDL_HapticNumEffectsPlaying(g_haptic)
+                    << std::endl;
+
+                std::cout
+                    << "SDL FFB caps: constant="
+                    << ((g_haptic_caps & SDL_HAPTIC_CONSTANT) ? "yes" : "no")
+                    << " spring="
+                    << ((g_haptic_caps & SDL_HAPTIC_SPRING) ? "yes" : "no")
+                    << " sine="
+                    << ((g_haptic_caps & SDL_HAPTIC_SINE) ? "yes" : "no")
+                    << " damper="
+                    << ((g_haptic_caps & SDL_HAPTIC_DAMPER) ? "yes" : "no")
+                    << " friction="
+                    << ((g_haptic_caps & SDL_HAPTIC_FRICTION) ? "yes" : "no")
+                    << " inertia="
+                    << ((g_haptic_caps & SDL_HAPTIC_INERTIA) ? "yes" : "no")
+                    << " autocenter="
+                    << ((g_haptic_caps & SDL_HAPTIC_AUTOCENTER) ? "yes" : "no")
+                    << " gain="
+                    << ((g_haptic_caps & SDL_HAPTIC_GAIN) ? "yes" : "no")
                     << std::endl;
 
                 return true;
@@ -797,7 +820,11 @@ namespace forcefeedback
     {
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_SPRING;
-        effect.condition.direction = steering_direction();
+
+        // The centering effect is always a steering-wheel spring, even when a
+        // virtual FFB device such as vJoy is exposed by SDL as a generic joystick.
+        effect.condition.direction.type = SDL_HAPTIC_STEERING_AXIS;
+        effect.condition.direction.dir[0] = 1;
         effect.condition.length = SDL_HAPTIC_INFINITY;
 
         const int strength = (0x7fff * clamp_percent(percent)) / 100;
@@ -813,7 +840,10 @@ namespace forcefeedback
     static bool create_spring_effect()
     {
         if ((g_haptic_caps & SDL_HAPTIC_SPRING) == 0)
+        {
+            std::cout << "SDL FFB: spring capability=no" << std::endl;
             return false;
+        }
 
         SDL_HapticEffect effect = make_spring_effect(effective_centering_percent());
         g_spring_effect = SDL_HapticNewEffect(g_haptic, &effect);
@@ -824,6 +854,8 @@ namespace forcefeedback
             return false;
         }
 
+        std::cout << "SDL FFB: spring effect id=" << g_spring_effect
+                  << " | axis=STEERING" << std::endl;
         return true;
     }
 
@@ -999,6 +1031,13 @@ namespace forcefeedback
             return;
         }
 
+        if (!g_logged_spring_start)
+        {
+            std::cout << "SDL FFB: spring run OK | strength="
+                      << effective_percent << "% | axis=STEERING" << std::endl;
+            g_logged_spring_start = true;
+        }
+
         g_applied_centering_percent = effective_percent;
     }
 
@@ -1118,10 +1157,12 @@ namespace forcefeedback
             g_tyre_slip_active = false;
             g_tyre_slip_prestart = false;
             g_applied_centering_percent = -1;
+            g_logged_spring_start = false;
         }
         else
         {
             g_applied_centering_percent = -1;
+            g_logged_spring_start = false;
             set_centering_strength(g_centering_percent);
         }
     }
@@ -1184,6 +1225,7 @@ namespace forcefeedback
         g_offroad_level_override = 0;
         g_logged_constant_update_error = false;
         g_logged_constant_run_error = false;
+        g_logged_spring_start = false;
     }
 
     bool is_supported()
