@@ -200,6 +200,38 @@ namespace
             group_has_axis_target(target, Input::BINDING_GAMEPAD) ||
             group_has_axis_target(target, Input::BINDING_WHEEL);
     }
+
+    void refresh_wheel_force_feedback()
+    {
+#ifdef _WIN32
+        if (!config.input_mode_is_wheel())
+            return;
+
+        // The backend keeps the selected haptic device open. Rebinding the
+        // steering axis therefore has to release the old device before the
+        // new binding can become the FFB target immediately.
+        forcefeedback::close();
+
+        if (!config.controls.haptic)
+            return;
+
+        if (!forcefeedback::init(0x7fff, 0x2fff, 50))
+            return;
+
+        forcefeedback::set_enabled(true);
+        forcefeedback::set_gain(config.controls.ffb_strength);
+        forcefeedback::set_centering_strength(
+            config.controls.centering_strength);
+#endif
+    }
+
+    void release_wheel_force_feedback()
+    {
+#ifdef _WIN32
+        if (config.input_mode_is_wheel())
+            forcefeedback::close();
+#endif
+    }
 }
 
 void Input::ensure_gamecontroller_open()
@@ -622,6 +654,13 @@ void Input::set_device_binding(
     binding.value = value;
     binding.device = stored_device;
     bindings.push_back(binding);
+
+    if (target == device_binding_t::TARGET_STEER &&
+        type == device_binding_t::TYPE_AXIS &&
+        group == BINDING_WHEEL)
+    {
+        refresh_wheel_force_feedback();
+    }
 }
 
 void Input::set_capture_group(int group)
@@ -635,6 +674,10 @@ void Input::set_capture_group(int group)
 void Input::clear_device_bindings(int target, int group)
 {
     auto& bindings = config.controls.device_bindings;
+    const bool releases_wheel_ffb =
+        target == device_binding_t::TARGET_STEER &&
+        group == BINDING_WHEEL &&
+        group_has_axis_target(target, group);
 
     bindings.erase(
         std::remove_if(
@@ -646,6 +689,9 @@ void Input::clear_device_bindings(int target, int group)
                     binding_is_group(binding.device, group);
             }),
         bindings.end());
+
+    if (releases_wheel_ffb)
+        release_wheel_force_feedback();
 }
 
 void Input::clear_device_binding(int target, SDL_JoystickID device)
@@ -655,6 +701,22 @@ void Input::clear_device_binding(int target, SDL_JoystickID device)
         return;
 
     auto& bindings = config.controls.device_bindings;
+    bool releases_wheel_ffb = false;
+
+    if (target == device_binding_t::TARGET_STEER)
+    {
+        for (const auto& binding : bindings)
+        {
+            if (binding.target == target &&
+                binding.type == device_binding_t::TYPE_AXIS &&
+                binding_is_group(binding.device, BINDING_WHEEL) &&
+                binding_matches_signature(binding.device, signature))
+            {
+                releases_wheel_ffb = true;
+                break;
+            }
+        }
+    }
 
     bindings.erase(
         std::remove_if(
@@ -666,6 +728,9 @@ void Input::clear_device_binding(int target, SDL_JoystickID device)
                     binding_matches_signature(binding.device, signature);
             }),
         bindings.end());
+
+    if (releases_wheel_ffb)
+        release_wheel_force_feedback();
 }
 
 void Input::set_button_binding(int slot, int button, SDL_JoystickID device)
