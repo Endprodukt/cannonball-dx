@@ -3,6 +3,7 @@
 #include "romloader.hpp"
 #include "hwvideo/hwtiles.hpp"
 #include "frontend/config.hpp"
+#include "engine/oroad.hpp"
 
 /***************************************************************************
     Video Emulation: OutRun Tilemap Hardware.
@@ -218,6 +219,15 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
     uint16_t xScroll = scroll_x[page_index];
     uint16_t yScroll = scroll_y[page_index];
 
+    // The original System 16 tilemap is vertically circular. The adjustable
+    // Bumper View can expose that implementation detail when a hill moves the
+    // horizon far enough: tiles that have already scrolled above the virtual
+    // 512-pixel map wrap back into the visible sky. In Bumper View we clamp
+    // that out-of-range area instead, leaving the road chip's stage-specific
+    // sky fill underneath. Other camera modes retain exact hardware wrapping.
+    const bool clamp_bumper_sky =
+        oroad.get_view_mode() == ORoad::VIEW_INCAR;
+
     // Need to support this at each row/column
     if ((xScroll & 0x8000) != 0)
         xScroll = (text_ram[0xf80 + (0x40 * page_index) + 0] << 8) | text_ram[0xf80 + (0x40 * page_index) + 1];
@@ -285,9 +295,13 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
                 y -= y_decrement;
 //                y -= yScroll & 0x1ff;
 
-
                 if (y < -288)
+                {
+                    if (clamp_bumper_sky)
+                        continue;
+
                     y += 512;
+                }
 
                 const uint16_t ColourOff = (uint16_t)((Colour >> 5) << 8) | TILEMAP_COLOUR_OFFSET;
 /*
