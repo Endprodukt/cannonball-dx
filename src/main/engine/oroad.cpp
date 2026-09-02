@@ -138,7 +138,6 @@ void ORoad::tick()
     if (bumper_view && f4_pressed)
     {
         config.cycle_bumper_view_height();
-        const int level = bumper_height_level();
 
         // Keep the setting persistent just like the other DX hotkey toggles.
         if (!config.save())
@@ -147,12 +146,6 @@ void ORoad::tick()
         bumper_height_message_ticks = config.tick_fps > 0
             ? config.tick_fps * 2
             : 60;
-
-        std::cout
-            << "Bumper View Height: "
-            << (level + 1) << "/" << Config::BUMPER_VIEW_HEIGHT_LEVELS
-            << " (" << BUMPER_HEIGHT_PRESETS[level].name << ")"
-            << std::endl;
     }
 
     // Leaving Bumper View resets only the transient render delta. The selected
