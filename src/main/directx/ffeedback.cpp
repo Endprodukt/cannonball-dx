@@ -815,20 +815,6 @@ namespace forcefeedback
                 g_haptic = haptic;
                 g_haptic_caps = caps;
                 g_is_wheel = is_wheel;
-
-                const char* name = SDL_JoystickName(joystick);
-                std::cout
-                    << "SDL FFB: selected " << (name ? name : "Unknown device")
-                    << " | VID:PID 0x" << std::hex
-                    << static_cast<unsigned>(SDL_JoystickGetVendor(joystick))
-                    << ":0x" << static_cast<unsigned>(SDL_JoystickGetProduct(joystick))
-                    << std::dec
-                    << " | wheel=" << (g_is_wheel ? "yes" : "no")
-                    << " | caps=0x" << std::hex << g_haptic_caps << std::dec
-                    << " | effects=" << SDL_HapticNumEffects(g_haptic)
-                    << " | playing=" << SDL_HapticNumEffectsPlaying(g_haptic)
-                    << std::endl;
-
                 return true;
             }
         }
@@ -861,8 +847,6 @@ namespace forcefeedback
             return false;
         }
 
-        std::cout << "SDL FFB: constant-force effect id="
-                  << g_constant_effect << std::endl;
         return true;
     }
 
@@ -937,10 +921,7 @@ namespace forcefeedback
         (void)min_force;
 
         if (!select_haptic_device())
-        {
-            std::cout << "SDL FFB: no constant-force capable wheel found" << std::endl;
             return false;
-        }
 
         if (g_haptic_caps & SDL_HAPTIC_AUTOCENTER)
             SDL_HapticSetAutocenter(g_haptic, 0);
@@ -958,7 +939,6 @@ namespace forcefeedback
         create_spring_effect();
 
         g_supported = true;
-        std::cout << "SDL FFB: steering-axis backend enabled" << std::endl;
         return true;
     }
 
