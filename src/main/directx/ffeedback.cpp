@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <string>
 
 #ifdef __linux__
 
@@ -670,7 +671,72 @@ namespace forcefeedback
         return target_vid != 0 || target_pid != 0;
     }
 
-    static bool candidate_matches_target(SDL_Joystick* joystick, Uint16 target_vid, Uint16 target_pid)
+    static std::string joystick_signature(SDL_Joystick* joystick)
+    {
+        if (!joystick)
+            return std::string();
+
+        char guid_string[33] = {};
+        SDL_JoystickGetGUIDString(
+            SDL_JoystickGetGUID(joystick),
+            guid_string,
+            sizeof(guid_string));
+
+        return
+            std::string(guid_string) +
+            "|A" + std::to_string(SDL_JoystickNumAxes(joystick)) +
+            "|B" + std::to_string(SDL_JoystickNumButtons(joystick)) +
+            "|H" + std::to_string(SDL_JoystickNumHats(joystick));
+    }
+
+    static bool read_bound_wheel_steering_signature(std::string& signature)
+    {
+        signature.clear();
+
+        for (auto it = config.controls.device_bindings.rbegin();
+             it != config.controls.device_bindings.rend();
+             ++it)
+        {
+            if (it->target != device_binding_t::TARGET_STEER ||
+                it->type != device_binding_t::TYPE_AXIS ||
+                it->device.empty())
+            {
+                continue;
+            }
+
+            if (it->device.compare(0, 2, "G:") == 0)
+                continue;
+
+            if (it->device.compare(0, 2, "W:") == 0)
+                signature = it->device.substr(2);
+            else if (it->device != "*")
+                signature = it->device;
+
+            if (!signature.empty())
+                return true;
+        }
+
+        if (!config.controls.axis_device[0].empty())
+        {
+            signature = config.controls.axis_device[0];
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool candidate_matches_signature(
+        SDL_Joystick* joystick,
+        const std::string& signature)
+    {
+        return joystick && !signature.empty() &&
+               joystick_signature(joystick) == signature;
+    }
+
+    static bool candidate_matches_target(
+        SDL_Joystick* joystick,
+        Uint16 target_vid,
+        Uint16 target_pid)
     {
         if (!joystick)
             return false;
@@ -684,14 +750,28 @@ namespace forcefeedback
 
     static bool select_haptic_device()
     {
+        std::string steering_signature;
+        const bool have_steering_target =
+            read_bound_wheel_steering_signature(steering_signature);
+
         Uint16 target_vid = 0;
         Uint16 target_pid = 0;
         const bool have_target = read_target_vidpid(target_vid, target_pid);
 
-        for (int pass = 0; pass < 4; ++pass)
+        for (int pass = 0; pass < 5; ++pass)
         {
-            const bool require_target = pass == 0 || pass == 2;
-            const bool require_wheel = pass == 0 || pass == 1;
+            const bool require_steering_target = pass == 0;
+            const bool require_target = pass == 1 || pass == 2;
+            const bool require_wheel = pass == 1 || pass == 3;
+
+            if (require_steering_target && !have_steering_target)
+                continue;
+
+            // A concrete WHEEL/Steering binding is authoritative. If that
+            // device cannot provide FFB, do not silently send forces to a
+            // different connected wheel.
+            if (have_steering_target && pass > 0)
+                break;
 
             if (require_target && !have_target)
                 continue;
@@ -706,8 +786,11 @@ namespace forcefeedback
                 const bool is_wheel =
                     SDL_JoystickGetType(joystick) == SDL_JOYSTICK_TYPE_WHEEL;
 
-                if ((require_wheel && !is_wheel) ||
-                    (require_target && !candidate_matches_target(joystick, target_vid, target_pid)))
+                if ((require_steering_target &&
+                     !candidate_matches_signature(joystick, steering_signature)) ||
+                    (require_wheel && !is_wheel) ||
+                    (require_target &&
+                     !candidate_matches_target(joystick, target_vid, target_pid)))
                 {
                     SDL_JoystickClose(joystick);
                     continue;
@@ -797,7 +880,11 @@ namespace forcefeedback
     {
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_SPRING;
-        effect.condition.direction = steering_direction();
+
+        // Centering is always a steering-axis condition effect. Virtual wheel
+        // interfaces such as vJoy may be exposed by SDL as a generic joystick.
+        effect.condition.direction.type = SDL_HAPTIC_STEERING_AXIS;
+        effect.condition.direction.dir[0] = 1;
         effect.condition.length = SDL_HAPTIC_INFINITY;
 
         const int strength = (0x7fff * clamp_percent(percent)) / 100;
