@@ -52,6 +52,16 @@ namespace
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
+    const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
+
+    const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
+    {
+        "LOW",
+        "DEFAULT",
+        "MEDIUM",
+        "HIGH",
+        "HIGHEST",
+    };
 
     // Menu selections are infrequent, so write immediately after the change
     // rather than carrying a separate explicit SAVE action. Video changes that
@@ -93,6 +103,12 @@ namespace
         const int seconds = config.selection_timer_seconds();
         return std::string(SELECTION_TIMER_LABEL) +
             (seconds == 0 ? "OFF" : std::to_string(seconds) + " SEC");
+    }
+
+    std::string bumper_height_menu_text()
+    {
+        const int level = config.bumper_view_height_level();
+        return std::string(BUMPER_HEIGHT_LABEL) + BUMPER_HEIGHT_NAMES[level];
     }
 
     void sync_feedback_for_input_mode()
@@ -306,6 +322,36 @@ namespace
 
 void Menu::tick()
 {
+    // Keep the Bumper View height setting present in the rebuilt DX Gameplay
+    // menu and synchronized with changes made through the in-game F4 hotkey.
+    if (!menu_engine.empty())
+    {
+        auto bumper_entry = std::find_if(
+            menu_engine.begin(),
+            menu_engine.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, BUMPER_HEIGHT_LABEL);
+            });
+
+        if (bumper_entry == menu_engine.end())
+        {
+            auto insert_before = std::find_if(
+                menu_engine.begin(),
+                menu_engine.end(),
+                [](const std::string& entry)
+                {
+                    return starts_with_label(entry, ENTRY_SUB_HANDLING);
+                });
+
+            menu_engine.insert(insert_before, bumper_height_menu_text());
+        }
+        else
+        {
+            *bumper_entry = bumper_height_menu_text();
+        }
+    }
+
     // The original frontend uses analog steering as a menu up/down control.
     // That is convenient on a cabinet but extremely annoying with a PC wheel.
     // Neutralise steering only while browsing normal menus. In-game steering
@@ -470,6 +516,29 @@ void Menu::populate_controls()
 
 bool Menu::select_pressed()
 {
+    // Bumper height is a five-step value. LEFT and RIGHT move in opposite
+    // directions and wrap around; Enter remains a forward-cycle fallback.
+    if (menu_selected == &menu_engine &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_engine.size()) &&
+        starts_with_label(menu_engine[cursor], BUMPER_HEIGHT_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        int level = config.bumper_view_height_level();
+
+        if (input.has_pressed(Input::RIGHT))
+            level = (level + 1) % Config::BUMPER_VIEW_HEIGHT_LEVELS;
+        else
+            level = (level + Config::BUMPER_VIEW_HEIGHT_LEVELS - 1) %
+                Config::BUMPER_VIEW_HEIGHT_LEVELS;
+
+        config.set_bumper_view_height_level(level);
+        menu_engine[cursor] = bumper_height_menu_text();
+        config_save_pending = true;
+        osoundint.queue_sound(sound::BEEP1);
+        return false;
+    }
+
     // INPUT MODE uses left/right like the other value-style settings. Keyboard
     // arrows remain active in both modes; the selected physical input family
     // may also provide them when appropriate.
@@ -514,6 +583,13 @@ bool Menu::select_pressed()
         cursor < static_cast<int>(menu_engine.size()))
     {
         const std::string& option = menu_engine[cursor];
+
+        if (starts_with_label(option, BUMPER_HEIGHT_LABEL))
+        {
+            config.cycle_bumper_view_height();
+            menu_engine[cursor] = bumper_height_menu_text();
+            return false;
+        }
 
         if (starts_with_label(option, SELECTION_TIMER_LABEL))
         {
