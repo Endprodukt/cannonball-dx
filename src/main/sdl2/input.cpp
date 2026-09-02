@@ -995,6 +995,13 @@ void Input::reset_axis_config()
     snapshot_controller(controller);
     for (SDL_GameController* pad : secondary_controllers)
         snapshot_controller(pad);
+
+    // Ignore motion events that were queued before this cell started listening.
+    // Virtual devices such as vJoy can emit a complete multi-axis report during
+    // startup; without clearing those stale events the last axis in that report
+    // can overwrite the axis the user actually moves.
+    SDL_FlushEvents(SDL_JOYAXISMOTION, SDL_JOYAXISMOTION);
+    SDL_FlushEvents(SDL_CONTROLLERAXISMOTION, SDL_CONTROLLERAXISMOTION);
 }
 
 void Input::capture_raw_axis_motion(
@@ -1002,6 +1009,11 @@ void Input::capture_raw_axis_motion(
     const uint8_t ax,
     const int16_t value)
 {
+    // One capture cycle represents one assignment. Once an axis has crossed the
+    // movement threshold, later events must not replace it.
+    if (axis_counter == 2)
+        return;
+
     bool raw_gamepad_fallback = false;
 
     if (capture_group == BINDING_GAMEPAD)
@@ -1161,7 +1173,7 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
         axis_config_device = saved_axis_config_device;
     }
 
-    if (capture_group == BINDING_GAMEPAD)
+    if (capture_group == BINDING_GAMEPAD && axis_counter != 2)
     {
         const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
         const int encoded_axis = CONTROLLER_AXIS_BASE + evt->axis;
