@@ -3,6 +3,7 @@
 #include "romloader.hpp"
 #include "hwvideo/hwtiles.hpp"
 #include "frontend/config.hpp"
+#include "engine/oroad.hpp"
 
 /***************************************************************************
     Video Emulation: OutRun Tilemap Hardware.
@@ -214,7 +215,7 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
     int16_t Colour, x, y, Priority = 0;
 
     uint16_t ActPage = 0;
-    const uint16_t EffPage = page[page_index];
+    uint16_t EffPage = page[page_index];
     uint16_t xScroll = scroll_x[page_index];
     uint16_t yScroll = scroll_y[page_index];
 
@@ -226,6 +227,27 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
 
     int x_decrement = (x_clamp - xScroll) & 0x3ff;
     int y_decrement = yScroll & 0x1ff;
+
+    // Vertical tile scroll is written to the System 16 hardware as a 9-bit
+    // value. A small negative scroll therefore arrives here close to 0x200
+    // (for example -20 becomes 0x1EC). That wrap is correct for the arcade
+    // camera, but the adjustable Bumper View can expose the bottom of the
+    // circular tilemap at the top of the screen. Reconstruct the signed 9-bit
+    // value only for that camera. Negative values then move the real tilemap
+    // down instead of wrapping its bottom edge into the sky.
+    int signed_y_scroll = y_decrement;
+    if (signed_y_scroll & 0x100)
+        signed_y_scroll -= 0x200;
+
+    const bool extend_bumper_sky =
+        oroad.get_view_mode() == ORoad::VIEW_INCAR && signed_y_scroll < 0;
+
+    // OTiles swaps the upper/lower page bytes when the signed V-scroll is
+    // negative so the original circular hardware keeps scrolling seamlessly.
+    // For the extended Bumper sky we deliberately do not wrap, so restore the
+    // unswapped page order and simply shift those tiles down.
+    if (extend_bumper_sky)
+        EffPage = (EffPage >> 8) | ((EffPage & 0x00FF) << 8);
 
     int my8 = -8, mx8;
     for (int my = 0; my < 64; my++)
@@ -282,12 +304,20 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
                 if (x < -x_clamp)
                     x += 1024;
 
-                y -= y_decrement;
-//                y -= yScroll & 0x1ff;
+                if (extend_bumper_sky)
+                {
+                    // signed_y_scroll is negative, so this shifts the tilemap
+                    // down and leaves the newly exposed area as road-chip sky.
+                    y -= signed_y_scroll;
+                }
+                else
+                {
+                    y -= y_decrement;
+//                  y -= yScroll & 0x1ff;
 
-
-                if (y < -288)
-                    y += 512;
+                    if (y < -288)
+                        y += 512;
+                }
 
                 const uint16_t ColourOff = (uint16_t)((Colour >> 5) << 8) | TILEMAP_COLOUR_OFFSET;
 /*
