@@ -844,6 +844,12 @@ void Input::store_last_axis(SDL_JoystickID device,
     const uint8_t ax,
     const int16_t value)
 {
+    // The matrix binding editor has its own per-device axis capture. Running
+    // the legacy detector at the same time lets virtual-device startup reports
+    // win the assignment before the matrix detector sees the intended axis.
+    if (capture_group != -1)
+        return;
+
     const static int CAP = SDL_JOYSTICK_AXIS_MAX / 4;
 
     if (std::abs(value) > CAP)
