@@ -1169,6 +1169,14 @@ namespace forcefeedback
 
     void set_enabled(bool enabled)
     {
+        // Enabling an already-enabled backend is a no-op. In particular, do
+        // not restart the Spring effect just because startup or a hot-switch
+        // path repeats set_enabled(true) after the centering parameters were
+        // already applied. vJoy/BFF otherwise sees an unnecessary second
+        // Spring start immediately after the first one.
+        if (g_enabled == enabled)
+            return;
+
         g_enabled = enabled;
 
         if (!g_supported || !g_haptic)
