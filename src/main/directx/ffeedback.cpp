@@ -528,7 +528,8 @@ namespace forcefeedback
         int requested_percent,
         const std::source_location& source)
     {
-        if (source_file_contains(source, "menu.cpp") ||
+        if (source_file_contains(source, "main.cpp") ||
+            source_file_contains(source, "menu.cpp") ||
             source_file_contains(source, "menu_base.cpp") ||
             source_function_contains(source, "reset_music_detent_ffb"))
         {
