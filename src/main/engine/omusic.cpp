@@ -287,9 +287,8 @@ void OMusic::check_start()
     bool starting_japanese =
         start_pressed && old_selection == SELECT_ORIGINAL_JP;
 
-    // Endless is a survival mode, so the global Timer OFF option must never
-    // freeze its countdown. Restore the normal user setting for Original and
-    // Continuous, while Time Trial keeps its existing forced timer behaviour.
+    // Endless follows the same global TIME setting as Original and Continuous.
+    // Time Trial remains the only mode that deliberately forces the timer off.
     if (start_pressed)
     {
         music_select_deadline_ms = 0;
@@ -299,9 +298,7 @@ void OMusic::check_start()
         starting_japanese = apply_course_variant(starting_japanese);
         japanese_selected = starting_japanese;
 
-        if (old_selection == SELECT_ENDLESS)
-            outrun.freeze_timer = false;
-        else if (old_selection == SELECT_TIME_TRIAL)
+        if (old_selection == SELECT_TIME_TRIAL)
             outrun.freeze_timer = true;
         else
             outrun.freeze_timer = config.engine.freeze_timer;
@@ -484,19 +481,15 @@ void OMusic::tick()
         outrun.endless_mode =
             game_mode_selected == Outrun::MODE_CONT && endless_selected;
 
-        if (outrun.endless_mode)
-        {
-            outrun.freeze_timer = false;
-            outrun.custom_traffic = 2;
-        }
-        else if (game_mode_selected == Outrun::MODE_TTRIAL)
-        {
+        // Endless now honors the global TIME setting just like Original and
+        // Continuous. Time Trial remains the only forced timer-off mode.
+        if (game_mode_selected == Outrun::MODE_TTRIAL)
             outrun.freeze_timer = true;
-        }
         else
-        {
             outrun.freeze_timer = config.engine.freeze_timer;
-        }
+
+        if (outrun.endless_mode)
+            outrun.custom_traffic = 2;
 
         if (game_mode_selected == Outrun::MODE_CONT && !outrun.endless_mode)
             set_continuous_traffic_from_difficulty();
