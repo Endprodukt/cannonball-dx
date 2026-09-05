@@ -10,12 +10,14 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 
 #include "../utils.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "engine/oaddresses.hpp"
 #include "engine/ohud.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ostats.hpp"
@@ -48,9 +50,6 @@ public:
 
     void tick_run(uint16_t speed_kph)
     {
-        // OStats::do_timers() is driven by the emulated vertical interrupt at
-        // 60 Hz (30-fps mode calls vint twice). The first GS_INGAME sample is
-        // therefore also a clean run boundary that excludes the start countdown.
         if (!run_active)
             begin_run();
 
@@ -61,11 +60,6 @@ public:
     void capture_result(uint16_t completed_stages, uint32_t score)
     {
         pending.stages = completed_stages;
-
-        // Sum the exact KPH value already used by the in-game speedometer.
-        // At 60 samples/second, division by 21600 converts the accumulated
-        // KPH samples to tenths of a kilometre:
-        //   KPH * (1/60 h/3600) * 10 = KPH / 21600.
         pending.distance_tenths = static_cast<uint32_t>(
             (speed_tick_sum + 10800ULL) / 21600ULL);
         pending.time_ticks = run_ticks;
@@ -89,10 +83,7 @@ public:
         letter_selected = 0;
         steering_repeat = 0;
 
-        // Match the stock OutRun score-entry behaviour: a pedal that is still
-        // held as GAME OVER hands control to the table must be released before
-        // it can confirm the first letter. Digital ACCEL/START edges are handled
-        // separately, so a stale analog state can no longer block all input.
+        // A held pedal must be released before it can confirm the first letter.
         analog_accel_down = oinputs.input_acc >= 0x60;
 
         if (result_captured)
@@ -121,15 +112,10 @@ public:
             else if (display_start > NO_SCORES - 7)
                 display_start = NO_SCORES - 7;
 
-            // The preserved high-score state sets its own timer before calling
-            // init(). Restore the configured entry time because the original
-            // OHiScore routine is deliberately bypassed for Endless.
             ostats.time_counter = config.engine.hiscore_timer;
             ostats.frame_counter = ostats.frame_reset;
 
-            // Persist the result immediately with blank initials. Subsequent
-            // letter presses update the same file, so a timeout cannot lose a
-            // valid Endless record.
+            // Persist immediately so a timeout cannot lose the run.
             save();
 
             osoundint.queue_sound(sound::PCM_WAVE);
@@ -137,13 +123,12 @@ public:
         }
         else
         {
-            // Match the normal Best OutRunners behaviour for a non-record run.
             ostats.time_counter = 5;
             ostats.frame_counter = ostats.frame_reset;
         }
 
-        // The standard table is tile-based. Clear that tile page once so the
-        // dedicated text-based Endless rows are not drawn over old score data.
+        // The stock Best OutRunners table uses tile RAM. Clear that page before
+        // drawing the dedicated Endless text table.
         uint32_t tile_addr = 0x10E000;
         for (int i = 0; i <= 0x3FF; i++)
             video.write_tile32(&tile_addr, 0x200020);
@@ -166,9 +151,7 @@ public:
             input.has_pressed(Input::ACCEL) ||
             input.has_pressed(Input::START);
 
-        // Use the same two-threshold release/press hysteresis as the stock
-        // high-score input. This avoids pedal jitter around the selection point
-        // and guarantees a held pedal has to be released before it can fire.
+        // Match the stock score-entry pedal hysteresis.
         if (oinputs.input_acc < 0x30)
         {
             analog_accel_down = false;
@@ -264,8 +247,6 @@ private:
             entry.score = Utils::from_hex_string(
                 data.get_string(tag + ".score", "0"));
 
-            // Endless owns its own file format. '_' denotes an unused initial,
-            // leaving '.' available as a real arcade-style initial.
             const std::string i1 = data.get_string(tag + ".initial1", "_");
             const std::string i2 = data.get_string(tag + ".initial2", "_");
             const std::string i3 = data.get_string(tag + ".initial3", "_");
@@ -334,9 +315,6 @@ private:
         {
             uint16_t tile = static_cast<uint8_t>(*text++);
 
-            // The System 16 text font does not use ASCII indexes for the two
-            // OutRun time separators. Use the same tile numbers as the stock
-            // lap/high-score renderer so they do not appear as stray symbols.
             if (tile == '\'')
                 tile = 0x5E;
             else if (tile == '"')
@@ -348,32 +326,80 @@ private:
         }
     }
 
+    static void clear_text_row(uint16_t y)
+    {
+        ohud.blit_text_new(
+            0,
+            y,
+            "                                        ",
+            OHud::GREY);
+    }
+
+    void draw_original_initials_editor()
+    {
+        // Use the exact same two-row ROM alphabet used by Original/Continuous
+        // and the Time Trial record entry instead of the generic 8x8 font.
+        ohud.blit_text2(TEXT2_ALPHABET);
+
+        // Endless only needs A-Z plus the full stop. The full stop is the first
+        // special stock high-score tile immediately following the ROM alphabet.
+        const uint32_t dot_adr = 0x110BF0;
+        video.write_text16(dot_adr,        0x8D00);
+        video.write_text16(dot_adr + 0x80, 0x8D01);
+
+        // Highlight the selected two-row glyph exactly like stock OutRun.
+        const uint16_t RED = 0x80;
+        const uint32_t selected_adr =
+            0x110BBC + (static_cast<uint32_t>(letter_selected) << 1);
+
+        video.write_text8(
+            selected_adr,
+            (video.read_text8(selected_adr) & 1) | RED);
+        video.write_text8(
+            selected_adr + 0x80,
+            (video.read_text8(selected_adr + 0x80) & 1) | RED);
+
+        // Same large red countdown used by the normal Best OutRunners editor.
+        const uint16_t BIG_RED_FONT = 0x8080;
+        ohud.draw_timer2(ostats.time_counter, 0x1101EC, BIG_RED_FONT);
+    }
+
     void render()
     {
-        // Fixed column starts keep values aligned independently of how many
-        // digits a stage/distance value happens to have.
         const uint16_t X_RANK = 1;
         const uint16_t X_NAME = 4;
         const uint16_t X_STAGES = 9;
         const uint16_t X_DISTANCE = 20;
         const uint16_t X_TIME = 31;
 
-        ohud.blit_text_new(11, 1, "ENDLESS OUTRUNNERS", OHud::GREEN);
-        ohud.blit_text_new(X_RANK, 4, "#", OHud::GREY);
-        ohud.blit_text_new(X_NAME, 4, "NAME", OHud::GREY);
-        ohud.blit_text_new(X_STAGES, 4, "STAGES", OHud::GREY);
-        ohud.blit_text_new(X_DISTANCE, 4, "DISTANCE", OHud::GREY);
-        ohud.blit_text_new(X_TIME + 2, 4, "TIME", OHud::GREY);
+        const bool entering_initials = new_entry && !initials_done;
+        const uint16_t header_y = entering_initials ? 5 : 4;
+        const uint16_t first_row_y = entering_initials ? 7 : 6;
+
+        // Match the other DX record screens with the original two-row OutRun
+        // display font instead of the generic one-row text font.
+        ohud.blit_text_big(1, "ENDLESS OUTRUNNERS");
+
+        if (!entering_initials)
+        {
+            // Remove the large red entry timer after initials are complete.
+            clear_text_row(3);
+            clear_text_row(4);
+        }
+
+        ohud.blit_text_new(X_RANK, header_y, "#", OHud::GREY);
+        ohud.blit_text_new(X_NAME, header_y, "NAME", OHud::GREY);
+        ohud.blit_text_new(X_STAGES, header_y, "STAGES", OHud::GREY);
+        ohud.blit_text_new(X_DISTANCE, header_y, "DISTANCE", OHud::GREY);
+        ohud.blit_text_new(X_TIME + 2, header_y, "TIME", OHud::GREY);
 
         for (int row = 0; row < 7; row++)
         {
             const int pos = display_start + row;
             const Entry& entry = scores[pos];
-            const int y = 6 + (row * 2);
+            const uint16_t y = static_cast<uint16_t>(first_row_y + (row * 2));
 
-            // Always clear the visible row first. This also removes longer
-            // previous values when a live initials entry changes the contents.
-            ohud.blit_text_new(0, y, "                                        ", OHud::GREY);
+            clear_text_row(y);
 
             if (entry.stages == 0 &&
                 entry.distance_tenths == 0 &&
@@ -421,32 +447,18 @@ private:
             draw_time(X_TIME, y, time_text, col);
         }
 
-        if (new_entry && !initials_done)
+        // Own the stock initials-editor area so stale one-row text or a previous
+        // frame cannot remain behind the two-row arcade alphabet.
+        for (uint16_t y = 21; y <= 25; y++)
+            clear_text_row(y);
+
+        if (entering_initials)
         {
-            ohud.blit_text_new(13, 21, "ENTER INITIALS", OHud::GREEN);
-            ohud.blit_text_new(6, 23, "ABCDEFGHIJKLMNOPQRSTUVWXYZ.", OHud::GREY);
-
-            const char selected[2] =
-            {
-                static_cast<char>(letter_selected < 26 ?
-                    ('A' + letter_selected) : '.'),
-                0
-            };
-            ohud.blit_text_new(6 + letter_selected, 23, selected, OHud::GREEN);
-
-            // Row 26 is used by the stock FREE PLAY / credits presentation.
-            // Keep the Endless help one row above it so both remain readable.
-            ohud.blit_text_new(5, 25, "STEER LETTER  GAS/START SELECT", OHud::GREY);
+            draw_original_initials_editor();
         }
         else if (new_entry)
         {
-            // Clear every row owned by the initials editor before replacing it
-            // with the post-entry message. Otherwise the old alphabet remains
-            // in text RAM and visually collides with NEW RECORD.
-            ohud.blit_text_new(0, 21, "                                        ", OHud::GREY);
-            ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
-            ohud.blit_text_new(0, 25, "                                        ", OHud::GREY);
-            ohud.blit_text_new(15, 21, "NEW RECORD", OHud::GREEN);
+            ohud.blit_text_big(21, "NEW RECORD");
         }
     }
 
