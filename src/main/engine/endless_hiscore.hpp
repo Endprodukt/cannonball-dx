@@ -89,11 +89,11 @@ public:
         letter_selected = 0;
         steering_repeat = 0;
 
-        // A player may still have the accelerator held when GAME OVER hands
-        // control to the score screen. Seed the edge detector from that live
-        // state so the held pedal cannot immediately enter an unwanted 'A'.
-        accel_old =
-            oinputs.input_acc >= 0x60 || input.is_pressed(Input::ACCEL);
+        // Match the stock OutRun score-entry behaviour: a pedal that is still
+        // held as GAME OVER hands control to the table must be released before
+        // it can confirm the first letter. Digital ACCEL/START edges are handled
+        // separately, so a stale analog state can no longer block all input.
+        analog_accel_down = oinputs.input_acc >= 0x60;
 
         if (result_captured)
         {
@@ -162,13 +162,25 @@ public:
 
         update_letter_selection();
 
-        const bool accel_now =
-            oinputs.input_acc >= 0x60 || input.is_pressed(Input::ACCEL);
+        bool select_pressed =
+            input.has_pressed(Input::ACCEL) ||
+            input.has_pressed(Input::START);
 
-        if (accel_now && !accel_old)
+        // Use the same two-threshold release/press hysteresis as the stock
+        // high-score input. This avoids pedal jitter around the selection point
+        // and guarantees a held pedal has to be released before it can fire.
+        if (oinputs.input_acc < 0x30)
+        {
+            analog_accel_down = false;
+        }
+        else if (oinputs.input_acc >= 0x60 && !analog_accel_down)
+        {
+            analog_accel_down = true;
+            select_pressed = true;
+        }
+
+        if (select_pressed)
             accept_letter();
-
-        accel_old = accel_now;
     }
 
     void save_if_needed()
@@ -198,7 +210,7 @@ private:
     int initial_selected = 0;
     int letter_selected = 0;
     int steering_repeat = 0;
-    bool accel_old = false;
+    bool analog_accel_down = false;
 
     static bool better(const Entry& lhs, const Entry& rhs)
     {
@@ -424,7 +436,7 @@ private:
 
             // Row 26 is used by the stock FREE PLAY / credits presentation.
             // Keep the Endless help one row above it so both remain readable.
-            ohud.blit_text_new(7, 25, "STEER LETTER  ACCEL SELECT", OHud::GREY);
+            ohud.blit_text_new(5, 25, "STEER LETTER  GAS/START SELECT", OHud::GREY);
         }
         else if (new_entry)
         {
