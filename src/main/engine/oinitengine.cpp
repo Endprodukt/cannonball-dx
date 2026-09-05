@@ -239,15 +239,21 @@ void OInitEngine::advance_endless_stage()
     oroad.stage_lookup_off = select_endless_level();
     init_road_seg_master();
 
-    // CPU 0 track data and CPU 1 road-path data must switch as one operation.
-    // Normal Continuous mode can rely on ORoad noticing a new stage index on
-    // its next tick, but Endless recycles the fifteen timing slots forever.
-    // Loading the path explicitly removes that hidden dependency at the 15->16
-    // wrap and prevents a randomized track from briefly using the previous
-    // level's path during the transition.
-    trackloader.init_path(oroad.stage_lookup_off);
+    // Match Continuous mode's normal road-load ordering. ORoad sees the changed
+    // logical stage on its next tick and loads this randomized path there, so
+    // CPU 1 does not jump ahead of the rest of the stage transition.
 
+    // Rebuild the sprite palette cache, but immediately remap every coloured
+    // sprite that is still active. Old scenery can remain visible for a few
+    // frames after ROAD_END; without this remap, new-stage sprites reuse those
+    // hardware palette slots and recolour the outgoing trees/signs in place.
     osprites.clear_palette_data();
+    for (uint16_t i = 0; i < OSprites::JUMP_ENTRIES_TOTAL; i++)
+    {
+        oentry* sprite = &osprites.jump_table[i];
+        if ((sprite->control & OSprites::ENABLE) && sprite->pal_dst != 0)
+            osprites.map_palette(sprite);
+    }
 
     // Init next tilemap
     otiles.set_vertical_swap();
@@ -446,7 +452,7 @@ void OInitEngine::update_engine()
     // Draw Speed & Hud Stuff
     if (outrun.game_state >= GS_START1 && outrun.game_state <= GS_BONUS)
     {
-        // Convert & Blit Car Speed
+        // Convert & Blit car speed
         ohud.blit_speed(0x110CB6, car_increment >> 16);
         ohud.blit_text1(HUD_KPH1);
         ohud.blit_text1(HUD_KPH2);
