@@ -23,6 +23,7 @@
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
 #include "engine/oferrari.hpp"
+#include "engine/ferrari_sprite_exporter.hpp"
 
 // Extend the existing five-colour initializer without modifying the preserved
 // base implementation. PAL_CYAN occurs there only in FERRARI_PALETTES[].
@@ -96,4 +97,9 @@ void OFerrari::tick()
     }
 
     tick_base();
+
+    // Development-only capture used by feature/ferrari-sprite-exporter.
+    // Export after the normal Ferrari tick so frame, HFLIP and palette values
+    // represent the state that is about to be rendered.
+    ferrari_sprite_exporter::tick(spr_ferrari);
 }
