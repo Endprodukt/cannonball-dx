@@ -11,6 +11,9 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <chrono>
+#include <random>
+
 #include "trackloader.hpp"
 
 #include "engine/oanimseq.hpp"
@@ -29,8 +32,10 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/oinitengine.hpp"
+#include "engine/endless_hiscore.hpp"
 
 OInitEngine oinitengine;
+extern EndlessHiScore endless_hiscore;
 
 // Continuous Mode Level Ordering
 const static uint8_t CONTINUOUS_LEVELS[] = {0, 0x8, 0x9, 0x10, 0x11, 0x12, 0x18, 0x19, 0x1A, 0x1B, 0x20, 0x21, 0x22, 0x23, 0x24};
@@ -79,12 +84,14 @@ void OInitEngine::init(int8_t level)
     route_updated          = 0;
 
     // Endless always begins on the normal first stage and at Easy traffic.
-    // The history contains the current stage so the first random transition
-    // cannot immediately select stage 1 again.
+    // Reset its run tracker here as well: a frontend/game reset can abandon an
+    // Endless run without ever reaching the score screen, so the next attempt
+    // must never inherit the old run's time or distance.
     outrun.endless_stage = 0;
     endless_recent_count = 0;
     if (outrun.endless_mode)
     {
+        endless_hiscore.begin_run();
         endless_recent_levels[0] = 0;
         endless_recent_levels[1] = 0xFF;
         endless_recent_levels[2] = 0xFF;
@@ -124,12 +131,33 @@ void OInitEngine::init(int8_t level)
 
 uint8_t OInitEngine::select_endless_level()
 {
+    // Endless intentionally does not use outils::random(). That generator can
+    // be configured to reproduce the original arcade seed, which made the
+    // supposedly random Endless course order repeat between runs. Keep arcade
+    // RNG behaviour untouched for every original code path and give Endless an
+    // independent entropy-seeded generator instead.
+    static std::mt19937 endless_rng = []()
+    {
+        std::random_device rd;
+        const uint64_t now = static_cast<uint64_t>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        std::seed_seq seed
+        {
+            rd(),
+            rd(),
+            static_cast<uint32_t>(now),
+            static_cast<uint32_t>(now >> 32)
+        };
+        return std::mt19937(seed);
+    }();
+    static std::uniform_int_distribution<int> level_dist(0, 14);
+
     // Prefer a random level that has not appeared in the last three stages.
     // The fallback scan guarantees progress even if random repeatedly hits a
     // blocked entry.
     for (int attempt = 0; attempt < 32; attempt++)
     {
-        const uint8_t candidate = CONTINUOUS_LEVELS[outils::random() % 15];
+        const uint8_t candidate = CONTINUOUS_LEVELS[level_dist(endless_rng)];
         bool blocked = false;
 
         for (uint8_t i = 0; i < endless_recent_count; i++)
@@ -193,7 +221,8 @@ void OInitEngine::advance_endless_stage()
 
     // Reuse the existing fifteen timing slots cyclically. Clear the slot before
     // it becomes the current stage again so an Endless run can continue without
-    // writing past the original Continuous arrays.
+    // writing past the original Continuous arrays. The logical Endless counter
+    // itself is not wrapped, so stage 16+ remains a normal supported state.
     ostats.cur_stage = static_cast<int8_t>(outrun.endless_stage % 15);
     ostats.stage_counters[ostats.cur_stage] = 0;
     ostats.stage_times[ostats.cur_stage][0] = 0;
@@ -209,6 +238,15 @@ void OInitEngine::advance_endless_stage()
 
     oroad.stage_lookup_off = select_endless_level();
     init_road_seg_master();
+
+    // CPU 0 track data and CPU 1 road-path data must switch as one operation.
+    // Normal Continuous mode can rely on ORoad noticing a new stage index on
+    // its next tick, but Endless recycles the fifteen timing slots forever.
+    // Loading the path explicitly removes that hidden dependency at the 15->16
+    // wrap and prevents a randomized track from briefly using the previous
+    // level's path during the transition.
+    trackloader.init_path(oroad.stage_lookup_off);
+
     osprites.clear_palette_data();
 
     // Init next tilemap
