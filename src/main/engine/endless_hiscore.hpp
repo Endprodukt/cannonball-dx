@@ -382,9 +382,11 @@ private:
 
         if (!entering_initials)
         {
-            // Remove the large red entry timer after initials are complete.
+            // Remove the large red entry timer and the old entry-layout header
+            // before the compact post-entry table moves back up one row.
             clear_text_row(3);
             clear_text_row(4);
+            clear_text_row(5);
         }
 
         ohud.blit_text_new(X_RANK, header_y, "#", OHud::GREY);
