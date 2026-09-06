@@ -221,6 +221,21 @@ void OMap::draw_course_map()
         if (sprite->control & OSprites::ENABLE)
             osprites.do_spr_order_shadows(sprite++);
     }
+
+    // OMap::tick alternates between this logic path and blit() at 60 FPS.
+    // Draw the widened water copies here as well so the Original end map does
+    // not lose them every other frame. Time Trial uses blit() directly.
+    if (outrun.cannonball_mode == Outrun::MODE_ORIGINAL &&
+        config.s16_x_off != 0)
+    {
+        for (uint8_t i = TTRIAL_WATER_COPY_START;
+             i <= TTRIAL_WATER_COPY_END; ++i)
+        {
+            oentry* water = &osprites.jump_table[i];
+            if (water->control & OSprites::ENABLE)
+                osprites.do_spr_order_shadows(water);
+        }
+    }
 }
 
 
