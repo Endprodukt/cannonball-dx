@@ -32,6 +32,11 @@ namespace music_side_art
         if (time_trial_selector_active())
             return;
 
+        // The embedded art renderer contains a one-shot development diagnostic.
+        // Mark it as already logged so release builds stay quiet without changing
+        // any decoding, palette mapping or rendering behaviour.
+        music_side_art_original::get_state().logged = true;
+
         music_side_art_original::render(buffer);
         music_side_art_corrections::render(buffer);
         music_side_art_final_line::render(buffer);
