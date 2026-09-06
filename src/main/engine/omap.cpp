@@ -28,7 +28,7 @@ const uint8_t SPRITE_FERRARI = 25;
 // otherwise unused scenery entries below SPRITE_ENTRIES to continue the sea
 // down the widescreen margin without altering the original map pieces.
 const uint8_t TTRIAL_WATER_COPY_START = 0x3D;
-const uint8_t TTRIAL_WATER_COPY_END   = 0x5A;
+const uint8_t TTRIAL_WATER_COPY_END   = 0x5F;
 
 OMap::OMap(void)
 {
@@ -317,6 +317,23 @@ void OMap::load_sprites()
                 copy->y = static_cast<int16_t>(source->y + y_offset);
                 ++dst_index;
             }
+        }
+
+        // Fill the last exposed strip at the very top-left without moving the
+        // existing diagonal edge. This backing row sits one overlap step above
+        // the visible water pieces, so only its lower water area reaches the
+        // screen while the current shoreline remains unchanged.
+        for (uint8_t source_index = 26; source_index <= 30; ++source_index)
+        {
+            oentry* source = &osprites.jump_table[source_index];
+            oentry* copy   = &osprites.jump_table[dst_index];
+
+            *copy = *source;
+            copy->jump_index = dst_index;
+            copy->dst_index = 0;
+            copy->x = static_cast<int16_t>(source->x - 32);
+            copy->y = static_cast<int16_t>(source->y - 48);
+            ++dst_index;
         }
     }
 
