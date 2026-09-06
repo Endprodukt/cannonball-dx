@@ -111,8 +111,10 @@
     void set_endless_checkpoint_time(int value) \
     { \
         endless_write_setting("checkpoint_time", value, 20, 99); \
-        if (endless_min_checkpoint() > endless_checkpoint_time()) \
-            endless_write_setting("min_checkpoint", endless_checkpoint_time(), 10, 99); \
+        const int checkpoint = endless_checkpoint_time(); \
+        const int stored_min = endless_read_setting("min_checkpoint", ENDLESS_DEFAULT_MIN_CHECKPOINT, 10, 99); \
+        if (stored_min > checkpoint) \
+            endless_write_setting("min_checkpoint", checkpoint, 10, 99); \
     } \
     void set_endless_time_decrease(int value) \
     { \
@@ -131,7 +133,8 @@
     { \
         endless_write_setting("start_traffic", value, 0, 8); \
         const int start = endless_start_traffic(); \
-        if (endless_max_traffic() < start) \
+        const int stored_max = endless_read_setting("max_traffic", ENDLESS_DEFAULT_MAX_TRAFFIC, 0, 8); \
+        if (stored_max < start) \
             endless_write_setting("max_traffic", start, 0, 8); \
     } \
     void set_endless_traffic_increase(int value) \
