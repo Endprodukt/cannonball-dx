@@ -1,7 +1,7 @@
 /***************************************************************************
     CannonBall DX Time Trial Course Records.
 
-    Each of the 15 Time Trial courses owns two independent 20-entry tables:
+    Each of the 15 Time Trial courses owns two independent 10-entry tables:
     Traffic ON and Traffic OFF. Everything remains in the existing Time Trial
     XML file so the data can later be reused by an attract-mode overview.
 ***************************************************************************/
@@ -30,7 +30,7 @@ class TimeTrialRecords
 public:
     static const int TRACK_COUNT = 15;
     static const int RECORD_LAPS = 3;
-    static const int TABLE_ENTRIES = 20;
+    static const int TABLE_ENTRIES = 10;
 
     struct Record
     {
@@ -395,9 +395,8 @@ private:
             if (current_traffic_class == TRAFFIC_ON && class_best)
                 config.ttrial.best_times[current_track] = class_best;
 
-            // Course leaderboards are deliberately comparable: exactly three
-            // completed laps are required. Other configured lap counts can still
-            // update their class-specific fastest single lap.
+            // Course leaderboards are directly comparable: every supported
+            // Time Trial run is exactly three completed laps.
             if (laps == RECORD_LAPS && pending.total_counter)
             {
                 ScoreTable& table =
@@ -713,11 +712,11 @@ private:
         const bool entering_initials = qualifying_score && !initials_done;
 
         // The original alphabet lives at rows 23-24 and its timer at rows 3-4.
-        // During initials entry the header stays below the timer; otherwise it
-        // sits one row lower so the centered Traffic class has its own line.
+        // Ten record rows leave plenty of separation from the initials editor
+        // while keeping the finished leaderboard compact and readable.
         const uint16_t header_y = entering_initials ? 5 : 4;
         const uint16_t first_row_y = entering_initials ? 7 : 5;
-        const int visible_rows = entering_initials ? 15 : TABLE_ENTRIES;
+        const int visible_rows = TABLE_ENTRIES;
 
         int display_start = 0;
         if (entering_initials)
