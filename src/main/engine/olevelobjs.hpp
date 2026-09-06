@@ -4,7 +4,7 @@
     This class handles rendering most of the objects that comprise a typical
     level. 
     
-    - Configures rendering properties (co-ordinates, zoom etc.) 
+    - Configures rendering properties (co-ordinates, zoom etc.)
     - Object specific logic, including collision checks & start lights etc.
 
     The original codebase contains a large amount of code duplication,
@@ -50,6 +50,19 @@ class OLevelObjs
 
         void init_startline_sprites();
         void init_timetrial_sprites();
+
+        // Time Trial already proves that the normal start lights, sign and
+        // crowd can be placed on any of the fifteen road levels. Reuse the
+        // same reduced start-entry range for a non-Coconut Endless opener.
+        void init_startline_sprites_for_level(uint8_t level)
+        {
+            const uint8_t start_index = level == 0 ? 0 : 18;
+            init_entries(
+                outrun.adr.sprite_def_props1 + (start_index * 0x10),
+                start_index,
+                DEF_SPRITE_ENTRIES);
+        }
+
         void init_hiscore_sprites();
         void setup_sprites(uint32_t);
         void do_sprite_routine();
