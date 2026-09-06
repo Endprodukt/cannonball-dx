@@ -60,7 +60,15 @@ void OInitEngine::init(int8_t level)
     ingame_engine          = false;
     ingame_counter         = 0;
     ostats.cur_stage       = 0;
-    oroad.stage_lookup_off = level ? level : 0;
+
+    // Time Trial already supports beginning on any internal stage offset. Give
+    // Endless the same initialization path when FIRST STAGE is RANDOM, while
+    // keeping Coconut Beach (offset 0) as the normal default.
+    const int8_t start_level = outrun.endless_mode
+        ? static_cast<int8_t>(outrun.endless_start_level)
+        : (level ? level : 0);
+    oroad.stage_lookup_off = start_level;
+
     rd_split_state         = SPLIT_NONE;
     road_type              = ROAD_NOCHANGE;
     road_type_next         = ROAD_NOCHANGE;
@@ -83,26 +91,28 @@ void OInitEngine::init(int8_t level)
     road_width_merge       = 0;
     route_updated          = 0;
 
-    // Endless always begins on the normal first stage and at Easy traffic.
-    // Reset its run tracker here as well: a frontend/game reset can abandon an
-    // Endless run without ever reaching the score screen, so the next attempt
-    // must never inherit the old run's time or distance.
+    // Reset the Endless run tracker here as well: a frontend/game reset can
+    // abandon a run without ever reaching the score screen, so the next attempt
+    // must never inherit old time, distance or recent-stage history.
     outrun.endless_stage = 0;
     endless_recent_count = 0;
     if (outrun.endless_mode)
     {
         endless_hiscore.begin_run();
-        endless_recent_levels[0] = 0;
+        endless_recent_levels[0] =
+            static_cast<uint8_t>(oroad.stage_lookup_off);
         endless_recent_levels[1] = 0xFF;
         endless_recent_levels[2] = 0xFF;
         endless_recent_count = 1;
-        outrun.custom_traffic = 2;
+        outrun.custom_traffic = static_cast<uint8_t>(
+            config.endless_traffic_for_stage(0));
     }
 
 	init_road_seg_master();
 
-    // Road Renderer: Setup correct stage address 
-    if (level)
+    // CPU 1 needs the selected road path too. Coconut is already the normal
+    // default path; every non-zero random opener follows the Time Trial path.
+    if (start_level)
         trackloader.init_path(oroad.stage_lookup_off);
 
 	opalette.setup_sky_palette();
@@ -118,10 +128,10 @@ void OInitEngine::init(int8_t level)
     otiles.reset_tiles_pal();                       // Reset Tiles, Palette And Road Split Data
     ocrash.clear_crash_state();
 
-    // The following is set up specifically for time trial mode
-    if (level)
+    // Non-Coconut starts need the same road/tile setup used by Time Trial.
+    if (start_level)
     {  
-        otiles.init_tilemap_palette(level);
+        otiles.init_tilemap_palette(oroad.stage_lookup_off);
         oroad.road_ctrl  = ORoad::ROAD_BOTH_P0;
         oroad.road_width = RD_WIDTH_MERGE;        // Setup a default road width
     }
@@ -229,12 +239,13 @@ void OInitEngine::advance_endless_stage()
     ostats.stage_times[ostats.cur_stage][1] = 0;
     ostats.stage_times[ostats.cur_stage][2] = 0;
 
-    // Start at Easy density and add one on-screen traffic slot every three
-    // stages until the engine maximum of eight is reached.
-    uint16_t traffic = 2 + (outrun.endless_stage / 3);
-    if (traffic > 8)
-        traffic = 8;
-    outrun.custom_traffic = static_cast<uint8_t>(traffic);
+    // The menu-configured curve is the single source of truth for Endless
+    // traffic. Keep both the public custom value and live spawn cap in sync at
+    // the checkpoint instead of restoring the old fixed +1/every-three rule.
+    const uint8_t traffic = static_cast<uint8_t>(
+        config.endless_traffic_for_stage(outrun.endless_stage));
+    outrun.custom_traffic = traffic;
+    otraffic.set_custom_max_traffic(traffic);
 
     oroad.stage_lookup_off = select_endless_level();
     init_road_seg_master();
@@ -381,7 +392,7 @@ void OInitEngine::update_road()
     // Each segment of road is 6 bytes in memory, consisting of 3 words
     // Each road segment is a significant length of road btw :)
     //
-    // ADDRESS 3 - Road Segment Data [6 byte boundaries]
+    // ADDRESS 3 - Road Segment Data [6 byte boundaries]:
     //
     // Word 1 [+0]: Segment Position (used with 0x260006 car position)
     // Word 2 [+2]: Segment Road Curve
@@ -529,7 +540,7 @@ void OInitEngine::check_road_split()
             if (oroad.road_pos >> 16 >= 0x3F)  
                 init_split2();            
             break;
-
+        
         // State 3: Beginning of split. User must choose.
         case SPLIT_CHOICE2:
             init_split2();
@@ -905,7 +916,7 @@ void OInitEngine::init_split7()
 }
 
 // ------------------------------------------------------------------------------------------------
-// Road Split 9 - Do Road Merger. Road Gets Narrower Again.
+// Road Split 9 - Do Road Merger. Road Gets Narrower Again
 // ------------------------------------------------------------------------------------------------
 void OInitEngine::init_split9()
 {
