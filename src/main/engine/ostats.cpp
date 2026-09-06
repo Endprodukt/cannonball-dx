@@ -2,8 +2,8 @@
     In-Game Statistics - CannonBall DX Endless wrapper.
 
     The preserved OStats implementation remains in ostats_base.cpp. Endless
-    adds run-distance tracking, delayed difficulty progression, stage banners
-    and clean music changes on top of the original timer/lap handling.
+    adds run-distance tracking, configurable difficulty progression, stage
+    banners and clean music changes on top of the original timer/lap handling.
 ***************************************************************************/
 
 #include <cstdio>
@@ -30,8 +30,6 @@ extern EndlessHiScore endless_hiscore;
 
 namespace
 {
-    const uint8_t ENDLESS_MAX_DIFFICULTY = 7;
-
     // Normal completed laps keep the existing five flashes. The final lap also
     // carries the total time, so give that finish presentation eight flashes.
     // Each visible/hidden half-phase lasts roughly a quarter second at 60 Hz.
@@ -47,7 +45,8 @@ namespace
     };
 
     int last_endless_stage = -1;
-    int last_endless_difficulty = -1;
+    int last_endless_traffic = -1;
+    int last_endless_checkpoint = -1;
     int endless_banner_ticks = 0;
     DifficultyBanner endless_difficulty_banner = DIFF_BANNER_NONE;
     char endless_banner_text[40] = {0};
@@ -60,41 +59,14 @@ namespace
     uint8_t ttrial_total_time[3] = {0, 0, 0};
     bool ttrial_show_total = false;
 
-    uint8_t endless_difficulty_rank(uint16_t stage)
+    uint8_t endless_checkpoint_seconds(uint16_t stage)
     {
-        // Stages 1-5 stay at the introductory setting. The first increase is
-        // applied when entering Stage 6, then every three stages thereafter.
-        if (stage < 5)
-            return 0;
-
-        uint16_t rank = 1 + ((stage - 5) / 3);
-        if (rank > ENDLESS_MAX_DIFFICULTY)
-            rank = ENDLESS_MAX_DIFFICULTY;
-
-        return static_cast<uint8_t>(rank);
+        return static_cast<uint8_t>(config.endless_checkpoint_for_stage(stage));
     }
 
-    uint8_t endless_checkpoint_seconds(uint8_t rank)
+    uint8_t endless_traffic(uint16_t stage)
     {
-        // Final rank is intentionally capped. Once MAX DIFFICULTY is reached
-        // neither traffic nor checkpoint time gets any harsher.
-        static const uint8_t SECONDS[] =
-        {
-            60, 56, 52, 48, 44, 40, 36, 30
-        };
-
-        if (rank > ENDLESS_MAX_DIFFICULTY)
-            rank = ENDLESS_MAX_DIFFICULTY;
-
-        return SECONDS[rank];
-    }
-
-    uint8_t endless_traffic(uint8_t rank)
-    {
-        uint16_t traffic = 2 + rank;
-        if (traffic > 8)
-            traffic = 8;
-        return static_cast<uint8_t>(traffic);
+        return static_cast<uint8_t>(config.endless_traffic_for_stage(stage));
     }
 
     uint8_t bcd_seconds(int seconds)
@@ -136,7 +108,7 @@ namespace
         }
     }
 
-    void begin_endless_banner(uint8_t difficulty)
+    void begin_endless_banner(uint8_t traffic, uint8_t checkpoint)
     {
         const unsigned stage_number =
             static_cast<unsigned>(outrun.endless_stage) + 1;
@@ -150,15 +122,23 @@ namespace
 
         endless_difficulty_banner = DIFF_BANNER_NONE;
 
-        if (last_endless_difficulty >= 0 &&
-            difficulty > last_endless_difficulty)
+        const bool difficulty_increased =
+            last_endless_traffic >= 0 &&
+            (traffic > last_endless_traffic ||
+             checkpoint < last_endless_checkpoint);
+
+        if (difficulty_increased)
         {
+            const bool at_maximum =
+                traffic >= config.endless_max_traffic() &&
+                checkpoint <= config.endless_min_checkpoint();
+
             endless_difficulty_banner =
-                difficulty == ENDLESS_MAX_DIFFICULTY ?
-                    DIFF_BANNER_MAX : DIFF_BANNER_UP;
+                at_maximum ? DIFF_BANNER_MAX : DIFF_BANNER_UP;
         }
 
-        last_endless_difficulty = difficulty;
+        last_endless_traffic = traffic;
+        last_endless_checkpoint = checkpoint;
 
         // OStats::do_timers is driven at 60 Hz, so 120 ticks is about two
         // seconds regardless of 30/60 fps rendering mode.
@@ -213,7 +193,8 @@ namespace
     void reset_endless_tracking()
     {
         last_endless_stage = -1;
-        last_endless_difficulty = -1;
+        last_endless_traffic = -1;
+        last_endless_checkpoint = -1;
         endless_banner_ticks = 0;
         endless_difficulty_banner = DIFF_BANNER_NONE;
         endless_banner_text[0] = 0;
@@ -480,13 +461,13 @@ void OStats::do_timers()
         const int stage = static_cast<int>(outrun.endless_stage);
         if (stage != last_endless_stage)
         {
-            const uint8_t difficulty =
-                endless_difficulty_rank(outrun.endless_stage);
+            const uint8_t traffic = endless_traffic(outrun.endless_stage);
+            const uint8_t checkpoint =
+                endless_checkpoint_seconds(outrun.endless_stage);
 
-            // The legacy Endless core still derives traffic directly from the
+            // The legacy Endless core also derives a traffic value from the
             // stage number. Override both the public setting and live spawn cap
-            // here so Stages 1-5 remain genuinely Easy before progression starts.
-            const uint8_t traffic = endless_traffic(difficulty);
+            // here so the configured curve is authoritative for the run.
             outrun.custom_traffic = traffic;
             otraffic.set_custom_max_traffic(traffic);
 
@@ -498,7 +479,7 @@ void OStats::do_timers()
                 omusic.cycle_music();
 
             last_endless_stage = stage;
-            begin_endless_banner(difficulty);
+            begin_endless_banner(traffic, checkpoint);
         }
     }
     else if (last_endless_stage != -1 || endless_banner_ticks != 0)
@@ -566,11 +547,9 @@ void OStats::init_next_level()
 
     if (endless_checkpoint)
     {
-        const uint8_t difficulty =
-            endless_difficulty_rank(outrun.endless_stage);
         const int total_seconds =
             decimal_seconds(time_before) +
-            endless_checkpoint_seconds(difficulty);
+            config.endless_checkpoint_for_stage(outrun.endless_stage);
 
         time_counter = bcd_seconds(total_seconds);
     }
