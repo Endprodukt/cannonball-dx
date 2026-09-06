@@ -380,7 +380,7 @@ int16_t TrackLoader::readPath(uint32_t addr)
 
 int16_t TrackLoader::readPath(uint32_t* addr)
 {
-    int16_t value = (current_path[*addr] << 8) | current_path[*addr+1];
+    int16_t value = (current_path[*addr] << 8) | (current_path[*addr+1]);
     *addr += 2;
     return value;
 }
