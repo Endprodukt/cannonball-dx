@@ -165,8 +165,8 @@ void OMap::blit()
     }
 
     // Time Trial's widescreen selector continues the existing water sheet down
-    // in two 64-pixel steps. These are real sprite copies prepared by
-    // load_sprites(), so the texture repeats cleanly and simply runs off-screen.
+    // in two 64-pixel steps. Each step is also shifted left by the same amount,
+    // preserving the diagonal shoreline instead of stacking horizontal bands.
     if (time_trial_selector_active() && config.s16_x_off != 0)
     {
         for (uint8_t i = TTRIAL_WATER_COPY_START;
@@ -282,9 +282,8 @@ void OMap::load_sprites()
     }
 
     // The selector has enough spare sprite entries to repeat the five widened
-    // water pieces twice vertically. Keep the original pieces untouched and
-    // give every clone a unique jump index so sprite ordering treats it as an
-    // independent object.
+    // water pieces twice. Move every lower repetition diagonally down-left so
+    // the existing sloped edge continues naturally towards the bottom-left.
     if (time_trial_selector_active() && config.s16_x_off != 0)
     {
         uint8_t dst_index = TTRIAL_WATER_COPY_START;
@@ -299,6 +298,7 @@ void OMap::load_sprites()
                 *copy = *source;
                 copy->jump_index = dst_index;
                 copy->dst_index = 0;
+                copy->x = static_cast<int16_t>(source->x - y_offset);
                 copy->y = static_cast<int16_t>(source->y + y_offset);
                 ++dst_index;
             }
