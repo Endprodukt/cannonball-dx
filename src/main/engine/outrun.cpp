@@ -113,8 +113,17 @@ namespace
     init_stage1_traffic(); \
     if (endless_mode) reset_endless_start_traffic_slots()
 
+// A non-Coconut Endless opener needs the same reduced start-object range used
+// by Time Trial: the lights, sign and crowd are retained while Coconut-specific
+// early objects are skipped. Route only this preserved call through the generic
+// level-aware helper; ordinary Coconut starts remain visually unchanged.
+#define init_startline_sprites() \
+    init_startline_sprites_for_level( \
+        endless_mode ? endless_start_level : 0)
+
 #include "outrun_base.cpp"
 
+#undef init_startline_sprites
 #undef init_stage1_traffic
 #undef STATE_INIT_MENU
 #undef is_pressed
