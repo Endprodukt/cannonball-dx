@@ -266,7 +266,16 @@ void OFerrari::tick()
     // car_increment reaches zero. Freeze from the next frame onward instead of
     // allowing the celebration timeline to continue past the parked Ferrari.
     if (ttrial_finish && ttrial_outro_active && oinitengine.car_increment == 0)
+    {
         ttrial_outro_stopped = true;
+
+        // Once the car is parked, keep only a very short hold before Results.
+        // Never extend an already shorter remaining finish timer.
+        const int16_t post_stop_ticks =
+            static_cast<int16_t>((config.tick_fps + 1) / 2);
+        if (obonus.bonus_timer > post_stop_ticks)
+            obonus.bonus_timer = post_stop_ticks;
+    }
 
     if (!ttrial_run_complete() && ttrial_outro_active)
     {
