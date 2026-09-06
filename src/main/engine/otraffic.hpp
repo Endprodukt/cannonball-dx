@@ -45,10 +45,33 @@ public:
     void traffic_logic();
     void traffic_sound();
 
-    // Continuous mode can mirror the original OutRun difficulty table after
-    // its stage lookup advances. Keep the actual spawn cap synchronized with
-    // the public custom_traffic value without waiting for another checkpoint.
-    void set_custom_max_traffic(uint8_t value) { max_traffic = value; }
+    // Continuous/Endless can change the live spawn cap at runtime. Setting the
+    // cap to zero must also remove traffic that already exists: max_traffic only
+    // prevents future spawns, while the traffic tick continues to render slots
+    // whose function holder is still TRAFFIC_INIT/ENTRY/TICK even when ENABLE
+    // has been cleared. Reset all eight traffic entries to the same idle state
+    // OSprites::init() gives them so zero traffic is genuinely traffic-free.
+    void set_custom_max_traffic(uint8_t value)
+    {
+        max_traffic = value;
+
+        if (value != 0)
+            return;
+
+        for (uint8_t i = OSprites::SPRITE_TRAFF1;
+             i <= OSprites::SPRITE_TRAFF8;
+             ++i)
+        {
+            oentry* sprite = &osprites.jump_table[i];
+            sprite->init(i);
+            sprite->control |= OSprites::SHADOW;
+            sprite->addr = outrun.adr.sprite_porsche;
+        }
+
+        traffic_count = 0;
+        ai_traffic = 0;
+        collision_traffic = 0;
+    }
 
 private:
 

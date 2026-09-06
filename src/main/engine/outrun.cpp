@@ -62,6 +62,24 @@ namespace
         time_trial_results_ticks = 0;
         return true;
     }
+
+    void reset_endless_start_traffic_slots()
+    {
+        // init_stage1_traffic() creates five hand-authored cars and leaves their
+        // traffic state machine active. Merely clearing ENABLE is insufficient:
+        // OTraffic::tick() still processes TRAFFIC_INIT/ENTRY/TICK slots. Reset
+        // all eight traffic entries to their normal unused state instead. This
+        // preserves the slot setup required by later dynamic spawning.
+        for (uint8_t i = OSprites::SPRITE_TRAFF1;
+             i <= OSprites::SPRITE_TRAFF8;
+             ++i)
+        {
+            oentry* sprite = &osprites.jump_table[i];
+            sprite->init(i);
+            sprite->control |= OSprites::SHADOW;
+            sprite->addr = outrun.adr.sprite_porsche;
+        }
+    }
 }
 
 // Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
@@ -87,8 +105,26 @@ namespace
 // frontend-menu route completely rather than trying to undo it afterwards.
 #define STATE_INIT_MENU STATE_GAME
 
+// Original and normal Continuous deliberately start Coconut Beach with five
+// hand-authored traffic sprites. Endless uses dynamic traffic exclusively, so
+// discard those fixed cars immediately after the preserved initializer creates
+// them. Unlike disable_traffic(), this resets their traffic state machine too.
+#define init_stage1_traffic() \
+    init_stage1_traffic(); \
+    if (endless_mode) reset_endless_start_traffic_slots()
+
+// A non-Coconut Endless opener needs the same reduced start-object range used
+// by Time Trial: the lights, sign and crowd are retained while Coconut-specific
+// early objects are skipped. Route only this preserved call through the generic
+// level-aware helper; ordinary Coconut starts remain visually unchanged.
+#define init_startline_sprites() \
+    init_startline_sprites_for_level( \
+        endless_mode ? endless_start_level : 0)
+
 #include "outrun_base.cpp"
 
+#undef init_startline_sprites
+#undef init_stage1_traffic
 #undef STATE_INIT_MENU
 #undef is_pressed
 #undef endless_mode

@@ -22,8 +22,10 @@
 #include "directx/ffeedback.hpp"
 
 #include <SDL.h>
+#include <chrono>
 #include <cstring>
 #include <iostream>
+#include <random>
 
 #define enable enable_base
 #define check_start check_start_base
@@ -67,6 +69,39 @@ namespace
     {
         return music_select_deadline_ms != 0 &&
             static_cast<Sint32>(SDL_GetTicks() - music_select_deadline_ms) >= 0;
+    }
+
+    uint8_t random_endless_start_level()
+    {
+        static const uint8_t LEVELS[] =
+        {
+            0x00,
+            0x08, 0x09,
+            0x10, 0x11, 0x12,
+            0x18, 0x19, 0x1A, 0x1B,
+            0x20, 0x21, 0x22, 0x23, 0x24
+        };
+
+        // Keep Endless start selection independent from the arcade RNG seed,
+        // just like the later randomized Endless stage transitions.
+        static std::mt19937 rng = []()
+        {
+            std::random_device rd;
+            const uint64_t now = static_cast<uint64_t>(
+                std::chrono::high_resolution_clock::now()
+                    .time_since_epoch().count());
+            std::seed_seq seed
+            {
+                rd(),
+                rd(),
+                static_cast<uint32_t>(now),
+                static_cast<uint32_t>(now >> 32)
+            };
+            return std::mt19937(seed);
+        }();
+        static std::uniform_int_distribution<int> dist(0, 14);
+
+        return LEVELS[dist(rng)];
     }
 
     bool apply_course_variant(bool japanese)
@@ -155,12 +190,15 @@ int OMusic::get_music_selected()
 
 void OMusic::enable()
 {
+    const bool time_trial_handoff =
+        return_from_time_trial &&
+        outrun.cannonball_mode == Outrun::MODE_TTRIAL;
+
     // A fresh Music Select always starts from the persistent attract/default
     // colour. The shifter may then choose a temporary colour for this race.
     // The second Time Trial handoff is the same race, so preserve its already
     // selected temporary colour when returning from course selection.
-    if (!(return_from_time_trial &&
-          outrun.cannonball_mode == Outrun::MODE_TTRIAL))
+    if (!time_trial_handoff)
     {
         config.engine.car_pal =
             car_palette_state::get_default(config.engine.car_pal);
@@ -221,13 +259,20 @@ void OMusic::enable()
         ostats.frame_counter = ostats.frame_reset;
     }
 
-    // ORIGINAL JP is deliberately never sticky. If the underlying engine mode
-    // is Original, every fresh selector visit begins at World/ORIGINAL and the
-    // player must press VIEW1 again to opt into JP for this run.
+    // Every user-visible selector visit starts from World/ORIGINAL regardless
+    // of the mode that happened to be active before opening Options or ending a
+    // run. Do not disturb the hidden second Time Trial handoff: it belongs to
+    // the same already-selected race and must keep its internal state.
     japanese_selected = false;
-
-    endless_selected =
-        outrun.cannonball_mode == Outrun::MODE_CONT && outrun.endless_mode;
+    if (!time_trial_handoff)
+    {
+        game_mode_selected = Outrun::MODE_ORIGINAL;
+        endless_selected = false;
+        outrun.endless_mode = false;
+        outrun.endless_start_level = config.endless_random_start()
+            ? random_endless_start_level()
+            : 0;
+    }
 
     // A new selector visit belongs to a new run, so allow its first scheduled
     // Endless music transition to fire again.
@@ -393,10 +438,15 @@ void OMusic::check_start()
     {
         outrun.endless_mode = starting_endless;
 
-        // Endless always begins at the easiest traffic density. The engine
-        // raises this progressively after subsequent checkpoints.
         if (starting_endless)
-            outrun.custom_traffic = 2;
+        {
+            outrun.custom_traffic = static_cast<uint8_t>(
+                config.endless_traffic_for_stage(0));
+        }
+        else
+        {
+            outrun.endless_start_level = 0;
+        }
     }
 
     if (color_direction != 0)
@@ -489,7 +539,14 @@ void OMusic::tick()
             outrun.freeze_timer = config.engine.freeze_timer;
 
         if (outrun.endless_mode)
-            outrun.custom_traffic = 2;
+        {
+            outrun.custom_traffic = static_cast<uint8_t>(
+                config.endless_traffic_for_stage(0));
+        }
+        else
+        {
+            outrun.endless_start_level = 0;
+        }
 
         if (game_mode_selected == Outrun::MODE_CONT && !outrun.endless_mode)
             set_continuous_traffic_from_difficulty();
