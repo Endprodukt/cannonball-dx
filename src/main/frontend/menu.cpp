@@ -54,7 +54,6 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
-    const char* ENDPRODUKT_ABOUT_CREDIT = "DX AI Slop Build";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
     {
@@ -330,11 +329,15 @@ namespace
 
 void Menu::tick()
 {
-    // Add the DX project credit once to the inherited About text menu.
-    if (std::find(menu_about.begin(), menu_about.end(), ENDPRODUKT_ABOUT_CREDIT) ==
-        menu_about.end())
+    // Keep the project credit on the existing About copyright line rather than
+    // adding a separate entry below it.
+    for (std::string& entry : menu_about)
     {
-        menu_about.push_back(ENDPRODUKT_ABOUT_CREDIT);
+        if (entry.find("BUILD COPYRIGHT") != std::string::npos)
+        {
+            entry = "DX AI SLOP BUILD COPYRIGHT 2026 ENDPRODUKT";
+            break;
+        }
     }
 
     // Keep the Bumper View height setting present in the rebuilt DX Gameplay
