@@ -55,6 +55,15 @@ public:
     {
         MenuLegacy::populate();
 
+        // DX Time Trial records are directly comparable because every run is
+        // exactly three laps. Keep that rule fixed in the frontend and remove
+        // the old variable-lap option so the menu cannot create incompatible
+        // five-lap (or shorter) runs anymore.
+        config.ttrial.laps = 3;
+        menu_timetrial.erase(
+            std::remove(menu_timetrial.begin(), menu_timetrial.end(), ENTRY_LAPS),
+            menu_timetrial.end());
+
         if (config.smartypi.enabled)
             return;
 
