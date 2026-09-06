@@ -32,12 +32,13 @@ extern EndlessHiScore endless_hiscore;
 namespace
 {
     // Normal completed laps keep the existing five flashes. The final lap also
-    // carries the total time, but six flashes keep the finish presentation to
-    // roughly three seconds instead of making the stopped car wait for four.
+    // carries the total time, but four flashes keep that presentation to about
+    // two seconds. The finish state remains at three seconds, leaving no more
+    // than roughly one second before the results page appears.
     // Each visible/hidden half-phase lasts roughly a quarter second at 60 Hz.
     const int TTRIAL_LAP_HALF_PHASE_TICKS = 15;
     const int TTRIAL_LAP_FLASHES = 5;
-    const int TTRIAL_FINAL_LAP_FLASHES = 6;
+    const int TTRIAL_FINAL_LAP_FLASHES = 4;
 
     enum DifficultyBanner
     {
