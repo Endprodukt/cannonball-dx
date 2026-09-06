@@ -12,11 +12,14 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <chrono>
 #include <iostream>
+#include <random>
 #include "trackloader.hpp"
 #include "roms.hpp"
 #include "engine/outrun.hpp"
 #include "engine/oaddresses.hpp"
+#include "engine/oanimseq.hpp"
 
 // ------------------------------------------------------------------------------------------------
 // Stage Mapping Data: This is the master table that controls the order of the stages.
@@ -312,10 +315,39 @@ void TrackLoader::init_track_split()
 
 void TrackLoader::init_track_bonus(const uint32_t id)
 {
+    uint32_t bonus_id = id;
+
+    // Time Trial can finish on any of the fifteen normal stages. The old path
+    // forced non-final stages onto ending 0, so most Time Trial runs always
+    // showed the same goal sequence. Pick one of the five original endings
+    // independently here and keep the loaded road section and animation index
+    // synchronized.
+    if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
+    {
+        static std::mt19937 ttrial_end_rng = []()
+        {
+            std::random_device rd;
+            const uint64_t now = static_cast<uint64_t>(
+                std::chrono::high_resolution_clock::now().time_since_epoch().count());
+            std::seed_seq seed
+            {
+                rd(),
+                rd(),
+                static_cast<uint32_t>(now),
+                static_cast<uint32_t>(now >> 32)
+            };
+            return std::mt19937(seed);
+        }();
+        static std::uniform_int_distribution<int> end_dist(0, 4);
+
+        bonus_id = static_cast<uint32_t>(end_dist(ttrial_end_rng));
+        oanimseq.end_seq = static_cast<uint8_t>(bonus_id);
+    }
+
     curve_offset   = 0;
     wh_offset      = 0;
     scenery_offset = 0;
-    current_level  = &levels_end[id];
+    current_level  = &levels_end[bonus_id];
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -348,7 +380,7 @@ int16_t TrackLoader::readPath(uint32_t addr)
 
 int16_t TrackLoader::readPath(uint32_t* addr)
 {
-    int16_t value = (current_path[*addr] << 8) | (current_path[*addr+1]);
+    int16_t value = (current_path[*addr] << 8) | current_path[*addr+1];
     *addr += 2;
     return value;
 }
