@@ -17,6 +17,7 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/ostats.hpp"
+#include "frontend/ttrial.hpp"
 
 OMap omap;
 
@@ -248,8 +249,11 @@ void OMap::load_sprites()
         osprites.map_palette(sprite);
     }
 
-    // Wide-screen hack to extend sea to edge of screen.
-    if (config.s16_x_off != 0 || config.engine.fix_bugs)
+    // Wide-screen hack to extend sea to edge of screen. This belongs to the
+    // normal end-of-game route map only; the Time Trial course selector uses
+    // the untouched arcade map layout at every aspect ratio.
+    if (!time_trial_selector_active() &&
+        (config.s16_x_off != 0 || config.engine.fix_bugs))
     {
         for (uint8_t i = 26; i <= 30; i++)
         {
@@ -364,10 +368,8 @@ void OMap::draw_piece(oentry* sprite, uint32_t adr)
 // Source: 0x3696
 void OMap::move_mini_car(oentry* sprite)
 {
-    // Move Mini Car
     if (!minicar_enable)
     {
-        // Remember that the minimap is angled, so we still need to adjust both the x and y positions
         uint32_t movement_table = (map_route & 1) ? MAP_MOVEMENT_RIGHT : MAP_MOVEMENT_LEFT;
         
         int16_t pos = (map_stage1 < 4) ? map_pos : map_pos >> 1;
