@@ -17,11 +17,18 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/ostats.hpp"
+#include "frontend/ttrial.hpp"
 
 OMap omap;
 
 // Position of Ferrari in Jump Table
 const uint8_t SPRITE_FERRARI = 25;
+
+// The normal map uses entries 0..0x3C. Time Trial can safely use a few of the
+// otherwise unused scenery entries below SPRITE_ENTRIES to continue the sea
+// down the widescreen margin without altering the original map pieces.
+const uint8_t TTRIAL_WATER_COPY_START = 0x3D;
+const uint8_t TTRIAL_WATER_COPY_END   = 0x46;
 
 OMap::OMap(void)
 {
@@ -156,6 +163,20 @@ void OMap::blit()
         if (sprite->control & OSprites::ENABLE)
             osprites.do_spr_order_shadows(sprite);
     }
+
+    // Time Trial's widescreen selector continues the existing water sheet down
+    // in two 64-pixel steps. These are real sprite copies prepared by
+    // load_sprites(), so the texture repeats cleanly and simply runs off-screen.
+    if (time_trial_selector_active() && config.s16_x_off != 0)
+    {
+        for (uint8_t i = TTRIAL_WATER_COPY_START;
+             i <= TTRIAL_WATER_COPY_END; ++i)
+        {
+            oentry* sprite = &osprites.jump_table[i];
+            if (sprite->control & OSprites::ENABLE)
+                osprites.do_spr_order_shadows(sprite);
+        }
+    }
 }
 
 void OMap::draw_course_map()
@@ -257,6 +278,30 @@ void OMap::load_sprites()
             sprite->addr   = osprites.jump_table[31].addr;
             sprite->x      -= 64;
             sprite->zoom   = 0x7F;
+        }
+    }
+
+    // The selector has enough spare sprite entries to repeat the five widened
+    // water pieces twice vertically. Keep the original pieces untouched and
+    // give every clone a unique jump index so sprite ordering treats it as an
+    // independent object.
+    if (time_trial_selector_active() && config.s16_x_off != 0)
+    {
+        uint8_t dst_index = TTRIAL_WATER_COPY_START;
+
+        for (int16_t y_offset = 64; y_offset <= 128; y_offset += 64)
+        {
+            for (uint8_t source_index = 26; source_index <= 30; ++source_index)
+            {
+                oentry* source = &osprites.jump_table[source_index];
+                oentry* copy   = &osprites.jump_table[dst_index];
+
+                *copy = *source;
+                copy->jump_index = dst_index;
+                copy->dst_index = 0;
+                copy->y = static_cast<int16_t>(source->y + y_offset);
+                ++dst_index;
+            }
         }
     }
 
