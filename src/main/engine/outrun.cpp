@@ -62,6 +62,24 @@ namespace
         time_trial_results_ticks = 0;
         return true;
     }
+
+    void reset_endless_start_traffic_slots()
+    {
+        // init_stage1_traffic() creates five hand-authored cars and leaves their
+        // traffic state machine active. Merely clearing ENABLE is insufficient:
+        // OTraffic::tick() still processes TRAFFIC_INIT/ENTRY/TICK slots. Reset
+        // all eight traffic entries to their normal unused state instead. This
+        // preserves the slot setup required by later dynamic spawning.
+        for (uint8_t i = OSprites::SPRITE_TRAFF1;
+             i <= OSprites::SPRITE_TRAFF8;
+             ++i)
+        {
+            oentry* sprite = &osprites.jump_table[i];
+            sprite->init(i);
+            sprite->control |= OSprites::SHADOW;
+            sprite->addr = outrun.adr.sprite_porsche;
+        }
+    }
 }
 
 // Only while GS_GAMEOVER is executing, make the preserved MODE_CONT branch see
@@ -88,14 +106,12 @@ namespace
 #define STATE_INIT_MENU STATE_GAME
 
 // Original and normal Continuous deliberately start Coconut Beach with five
-// hand-authored traffic sprites. Those sprites bypass max_traffic completely,
-// so Endless could never represent START TRAFFIC = 0 (or any lower custom
-// value) while they remained active. Initialize them normally, then remove them
-// only for Endless. Dynamic spawning is subsequently controlled by the
-// configured Endless traffic cap in OStats.
+// hand-authored traffic sprites. Endless uses dynamic traffic exclusively, so
+// discard those fixed cars immediately after the preserved initializer creates
+// them. Unlike disable_traffic(), this resets their traffic state machine too.
 #define init_stage1_traffic() \
     init_stage1_traffic(); \
-    if (endless_mode) otraffic.disable_traffic()
+    if (endless_mode) reset_endless_start_traffic_slots()
 
 #include "outrun_base.cpp"
 
