@@ -54,7 +54,8 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
-    const char* DX_ABOUT_CREDIT = "DX AI SLOP BUILD (C) 2026 ENDPRODUKT";
+    // 0x10 is OutRun's copyright glyph, also used by the attract-mode copyright text.
+    const char* DX_ABOUT_CREDIT = "DX AI SLOP BUILD \x10 2026 ENDPRODUKT";
     const char* SE_ABOUT_CREDIT = "SE BUILD COPYRIGHT 2025 JAMES PEARCE";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
