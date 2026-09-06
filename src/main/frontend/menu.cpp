@@ -54,7 +54,7 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
-    const char* ENDPRODUKT_ABOUT_CREDIT = "AI-Slop: Endprodukt";
+    const char* ENDPRODUKT_ABOUT_CREDIT = "DX AI Slop Build";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
     {
