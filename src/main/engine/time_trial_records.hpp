@@ -711,11 +711,11 @@ private:
 
         const bool entering_initials = qualifying_score && !initials_done;
 
-        // The original alphabet lives at rows 23-24 and its timer at rows 3-4.
-        // Ten record rows leave plenty of separation from the initials editor
-        // while keeping the finished leaderboard compact and readable.
-        const uint16_t header_y = entering_initials ? 5 : 4;
-        const uint16_t first_row_y = entering_initials ? 7 : 5;
+        // Keep the table at one fixed vertical position for the entire record
+        // screen. Previously it moved upward as soon as END was selected because
+        // the finished layout used different header/row coordinates.
+        const uint16_t header_y = 5;
+        const uint16_t first_row_y = 7;
         const int visible_rows = TABLE_ENTRIES;
 
         int display_start = 0;
