@@ -267,7 +267,11 @@ int TTrial::tick()
             ostats.init(true);
             osprites.init();
             video.enabled = true;
-            video.sprite_layer->set_x_clip(false);
+            // The Time Trial selector must keep the original 320-pixel map
+            // viewport even when the game itself runs in 16:9 or 21:9. The
+            // off-screen end-map sprites include cabinet artwork such as the
+            // steering wheel, which becomes visible when wide clipping is off.
+            video.sprite_layer->set_x_clip(true);
             omap.init();
             omap.load_sprites();
             omap.position_ferrari(FERRARI_POS[level_selected = 0]);
