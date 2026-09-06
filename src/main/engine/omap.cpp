@@ -296,11 +296,11 @@ void OMap::load_sprites()
             *copy = *source;
             copy->jump_index = dst_index;
             copy->dst_index = 0;
-            copy->x = static_cast<int16_t>(source->x - 64);
+            copy->x = static_cast<int16_t>(source->x - 96);
             ++dst_index;
         }
 
-        int16_t x_offset = -64;
+        int16_t x_offset = -96;
         for (int16_t y_offset = 48;
              y_offset <= 240;
              y_offset += 48, x_offset -= 64)
