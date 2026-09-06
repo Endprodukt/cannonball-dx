@@ -1,13 +1,13 @@
 /***************************************************************************
     Course Map Logic & Rendering. 
-    
+
     This is the full-screen map that is displayed at the end of the game. 
-    
+
     The logo is built from multiple sprite components.
-    
+
     The course map itself is made up of sprites and pieced together. 
     It's not a tilemap.
-    
+
     Copyright Chris White.
     See license.txt for more details.
 ***************************************************************************/
@@ -17,7 +17,6 @@
 #include "engine/otiles.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/ostats.hpp"
-#include "frontend/ttrial.hpp"
 
 OMap omap;
 
@@ -249,11 +248,8 @@ void OMap::load_sprites()
         osprites.map_palette(sprite);
     }
 
-    // Wide-screen hack to extend sea to edge of screen. This belongs to the
-    // normal end-of-game route map only; the Time Trial course selector uses
-    // the untouched arcade map layout at every aspect ratio.
-    if (!time_trial_selector_active() &&
-        (config.s16_x_off != 0 || config.engine.fix_bugs))
+    // Wide-screen hack to extend sea to edge of screen.
+    if (config.s16_x_off != 0 || config.engine.fix_bugs)
     {
         for (uint8_t i = 26; i <= 30; i++)
         {
