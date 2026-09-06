@@ -24,9 +24,9 @@ OMap omap;
 // Position of Ferrari in Jump Table
 const uint8_t SPRITE_FERRARI = 25;
 
-// The normal map uses entries 0..0x3C. Time Trial can safely use a few of the
-// otherwise unused scenery entries below SPRITE_ENTRIES to continue the sea
-// down the widescreen margin without altering the original map pieces.
+// The normal map uses entries 0..0x3C. The widescreen water extension can use
+// otherwise unused scenery entries below SPRITE_ENTRIES without altering the
+// original map pieces.
 const uint8_t TTRIAL_WATER_COPY_START = 0x3D;
 const uint8_t TTRIAL_WATER_COPY_END   = 0x5F;
 
@@ -164,9 +164,12 @@ void OMap::blit()
             osprites.do_spr_order_shadows(sprite);
     }
 
-    // Time Trial's widescreen selector continues the existing water sheet into
-    // the upper-left corner and then down-left in overlapping diagonal layers.
-    if (time_trial_selector_active() && config.s16_x_off != 0)
+    // Use the same widescreen water extension for the Time Trial selector and
+    // the Original end-of-game course map. Original Japanese shares MODE_ORIGINAL
+    // and therefore receives the identical layout automatically.
+    if ((time_trial_selector_active() ||
+         outrun.cannonball_mode == Outrun::MODE_ORIGINAL) &&
+        config.s16_x_off != 0)
     {
         for (uint8_t i = TTRIAL_WATER_COPY_START;
              i <= TTRIAL_WATER_COPY_END; ++i)
@@ -280,11 +283,13 @@ void OMap::load_sprites()
         }
     }
 
-    // Time Trial needs a little more of the same widened sea than the normal
-    // route map. First add a same-height copy farther left to fill the corner.
-    // Then use 48-pixel vertical spacing so adjacent layers overlap instead of
-    // leaving horizontal pink gaps, while every layer continues farther left.
-    if (time_trial_selector_active() && config.s16_x_off != 0)
+    // Time Trial and the Original end map share the exact same widened sea.
+    // First add a same-height copy farther left to fill the corner. Then use
+    // 48-pixel vertical spacing so adjacent layers overlap instead of leaving
+    // horizontal pink gaps, while every layer continues farther left.
+    if ((time_trial_selector_active() ||
+         outrun.cannonball_mode == Outrun::MODE_ORIGINAL) &&
+        config.s16_x_off != 0)
     {
         uint8_t dst_index = TTRIAL_WATER_COPY_START;
 
