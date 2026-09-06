@@ -48,7 +48,6 @@ namespace
     int last_endless_traffic = -1;
     int last_endless_checkpoint = -1;
     int endless_banner_ticks = 0;
-    bool endless_start_settings_applied = false;
     DifficultyBanner endless_difficulty_banner = DIFF_BANNER_NONE;
     char endless_banner_text[40] = {0};
 
@@ -458,11 +457,11 @@ void OStats::do_timers()
         outrun.game_state >= GS_START1 &&
         outrun.game_state <= GS_START3;
 
-    // GS_INIT_GAME still initializes the preserved Continuous timer before the
-    // wrapper gets control. Apply the configured Endless start values on the
-    // first start-sequence VBlank, before the HUD timer is drawn. This also
-    // gives pre-race traffic the requested starting density.
-    if (endless_starting && !endless_start_settings_applied)
+    // Make the configured start values authoritative throughout the complete
+    // countdown. The preserved GS_INIT_GAME path still writes its legacy 80
+    // seconds first, so applying this every VBlank guarantees the player sees
+    // and starts with the selected Endless value.
+    if (endless_starting)
     {
         if (!outrun.freeze_timer)
             time_counter = config.endless_start_time_bcd();
@@ -470,13 +469,6 @@ void OStats::do_timers()
         const uint8_t traffic = endless_traffic(0);
         outrun.custom_traffic = traffic;
         otraffic.set_custom_max_traffic(traffic);
-        endless_start_settings_applied = true;
-    }
-    else if (!endless_run ||
-             outrun.game_state < GS_START1 ||
-             outrun.game_state > GS_INGAME)
-    {
-        endless_start_settings_applied = false;
     }
 
     const bool endless_ingame =
@@ -488,17 +480,23 @@ void OStats::do_timers()
             static_cast<uint16_t>(oinitengine.car_increment >> 16));
 
         const int stage = static_cast<int>(outrun.endless_stage);
+        const uint8_t traffic = endless_traffic(outrun.endless_stage);
+        const uint8_t checkpoint =
+            endless_checkpoint_seconds(outrun.endless_stage);
+
+        // Keep the configured traffic curve authoritative every frame. This
+        // immediately overwrites legacy hard-coded stage values and also makes
+        // zero traffic a real supported Endless setting.
+        outrun.custom_traffic = traffic;
+        otraffic.set_custom_max_traffic(traffic);
+
         if (stage != last_endless_stage)
         {
-            const uint8_t traffic = endless_traffic(outrun.endless_stage);
-            const uint8_t checkpoint =
-                endless_checkpoint_seconds(outrun.endless_stage);
-
-            // The legacy Endless core also derives a traffic value from the
-            // stage number. Override both the public setting and live spawn cap
-            // here so the configured curve is authoritative for the run.
-            outrun.custom_traffic = traffic;
-            otraffic.set_custom_max_traffic(traffic);
+            // On the first controllable frame enforce the configured start time
+            // once more. No countdown occurs on the START3 -> INGAME transition,
+            // so the first actual racing second begins from exactly this value.
+            if (last_endless_stage < 0 && !outrun.freeze_timer)
+                time_counter = config.endless_start_time_bcd();
 
             // Keep music changes at checkpoints so a song is never cut in the
             // middle of a stage. Four stages is close to one full arcade song
@@ -538,6 +536,12 @@ void OStats::do_timers()
     }
 
     do_timers_base();
+
+    // The base timer routine is currently a no-op outside GS_INGAME, but keep
+    // the selected start value authoritative after it as well. This prevents a
+    // future preserved-code change from silently restoring the legacy 80.
+    if (endless_starting && !outrun.freeze_timer)
+        time_counter = config.endless_start_time_bcd();
 
     if (endless_ingame)
     {
