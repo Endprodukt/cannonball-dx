@@ -80,6 +80,97 @@ DEFINE_RW_FUNCS(uint8_t,  u8)
 DEFINE_RW_FUNCS(uint16_t, u16)
 DEFINE_RW_FUNCS(uint32_t, u32)
 
+namespace
+{
+    struct FerrariMirrorRect
+    {
+        int x0;
+        int x1;
+        int y0;
+        int y1;
+    };
+
+    struct FerrariMirrorFix
+    {
+        uint32_t offset_words;
+        int pitch_words;
+        int width;
+        FerrariMirrorRect logo;
+        FerrariMirrorRect plate;
+    };
+
+    // These are the ten Ferrari ROM frames where a left-facing HFLIP leaves
+    // readable asymmetric rear details. Coordinates were measured directly
+    // from the original 4-bit sprite data exported by CannonBall DX.
+    constexpr FerrariMirrorFix FERRARI_MIRROR_FIXES[] =
+    {
+        {    0, 11,  88, {40, 46, 27, 33}, {36, 50, 35, 39} }, // F236
+        {  484, 11,  88, {40, 46, 19, 25}, {36, 51, 27, 32} }, // F240
+        {  935, 11,  88, {40, 46, 11, 17}, {36, 51, 19, 25} }, // F24A
+        { 1331, 11,  88, {39, 45, 27, 33}, {35, 50, 35, 39} }, // F254
+        { 1815, 11,  88, {39, 45, 19, 25}, {35, 50, 27, 32} }, // F25E
+        { 2266, 11,  88, {39, 45, 11, 17}, {35, 50, 19, 25} }, // F268
+        { 2662, 11,  88, {38, 44, 27, 33}, {34, 49, 35, 39} }, // F272
+        { 3146, 11,  88, {38, 44, 19, 25}, {34, 49, 27, 32} }, // F27C
+        { 3597, 11,  88, {38, 44, 11, 17}, {34, 49, 19, 25} }, // F286
+        { 9353, 17, 136, {34, 40, 19, 25}, {31, 44, 27, 33} }, // F4E8
+    };
+
+    const FerrariMirrorFix* find_ferrari_mirror_fix(
+        int bank,
+        uint32_t offset_words,
+        int pitch_words)
+    {
+        if (bank != 0)
+            return nullptr;
+
+        for (const FerrariMirrorFix& fix : FERRARI_MIRROR_FIXES)
+        {
+            if (fix.offset_words == offset_words &&
+                fix.pitch_words == pitch_words)
+            {
+                return &fix;
+            }
+        }
+
+        return nullptr;
+    }
+
+    uint8_t read_sprite_pixel(const uint32_t* row, int x)
+    {
+        const int shift = 28 - ((x & 7) << 2);
+        return static_cast<uint8_t>((row[x >> 3] >> shift) & 0x0f);
+    }
+
+    void write_sprite_pixel(uint32_t* row, int x, uint8_t pixel)
+    {
+        const int shift = 28 - ((x & 7) << 2);
+        const uint32_t mask = 0x0fu << shift;
+        row[x >> 3] =
+            (row[x >> 3] & ~mask) |
+            ((static_cast<uint32_t>(pixel) & 0x0fu) << shift);
+    }
+
+    void restore_unmirrored_rect(
+        const uint32_t* source_row,
+        uint32_t* flipped_row,
+        int sprite_width,
+        int row,
+        const FerrariMirrorRect& rect)
+    {
+        if (row < rect.y0 || row > rect.y1)
+            return;
+
+        int dest_x = sprite_width - 1 - rect.x1;
+        for (int source_x = rect.x0; source_x <= rect.x1; source_x++, dest_x++)
+        {
+            write_sprite_pixel(
+                flipped_row,
+                dest_x,
+                read_sprite_pixel(source_row, source_x));
+        }
+    }
+}
 
 
 hwsprites::hwsprites()
@@ -415,6 +506,17 @@ reps[i]++;\
 
 void hwsprites::render(uint16_t* pixels, const uint8_t priority)
 {
+    // Flipped sprite rows are cached. If the user changes the Ferrari detail
+    // option at runtime, invalidate only that derived cache so the very next
+    // frame is rebuilt with the selected original/fixed behavior.
+    const bool ferrari_mirror_fix_enabled = config.ferrari_mirror_fix();
+    static bool ferrari_mirror_fix_cached_state = ferrari_mirror_fix_enabled;
+    if (ferrari_mirror_fix_enabled != ferrari_mirror_fix_cached_state)
+    {
+        std::fill_n(sprites_flipped, std::size(sprites_flipped), 0xffffffff);
+        ferrari_mirror_fix_cached_state = ferrari_mirror_fix_enabled;
+    }
+
     static uint32_t reps[6] = {0,0,0,0,0,0};
 
     static uint32_t freq[32];
@@ -536,6 +638,11 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
             // first encounter of sprite, created flipped entry
             shadowaddr -= (pitch - 1); // start of data, if unflipped
 
+            const FerrariMirrorFix* ferrari_fix =
+                ferrari_mirror_fix_enabled
+                    ? find_ferrari_mirror_fix(bank, shadowaddr, pitch)
+                    : nullptr;
+
             for (int y = 0; y < sprite_height; y++) {
 //            for (int y = 0; y < height; y++) {
                 // calculate the addresses for this line
@@ -575,6 +682,26 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                             (px[6] << 24) |
                             (px[7] << 28);
                     };
+
+                    if (ferrari_fix)
+                    {
+                        const uint32_t* source_row = spriterom + shadowaddr;
+                        uint32_t* flipped_row = spriterom_flipped + shadowaddr;
+
+                        restore_unmirrored_rect(
+                            source_row,
+                            flipped_row,
+                            ferrari_fix->width,
+                            y,
+                            ferrari_fix->logo);
+                        restore_unmirrored_rect(
+                            source_row,
+                            flipped_row,
+                            ferrari_fix->width,
+                            y,
+                            ferrari_fix->plate);
+                    }
+
                     spriterom_shadowinfo[shadowaddr] = shadow_found;
                 }
                 shadowaddr += pitch;
