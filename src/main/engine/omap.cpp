@@ -28,7 +28,7 @@ const uint8_t SPRITE_FERRARI = 25;
 // otherwise unused scenery entries below SPRITE_ENTRIES to continue the sea
 // down the widescreen margin without altering the original map pieces.
 const uint8_t TTRIAL_WATER_COPY_START = 0x3D;
-const uint8_t TTRIAL_WATER_COPY_END   = 0x46;
+const uint8_t TTRIAL_WATER_COPY_END   = 0x5A;
 
 OMap::OMap(void)
 {
@@ -164,9 +164,8 @@ void OMap::blit()
             osprites.do_spr_order_shadows(sprite);
     }
 
-    // Time Trial's widescreen selector continues the existing water sheet down
-    // in two 64-pixel steps. Each step is also shifted left by the same amount,
-    // preserving the diagonal shoreline instead of stacking horizontal bands.
+    // Time Trial's widescreen selector continues the existing water sheet into
+    // the upper-left corner and then down-left in overlapping diagonal layers.
     if (time_trial_selector_active() && config.s16_x_off != 0)
     {
         for (uint8_t i = TTRIAL_WATER_COPY_START;
@@ -281,14 +280,30 @@ void OMap::load_sprites()
         }
     }
 
-    // The selector has enough spare sprite entries to repeat the five widened
-    // water pieces twice. Move every lower repetition diagonally down-left so
-    // the existing sloped edge continues naturally towards the bottom-left.
+    // Time Trial needs a little more of the same widened sea than the normal
+    // route map. First add a same-height copy farther left to fill the corner.
+    // Then use 48-pixel vertical spacing so adjacent layers overlap instead of
+    // leaving horizontal pink gaps, while every layer continues farther left.
     if (time_trial_selector_active() && config.s16_x_off != 0)
     {
         uint8_t dst_index = TTRIAL_WATER_COPY_START;
 
-        for (int16_t y_offset = 64; y_offset <= 128; y_offset += 64)
+        for (uint8_t source_index = 26; source_index <= 30; ++source_index)
+        {
+            oentry* source = &osprites.jump_table[source_index];
+            oentry* copy   = &osprites.jump_table[dst_index];
+
+            *copy = *source;
+            copy->jump_index = dst_index;
+            copy->dst_index = 0;
+            copy->x = static_cast<int16_t>(source->x - 64);
+            ++dst_index;
+        }
+
+        int16_t x_offset = -64;
+        for (int16_t y_offset = 48;
+             y_offset <= 240;
+             y_offset += 48, x_offset -= 64)
         {
             for (uint8_t source_index = 26; source_index <= 30; ++source_index)
             {
@@ -298,7 +313,7 @@ void OMap::load_sprites()
                 *copy = *source;
                 copy->jump_index = dst_index;
                 copy->dst_index = 0;
-                copy->x = static_cast<int16_t>(source->x - y_offset);
+                copy->x = static_cast<int16_t>(source->x + x_offset);
                 copy->y = static_cast<int16_t>(source->y + y_offset);
                 ++dst_index;
             }
