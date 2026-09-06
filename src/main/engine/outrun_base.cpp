@@ -495,12 +495,20 @@ void Outrun::main_switch()
                 ohud.blit_text1(TEXT1_LAPTIME2);
                 ohud.draw_lap_timer(0x110554, ttrial.best_lap, ttrial.best_lap[2]);
 
-                ohud.blit_text_new(9,  14, "OVERTAKES          - ");
-                ohud.blit_text_new(31, 14, Utils::to_string((int) ttrial.overtakes).c_str(), OHud::GREEN);
-                ohud.blit_text_new(9,  16, "VEHICLE COLLISIONS - ");
-                ohud.blit_text_new(31, 16, Utils::to_string((int) ttrial.vehicle_cols).c_str(), OHud::GREEN);
-                ohud.blit_text_new(9,  18, "CRASHES            - ");
-                ohud.blit_text_new(31, 18, Utils::to_string((int) ttrial.crashes).c_str(), OHud::GREEN);
+                if (ttrial.traffic)
+                {
+                    ohud.blit_text_new(9,  14, "OVERTAKES          - ");
+                    ohud.blit_text_new(31, 14, Utils::to_string((int) ttrial.overtakes).c_str(), OHud::GREEN);
+                    ohud.blit_text_new(9,  16, "VEHICLE COLLISIONS - ");
+                    ohud.blit_text_new(31, 16, Utils::to_string((int) ttrial.vehicle_cols).c_str(), OHud::GREEN);
+                    ohud.blit_text_new(9,  18, "CRASHES            - ");
+                    ohud.blit_text_new(31, 18, Utils::to_string((int) ttrial.crashes).c_str(), OHud::GREEN);
+                }
+                else
+                {
+                    ohud.blit_text_new(9,  16, "CRASHES            - ");
+                    ohud.blit_text_new(31, 16, Utils::to_string((int) ttrial.crashes).c_str(), OHud::GREEN);
+                }
             }
             osoundint.queue_sound(sound::NEW_COMMAND);
             game_state = GS_GAMEOVER;
