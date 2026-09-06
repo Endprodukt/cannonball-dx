@@ -49,6 +49,7 @@ namespace
     GoalPiece ttrial_goal_top;
     bool ttrial_goal_checked = false;
     bool ttrial_outro_active = false;
+    bool ttrial_outro_stopped = false;
 
     bool ttrial_run_complete()
     {
@@ -244,20 +245,32 @@ void OFerrari::tick()
         oanimseq.end_seq = 0;
         oanimseq.init_end_seq();
         ttrial_outro_active = true;
+        ttrial_outro_stopped = false;
     }
 
     if (ttrial_outro_active && ttrial_run_complete() &&
-        outrun.game_state >= GS_INIT_GAMEOVER &&
-        outrun.game_state <= GS_GAMEOVER)
+        (ttrial_outro_stopped ||
+         (outrun.game_state >= GS_INIT_GAMEOVER &&
+          outrun.game_state <= GS_GAMEOVER)))
     {
-        // Results should not restart or continue the celebration. Hold the last
-        // Ferrari/occupant pose behind the results page instead.
+        // Stop exactly at the end of the Ferrari's braking/turn-in. Re-order
+        // only the already-rendered Ferrari, occupants and their shadows, so
+        // no later door, exit, trophy or celebration frames can advance.
         draw_frozen_ttrial_outro();
         return;
     }
 
     tick_base();
 
+    // The original end sequence marks the same moment as ferrari_stopped when
+    // car_increment reaches zero. Freeze from the next frame onward instead of
+    // allowing the celebration timeline to continue past the parked Ferrari.
+    if (ttrial_finish && ttrial_outro_active && oinitengine.car_increment == 0)
+        ttrial_outro_stopped = true;
+
     if (!ttrial_run_complete() && ttrial_outro_active)
+    {
         ttrial_outro_active = false;
+        ttrial_outro_stopped = false;
+    }
 }
