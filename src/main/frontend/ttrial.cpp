@@ -393,6 +393,16 @@ int TTrial::tick()
                 omap.blit();
                 oroad.tick();
                 osprites.sprite_copy();
+
+                // set_x_clip(true) only defines the 320-pixel clip rectangle.
+                // The optimized sprite renderer still bypasses that rectangle
+                // for entries whose hardware clip bit is clear. Map cabinet
+                // fragments use that no-clip path, so force every selector
+                // sprite through the clipped path before the RAM swap.
+                for (uint16_t i = 0; i < osprites.sprite_count; ++i)
+                    osprites.sprite_entries[i].set_clip(true);
+                osprites.blit_sprites();
+
                 osprites.update_sprites();
                 otiles.write_tilemap_hw();
                 otiles.update_tilemaps(0);
