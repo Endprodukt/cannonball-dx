@@ -227,6 +227,7 @@ namespace forcefeedback
     static bool g_is_wheel = false;
     static bool g_tyre_slip_active = false;
     static bool g_tyre_slip_prestart = false;
+    static bool g_defer_vjoy_spring = false;
     static bool g_logged_constant_update_error = false;
     static bool g_logged_constant_run_error = false;
 
@@ -528,7 +529,8 @@ namespace forcefeedback
         int requested_percent,
         const std::source_location& source)
     {
-        if (source_file_contains(source, "menu.cpp") ||
+        if (source_file_contains(source, "main.cpp") ||
+            source_file_contains(source, "menu.cpp") ||
             source_file_contains(source, "menu_base.cpp") ||
             source_function_contains(source, "reset_music_detent_ffb"))
         {
@@ -936,7 +938,12 @@ namespace forcefeedback
             return false;
         }
 
-        create_spring_effect();
+        g_defer_vjoy_spring =
+            SDL_JoystickGetVendor(g_joystick) == 0x1234 &&
+            SDL_JoystickGetProduct(g_joystick) == 0xbead;
+
+        if (!g_defer_vjoy_spring)
+            create_spring_effect();
 
         g_supported = true;
         return true;
@@ -1035,7 +1042,22 @@ namespace forcefeedback
             0,
             tuned_centering_for_source(percent, source));
 
-        if (!ensure_initialized() || !g_enabled || g_spring_effect < 0)
+        if (!ensure_initialized() || !g_enabled)
+            return;
+
+        // BackForceFeeder auto-switches its per-game control set shortly after
+        // detecting CannonBall and clears every active vJoy FFB effect during
+        // that switch. Keep the Spring out of the startup effect table and
+        // create it only once normal menu/game output processing begins.
+        if (g_defer_vjoy_spring)
+        {
+            if (source_file_contains(source, "main.cpp"))
+                return;
+
+            g_defer_vjoy_spring = false;
+        }
+
+        if (g_spring_effect < 0 && !create_spring_effect())
             return;
 
         const int effective_percent =
@@ -1169,6 +1191,14 @@ namespace forcefeedback
 
     void set_enabled(bool enabled)
     {
+        // Enabling an already-enabled backend is a no-op. In particular, do
+        // not restart the Spring effect just because startup or a hot-switch
+        // path repeats set_enabled(true) after the centering parameters were
+        // already applied. vJoy/BFF otherwise sees an unnecessary second
+        // Spring start immediately after the first one.
+        if (g_enabled == enabled)
+            return;
+
         g_enabled = enabled;
 
         if (!g_supported || !g_haptic)
@@ -1243,6 +1273,7 @@ namespace forcefeedback
         g_is_wheel = false;
         g_tyre_slip_active = false;
         g_tyre_slip_prestart = false;
+        g_defer_vjoy_spring = false;
         g_applied_centering_percent = -1;
         g_tyre_slip_strength_percent = 15;
         g_tyre_slip_spring_percent = 67;
