@@ -31,11 +31,12 @@ extern EndlessHiScore endless_hiscore;
 namespace
 {
     // Normal completed laps keep the existing five flashes. The final lap also
-    // carries the total time, so give that finish presentation eight flashes.
+    // carries the total time, but the dedicated GOAL finish shot is deliberately
+    // short, so use four flashes there instead of holding the results back.
     // Each visible/hidden half-phase lasts roughly a quarter second at 60 Hz.
     const int TTRIAL_LAP_HALF_PHASE_TICKS = 15;
     const int TTRIAL_LAP_FLASHES = 5;
-    const int TTRIAL_FINAL_LAP_FLASHES = 8;
+    const int TTRIAL_FINAL_LAP_FLASHES = 4;
 
     enum DifficultyBanner
     {
