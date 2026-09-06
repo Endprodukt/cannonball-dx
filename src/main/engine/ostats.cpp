@@ -48,6 +48,7 @@ namespace
     int last_endless_traffic = -1;
     int last_endless_checkpoint = -1;
     int endless_banner_ticks = 0;
+    bool endless_start_settings_applied = false;
     DifficultyBanner endless_difficulty_banner = DIFF_BANNER_NONE;
     char endless_banner_text[40] = {0};
 
@@ -448,10 +449,38 @@ namespace
 
 void OStats::do_timers()
 {
-    const bool endless_ingame =
+    const bool endless_run =
         outrun.endless_mode &&
-        outrun.cannonball_mode == Outrun::MODE_CONT &&
-        outrun.game_state == GS_INGAME;
+        outrun.cannonball_mode == Outrun::MODE_CONT;
+
+    const bool endless_starting =
+        endless_run &&
+        outrun.game_state >= GS_START1 &&
+        outrun.game_state <= GS_START3;
+
+    // GS_INIT_GAME still initializes the preserved Continuous timer before the
+    // wrapper gets control. Apply the configured Endless start values on the
+    // first start-sequence VBlank, before the HUD timer is drawn. This also
+    // gives pre-race traffic the requested starting density.
+    if (endless_starting && !endless_start_settings_applied)
+    {
+        if (!outrun.freeze_timer)
+            time_counter = config.endless_start_time_bcd();
+
+        const uint8_t traffic = endless_traffic(0);
+        outrun.custom_traffic = traffic;
+        otraffic.set_custom_max_traffic(traffic);
+        endless_start_settings_applied = true;
+    }
+    else if (!endless_run ||
+             outrun.game_state < GS_START1 ||
+             outrun.game_state > GS_INGAME)
+    {
+        endless_start_settings_applied = false;
+    }
+
+    const bool endless_ingame =
+        endless_run && outrun.game_state == GS_INGAME;
 
     if (endless_ingame)
     {
