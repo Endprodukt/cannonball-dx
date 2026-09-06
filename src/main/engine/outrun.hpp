@@ -45,7 +45,7 @@ enum
 	GS_BONUS = 14,				// Display Bonus Points
 	GS_INIT_GAMEOVER = 15,	    // Load Game Over
 	GS_GAMEOVER = 16,           // Game Over Text
-	GS_INIT_MAP = 17,			// Load Course Map
+	GS_INIT_MAP = 17,				// Load Course Map
 	GS_MAP = 18,				// Course Map
 	GS_INIT_BEST2 = 19,			// Load Best Outrunners
 	GS_BEST2 = 20,			    // Best Outrunners
@@ -205,6 +205,7 @@ public:
     // Continuous rendering, scoring and cabinet paths remain compatible.
     bool endless_mode = false;
     uint16_t endless_stage = 0; // Zero-based current Endless stage number
+    uint8_t endless_start_level = 0; // Internal stage offset used for stage 1
 
     // Time trial data
     time_trial_t ttrial;
