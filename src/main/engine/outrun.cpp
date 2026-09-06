@@ -87,8 +87,19 @@ namespace
 // frontend-menu route completely rather than trying to undo it afterwards.
 #define STATE_INIT_MENU STATE_GAME
 
+// Original and normal Continuous deliberately start Coconut Beach with five
+// hand-authored traffic sprites. Those sprites bypass max_traffic completely,
+// so Endless could never represent START TRAFFIC = 0 (or any lower custom
+// value) while they remained active. Initialize them normally, then remove them
+// only for Endless. Dynamic spawning is subsequently controlled by the
+// configured Endless traffic cap in OStats.
+#define init_stage1_traffic() \
+    init_stage1_traffic(); \
+    if (endless_mode) otraffic.disable_traffic()
+
 #include "outrun_base.cpp"
 
+#undef init_stage1_traffic
 #undef STATE_INIT_MENU
 #undef is_pressed
 #undef endless_mode
