@@ -373,21 +373,22 @@ private:
         const uint16_t X_TIME = 31;
 
         const bool entering_initials = new_entry && !initials_done;
-        const uint16_t header_y = entering_initials ? 5 : 4;
-        const uint16_t first_row_y = entering_initials ? 7 : 6;
+        const uint16_t header_y = 5;
+        const uint16_t first_row_y = 7;
 
         // Match the other DX record screens with the original two-row OutRun
         // display font instead of the generic one-row text font.
         ohud.blit_text_big(1, "ENDLESS OUTRUNNERS");
 
+        // Keep the table at one fixed vertical position for the whole score
+        // screen. Previously the post-entry layout moved up by one text row,
+        // leaving the old odd-numbered rows behind and producing duplicate
+        // entries. Clear the complete table area before redrawing it instead.
         if (!entering_initials)
-        {
-            // Remove the large red entry timer and the old entry-layout header
-            // before the compact post-entry table moves back up one row.
-            clear_text_row(3);
-            clear_text_row(4);
-            clear_text_row(5);
-        }
+            clear_text_row(3); // Remove the large red initials-entry timer.
+
+        for (uint16_t y = 4; y <= 20; y++)
+            clear_text_row(y);
 
         ohud.blit_text_new(X_RANK, header_y, "#", OHud::GREY);
         ohud.blit_text_new(X_NAME, header_y, "NAME", OHud::GREY);
