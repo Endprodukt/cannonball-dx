@@ -13,6 +13,7 @@
 // macros cannot touch declarations in another header.
 #include "engine/audio/osoundint.hpp"
 #include "engine/ohud.hpp"
+#include "engine/obonus.hpp"
 #include "engine/omusic.hpp"
 #include "engine/outils.hpp"
 #include "engine/ostats.hpp"
@@ -31,11 +32,12 @@ extern EndlessHiScore endless_hiscore;
 namespace
 {
     // Normal completed laps keep the existing five flashes. The final lap also
-    // carries the total time, so give that finish presentation eight flashes.
+    // carries the total time, but six flashes keep the finish presentation to
+    // roughly three seconds instead of making the stopped car wait for four.
     // Each visible/hidden half-phase lasts roughly a quarter second at 60 Hz.
     const int TTRIAL_LAP_HALF_PHASE_TICKS = 15;
     const int TTRIAL_LAP_FLASHES = 5;
-    const int TTRIAL_FINAL_LAP_FLASHES = 8;
+    const int TTRIAL_FINAL_LAP_FLASHES = 6;
 
     enum DifficultyBanner
     {
@@ -338,7 +340,7 @@ namespace
 
         // On the final lap keep the just-completed lap visible and add the full
         // run time underneath. In the normal three-lap Time Trial this means
-        // lap 3 and the three-lap total appear together as the GOAL sequence starts.
+        // lap 3 and the three-lap total appear together as the finish starts.
         if (ttrial_show_total)
         {
             ohud.blit_text_big(15, "TOTAL TIME");
@@ -375,6 +377,13 @@ namespace
             outils::convert_counter_to_time(
                 static_cast<uint16_t>(total_counter),
                 ttrial_total_time);
+
+            // check_stage() has just entered the dedicated Time Trial braking
+            // state with a four-second safety timer. Keep that state in lockstep
+            // with this shorter final presentation so the results page follows
+            // promptly once the Ferrari has stopped.
+            if (outrun.game_state == GS_BONUS)
+                obonus.bonus_timer = static_cast<int16_t>(config.tick_fps * 3 + 5);
         }
         else
         {
@@ -559,7 +568,7 @@ void OStats::do_timers()
     clean_ttrial_no_traffic_ui();
 
     // Draw after the preserved timer code so the lap notification always owns
-    // its temporary centre-screen area, including on the final lap as GOAL starts.
+    // its temporary centre-screen area, including on the final lap as the finish starts.
     if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
         tick_ttrial_lap_banner();
 }
