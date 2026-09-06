@@ -53,6 +53,7 @@ namespace
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
+    const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
     {
@@ -109,6 +110,12 @@ namespace
     {
         const int level = config.bumper_view_height_level();
         return std::string(BUMPER_HEIGHT_LABEL) + BUMPER_HEIGHT_NAMES[level];
+    }
+
+    std::string ferrari_mirror_fix_menu_text()
+    {
+        return std::string(FERRARI_MIRROR_FIX_LABEL) +
+            (config.ferrari_mirror_fix() ? "ON" : "OFF");
     }
 
     void sync_feedback_for_input_mode()
@@ -350,6 +357,56 @@ void Menu::tick()
         {
             *bumper_entry = bumper_height_menu_text();
         }
+    }
+
+    // Keep the Ferrari detail correction visible in Enhancements. OFF is the
+    // untouched arcade/CannonBall behavior where the complete sprite, including
+    // the badge and number plate, is mirrored on left-facing Ferrari frames.
+    if (!menu_enhancements.empty())
+    {
+        auto fix_entry = std::find_if(
+            menu_enhancements.begin(),
+            menu_enhancements.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);
+            });
+
+        if (fix_entry == menu_enhancements.end())
+        {
+            auto insert_before = std::find_if(
+                menu_enhancements.begin(),
+                menu_enhancements.end(),
+                [](const std::string& entry)
+                {
+                    return starts_with_label(entry, ENTRY_BACK);
+                });
+
+            menu_enhancements.insert(insert_before, ferrari_mirror_fix_menu_text());
+        }
+        else
+        {
+            *fix_entry = ferrari_mirror_fix_menu_text();
+        }
+    }
+
+    // LEFT/RIGHT set this boolean directly like the other DX value options.
+    // Enter remains a toggle fallback in select_pressed().
+    if (state == STATE_MENU &&
+        menu_selected == &menu_enhancements &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_enhancements.size()) &&
+        starts_with_label(menu_enhancements[cursor], FERRARI_MIRROR_FIX_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        const bool target = input.has_pressed(Input::RIGHT);
+        if (config.ferrari_mirror_fix() != target)
+        {
+            config.set_ferrari_mirror_fix(target);
+            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();
+            config_save_pending = true;
+        }
+        osoundint.queue_sound(sound::BEEP1);
     }
 
     // The original frontend uses analog steering as a menu up/down control.
@@ -604,6 +661,13 @@ bool Menu::select_pressed()
         cursor < static_cast<int>(menu_enhancements.size()))
     {
         const std::string& option = menu_enhancements[cursor];
+
+        if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
+        {
+            config.toggle_ferrari_mirror_fix();
+            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();
+            return false;
+        }
 
         if (starts_with_label(option, PIXEL_SCALER_LABEL))
         {
