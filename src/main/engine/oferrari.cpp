@@ -172,17 +172,6 @@ namespace
         }
     }
 
-    void disable_unused_ttrial_outro_objects()
-    {
-        // Keep only Ferrari, occupants and their shadows. Door/trophy/effects
-        // belong to the normal celebration and are deliberately omitted here.
-        oanimseq.anim_obj1.sprite->control &= ~OSprites::ENABLE;
-        oanimseq.anim_obj2.sprite->control &= ~OSprites::ENABLE;
-        oanimseq.anim_obj6.sprite->control &= ~OSprites::ENABLE;
-        oanimseq.anim_obj7.sprite->control &= ~OSprites::ENABLE;
-        oanimseq.anim_obj8.sprite->control &= ~OSprites::ENABLE;
-    }
-
     void draw_frozen_ttrial_outro()
     {
         oentry* sprites[] =
@@ -268,9 +257,6 @@ void OFerrari::tick()
     }
 
     tick_base();
-
-    if (ttrial_finish && ttrial_outro_active)
-        disable_unused_ttrial_outro_objects();
 
     if (!ttrial_run_complete() && ttrial_outro_active)
         ttrial_outro_active = false;
