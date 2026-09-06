@@ -201,7 +201,7 @@ void OHiScore::set_display_pos()
 {
     if (score_pos < 0)
     {
-        score_display_pos = 13;
+        score_display_pos = 0;
     }
     else
     {
@@ -497,7 +497,7 @@ void OHiScore::tick_minicars()
     for (int i = 0; i < NO_MINICARS; i++)
     {
         minicar_entry* minicar = &minicars[i];
-        
+
         // Minicar is on-screen
         if (!minicar->dst_reached & BIT_0)
         {
