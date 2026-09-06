@@ -54,6 +54,7 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
+    const char* ENDPRODUKT_ABOUT_CREDIT = "AI-Slop: Endprodukt";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
     {
@@ -329,6 +330,13 @@ namespace
 
 void Menu::tick()
 {
+    // Add the DX project credit once to the inherited About text menu.
+    if (std::find(menu_about.begin(), menu_about.end(), ENDPRODUKT_ABOUT_CREDIT) ==
+        menu_about.end())
+    {
+        menu_about.push_back(ENDPRODUKT_ABOUT_CREDIT);
+    }
+
     // Keep the Bumper View height setting present in the rebuilt DX Gameplay
     // menu and synchronized with changes made through the in-game F4 hotkey.
     if (!menu_engine.empty())
