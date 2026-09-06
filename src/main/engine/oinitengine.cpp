@@ -43,6 +43,24 @@ const static uint8_t CONTINUOUS_LEVELS[] = {0, 0x8, 0x9, 0x10, 0x11, 0x12, 0x18,
 // Set to 0 to 4 to test bonus sequence, -1 disables
 const static int DEBUG_BONUS = -1;
 
+// Time Trial no longer enters the normal OutRun goal/bonus road after the
+// final lap. GS_BONUS is reused only as a short, non-bonus braking state so we
+// can keep the existing road visible, bring the Ferrari to a natural stop and
+// then let the normal Time Trial results screen take over.
+static bool ttrial_finish_active()
+{
+    return outrun.cannonball_mode == Outrun::MODE_TTRIAL &&
+           outrun.ttrial.laps != 0 &&
+           outrun.ttrial.current_lap >= outrun.ttrial.laps &&
+           outrun.game_state >= GS_BONUS &&
+           outrun.game_state <= GS_GAMEOVER;
+}
+
+static bool ttrial_finish_braking()
+{
+    return ttrial_finish_active() && outrun.game_state == GS_BONUS;
+}
+
 OInitEngine::OInitEngine()
 {
 }
@@ -331,7 +349,34 @@ void OInitEngine::init_road_seg_master()
 
 void OInitEngine::update_road()
 {
+    // Once the final Time Trial lap is complete, keep the current road data
+    // frozen. CPU 1 still has enough path data after ROAD_END for the visible
+    // braking distance, but CPU 0 must not walk beyond its stage tables.
+    if (ttrial_finish_active())
+    {
+        road_curve = 0;
+        road_curve_next = 0;
+        road_type = ROAD_STRAIGHT;
+        road_type_next = ROAD_STRAIGHT;
+        change_width = 0;
+        return;
+    }
+
     check_road_split(); // Check/Process road split if necessary
+
+    // check_stage() can activate the finish state above while we're inside
+    // check_road_split(), so catch that first finish frame before reading any
+    // more width/curve entries from the completed stage.
+    if (ttrial_finish_active())
+    {
+        road_curve = 0;
+        road_curve_next = 0;
+        road_type = ROAD_STRAIGHT;
+        road_type_next = ROAD_STRAIGHT;
+        change_width = 0;
+        return;
+    }
+
     uint32_t addr = 0;
     uint16_t d0 = trackloader.read_width_height(&addr);
     // Update next road section
@@ -347,7 +392,7 @@ void OInitEngine::update_road()
         else
         {
             // ROM:0000B87A
-            int16_t width  = trackloader.read_width_height(&addr); // Segment road width
+            int16_t width  = trackloader.read_width_height(&addr); // Segment Road Width
             int16_t change = trackloader.read_width_height(&addr); // Segment adjustment speed
 
             if (width != (int16_t) (oroad.road_width >> 16))
@@ -440,6 +485,32 @@ void OInitEngine::update_engine()
     // ------------------------------------------------------------------------
     // Main Car Logic Block
     // ------------------------------------------------------------------------
+
+    const bool finish_braking = ttrial_finish_braking();
+    const bool finish_results = ttrial_finish_active() && !finish_braking;
+
+    if (finish_results)
+    {
+        // The result screen must never inherit residual speed from the braking
+        // phase, including the safety-timer path through GS_INIT_GAMEOVER.
+        oferrari.car_ctrl_active = false;
+        car_increment = 0;
+        oferrari.car_inc_old = 0;
+        oinputs.acc_adjust = 0;
+        oinputs.brake_adjust = 0;
+        oinputs.steering_adjust = 0;
+    }
+    else if (finish_braking)
+    {
+        // Ignore player controls after the line and use the stock full-brake
+        // physics so the stop still looks and feels like the normal Ferrari.
+        oferrari.car_ctrl_active = true;
+        oferrari.wheel_state = OFerrari::WHEELS_ON;
+        oferrari.wheel_traction = OFerrari::TRACTION_ON;
+        oinputs.acc_adjust = 0;
+        oinputs.brake_adjust = 0xFF;
+        oinputs.steering_adjust = 0;
+    }
 
     oferrari.move();
 
@@ -678,10 +749,29 @@ void OInitEngine::check_stage()
             }
             else 
             {
-                // Set correct finish segment for final 5 stages, otherwise just default to first one.
-                oroad.stage_lookup_off = oroad.stage_lookup_off < 0x20 ? 0x20 : oroad.stage_lookup_off;
+                // Time Trial finishes on the current road. Do not enter the
+                // normal OutRun goal/bonus section: those five roads are tied
+                // to specific endings and look wrong after arbitrary TT tracks.
+                // Reuse GS_BONUS only as a timed braking state so the existing
+                // Ferrari physics and final lap/total-time presentation remain.
                 ostats.time_counter = 1;
-                init_bonus(oroad.stage_lookup_off - 0x20);
+                obonus.bonus_control = OBonus::BONUS_DISABLE;
+                obonus.bonus_timer = static_cast<int16_t>(config.tick_fps * 4 + 5);
+                ocrash.clear_crash_state();
+                olevelobjs.collision_sprite = 0;
+                otraffic.collision_traffic = 0;
+                road_curve = 0;
+                road_curve_next = 0;
+                road_type = ROAD_STRAIGHT;
+                road_type_next = ROAD_STRAIGHT;
+                change_width = 0;
+                oferrari.car_ctrl_active = true;
+
+                // 0x19 is deliberately outside the normal split/bonus states.
+                // It prevents check_stage() from firing repeatedly after the
+                // completed lap while update_road() owns the frozen finish road.
+                rd_split_state = 0x19;
+                outrun.game_state = GS_BONUS;
             }
         }
     }
@@ -1106,6 +1196,21 @@ void OInitEngine::set_fine_position()
 // Source: 0x984E
 void OInitEngine::init_crash_bonus()
 {
+    if (ttrial_finish_braking())
+    {
+        // Traffic still moves during the short finish coast, but collisions
+        // after the line must not start a skid/crash or alter the finish pose.
+        oinputs.acc_adjust = 0;
+        oinputs.brake_adjust = 0xFF;
+        oinputs.steering_adjust = 0;
+        ocrash.skid_counter = 0;
+        ocrash.spin_control1 = 0;
+        ocrash.spin_control2 = 0;
+        olevelobjs.collision_sprite = 0;
+        otraffic.collision_traffic = 0;
+        return;
+    }
+
     if (outrun.game_state == GS_MUSIC) return;
 
     if (ocrash.skid_counter > 6 || ocrash.skid_counter < -6)
