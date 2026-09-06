@@ -12,6 +12,7 @@
 ***************************************************************************/
 
 #include "engine/outrun.hpp"
+#include "engine/time_trial_finish.hpp"
 #include "engine/audio/osound.hpp"
 #include "engine/audio/osoundint.hpp"
 
@@ -131,6 +132,16 @@ void OSoundInt::queue_sound(uint8_t snd)
 {
     if (has_booted)
     {
+        // In Time Trial, reserve the original CONGRATULATIONS voice for a real
+        // three-lap course record (P1 for this course and Traffic class). A
+        // normal OutRun ending retains the original unconditional behaviour.
+        if (outrun.cannonball_mode == Outrun::MODE_TTRIAL &&
+            snd == sound::VOICE_CONGRATS &&
+            !time_trial_finish::is_new_course_record())
+        {
+            return;
+        }
+
         if (outrun.game_state == GS_ATTRACT)
         {
             // Return if we are not playing sound in attract mode
