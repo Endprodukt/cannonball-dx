@@ -28,6 +28,7 @@
     static constexpr int ENDLESS_DEFAULT_TRAFFIC_INCREASE = 1; \
     static constexpr int ENDLESS_DEFAULT_TRAFFIC_INTERVAL = 3; \
     static constexpr int ENDLESS_DEFAULT_MAX_TRAFFIC = 8; \
+    static constexpr int ENDLESS_DEFAULT_RANDOM_START = 0; \
     int bumper_view_height_level() \
     { \
         int level = cfg.get_int("engine.bumper_view_height", 1); \
@@ -61,6 +62,14 @@
         if (value < minimum) value = minimum; \
         if (value > maximum) value = maximum; \
         cfg.put_int(std::string("endless.") + name, value); \
+    } \
+    bool endless_random_start() \
+    { \
+        return endless_read_setting("random_start", ENDLESS_DEFAULT_RANDOM_START, 0, 1) != 0; \
+    } \
+    void set_endless_random_start(bool enabled) \
+    { \
+        endless_write_setting("random_start", enabled ? 1 : 0, 0, 1); \
     } \
     int endless_start_time() \
     { \
@@ -175,6 +184,7 @@
     } \
     void reset_endless_settings() \
     { \
+        cfg.put_int("endless.random_start", ENDLESS_DEFAULT_RANDOM_START); \
         cfg.put_int("endless.start_time", ENDLESS_DEFAULT_START_TIME); \
         cfg.put_int("endless.checkpoint_time", ENDLESS_DEFAULT_CHECKPOINT_TIME); \
         cfg.put_int("endless.time_decrease", ENDLESS_DEFAULT_TIME_DECREASE); \
