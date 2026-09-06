@@ -2,8 +2,8 @@
     XML Configuration File Handling - CannonBall DX extensions.
 
     The current configuration declaration is preserved in config_base.hpp.
-    This wrapper adds the persistent five-step bumper-view height setting
-    without duplicating the inherited configuration structure.
+    This wrapper adds DX-only persistent settings without duplicating the
+    inherited configuration structure.
 ***************************************************************************/
 
 #pragma once
@@ -38,6 +38,18 @@
     { \
         set_bumper_view_height_level( \
             (bumper_view_height_level() + 1) % BUMPER_VIEW_HEIGHT_LEVELS); \
+    } \
+    bool ferrari_mirror_fix() \
+    { \
+        return cfg.get_int("engine.ferrari_mirror_fix", 1) != 0; \
+    } \
+    void set_ferrari_mirror_fix(bool enabled) \
+    { \
+        cfg.put_int("engine.ferrari_mirror_fix", enabled ? 1 : 0); \
+    } \
+    void toggle_ferrari_mirror_fix() \
+    { \
+        set_ferrari_mirror_fix(!ferrari_mirror_fix()); \
     }
 
 #define private public: CANNONBALL_DX_CONFIG_EXTENSIONS private
