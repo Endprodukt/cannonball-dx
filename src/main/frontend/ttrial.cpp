@@ -83,6 +83,37 @@ namespace
             static_cast<Sint32>(SDL_GetTicks() - course_select_deadline_ms) >= 0;
     }
 
+    void clear_selector_widescreen_margins()
+    {
+        if (!video.pixels || config.s16_x_off <= 0)
+            return;
+
+        // OMap::init() paints the map background with 0xABD through the solid
+        // tile at palette pixel 0x261. The 16:9/21:9 margins are not fully
+        // overwritten by the System 16 tile/road layers, so pixels from the
+        // preceding Music Select side art can otherwise remain in those areas.
+        // Clear only the margins; map sprites (especially the extended sea)
+        // are rendered afterwards and remain completely untouched.
+        constexpr uint16_t MAP_BACKGROUND_PIXEL = 0x261;
+        const int scale = config.video.hires ? 2 : 1;
+        const int left_margin = config.s16_x_off * scale;
+        const int centre_width = S16_WIDTH * scale;
+        const int right_start = left_margin + centre_width;
+        const int width = config.s16_width;
+        const int height = config.s16_height;
+
+        for (int y = 0; y < height; y++)
+        {
+            uint16_t* row = video.pixels + (y * width);
+
+            for (int x = 0; x < left_margin; x++)
+                row[x] = MAP_BACKGROUND_PIXEL;
+
+            for (int x = right_start; x < width; x++)
+                row[x] = MAP_BACKGROUND_PIXEL;
+        }
+    }
+
     const char* track_name(int index)
     {
         switch (index)
@@ -267,11 +298,10 @@ int TTrial::tick()
             ostats.init(true);
             osprites.init();
             video.enabled = true;
-            // The Time Trial selector must keep the original 320-pixel map
-            // viewport even when the game itself runs in 16:9 or 21:9. The
-            // off-screen end-map sprites include cabinet artwork such as the
-            // steering wheel, which becomes visible when wide clipping is off.
-            video.sprite_layer->set_x_clip(true);
+            // Keep the normal widescreen course-map sprites enabled. The sea
+            // extension is intentional; stale Music Select pixels are cleared
+            // independently in clear_selector_widescreen_margins().
+            video.sprite_layer->set_x_clip(false);
             omap.init();
             omap.load_sprites();
             omap.position_ferrari(FERRARI_POS[level_selected = 0]);
@@ -390,19 +420,10 @@ int TTrial::tick()
                     ohud.blit_text_new(32, 26, "NO TIME", OHud::GREEN);
                 }
 
+                clear_selector_widescreen_margins();
                 omap.blit();
                 oroad.tick();
                 osprites.sprite_copy();
-
-                // set_x_clip(true) only defines the 320-pixel clip rectangle.
-                // The optimized sprite renderer still bypasses that rectangle
-                // for entries whose hardware clip bit is clear. Map cabinet
-                // fragments use that no-clip path, so force every selector
-                // sprite through the clipped path before the RAM swap.
-                for (uint16_t i = 0; i < osprites.sprite_count; ++i)
-                    osprites.sprite_entries[i].set_clip(true);
-                osprites.blit_sprites();
-
                 osprites.update_sprites();
                 otiles.write_tilemap_hw();
                 otiles.update_tilemaps(0);
