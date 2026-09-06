@@ -123,6 +123,9 @@ protected:
     void populate_endless_settings()
     {
         menu_endless.clear();
+        menu_endless.push_back(
+            std::string("FIRST STAGE ") +
+            (config.endless_random_start() ? "RANDOM" : "COCONUT"));
         menu_endless.push_back(sec_text("START TIME", config.endless_start_time()));
         menu_endless.push_back(sec_text("CHECKPOINT TIME", config.endless_checkpoint_time()));
         menu_endless.push_back(sec_text("TIME DECREASE", config.endless_time_decrease()));
@@ -144,16 +147,20 @@ protected:
         switch (row)
         {
             case 0:
+                config.set_endless_random_start(!config.endless_random_start());
+                break;
+
+            case 1:
                 config.set_endless_start_time(
                     adjust_time_value(config.endless_start_time(), direction, 30));
                 break;
 
-            case 1:
+            case 2:
                 config.set_endless_checkpoint_time(
                     adjust_time_value(config.endless_checkpoint_time(), direction, 20));
                 break;
 
-            case 2:
+            case 3:
             {
                 int value = config.endless_time_decrease() + direction;
                 if (value < 0) value = 0;
@@ -162,7 +169,7 @@ protected:
                 break;
             }
 
-            case 3:
+            case 4:
             {
                 int value = config.endless_time_interval() + direction;
                 if (value < 1) value = 1;
@@ -171,12 +178,12 @@ protected:
                 break;
             }
 
-            case 4:
+            case 5:
                 config.set_endless_min_checkpoint(
                     adjust_time_value(config.endless_min_checkpoint(), direction, 10));
                 break;
 
-            case 5:
+            case 6:
             {
                 int value = config.endless_start_traffic() + direction;
                 if (value < 0) value = 0;
@@ -185,7 +192,7 @@ protected:
                 break;
             }
 
-            case 6:
+            case 7:
             {
                 int value = config.endless_traffic_increase() + direction;
                 if (value < 0) value = 0;
@@ -194,7 +201,7 @@ protected:
                 break;
             }
 
-            case 7:
+            case 8:
             {
                 int value = config.endless_traffic_interval() + direction;
                 if (value < 1) value = 1;
@@ -203,7 +210,7 @@ protected:
                 break;
             }
 
-            case 8:
+            case 9:
             {
                 int value = config.endless_max_traffic() + direction;
                 if (value < 0) value = 0;
@@ -265,7 +272,7 @@ protected:
                 return;
             }
 
-            if (cursor >= 0 && cursor <= 8)
+            if (cursor >= 0 && cursor <= 9)
             {
                 if (adjust_endless_value(cursor, 1))
                 {
@@ -275,17 +282,17 @@ protected:
                 return;
             }
 
-            if (cursor == 9)
+            if (cursor == 10)
             {
                 config.reset_endless_settings();
                 config.save();
                 populate_endless_settings();
-                cursor = 9;
+                cursor = 10;
                 osoundint.queue_sound(sound::BEEP1);
                 return;
             }
 
-            if (cursor == 10)
+            if (cursor == 11)
             {
                 menu_back();
                 refresh_menu();
