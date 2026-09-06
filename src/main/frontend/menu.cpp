@@ -54,6 +54,8 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
+    const char* DX_ABOUT_CREDIT = "DX AI SLOP BUILD (C) 2026 ENDPRODUKT";
+    const char* SE_ABOUT_CREDIT = "SE BUILD COPYRIGHT 2025 JAMES PEARCE";
 
     const char* BUMPER_HEIGHT_NAMES[Config::BUMPER_VIEW_HEIGHT_LEVELS] =
     {
@@ -329,16 +331,35 @@ namespace
 
 void Menu::tick()
 {
-    // Keep the project credit on the existing About copyright line rather than
-    // adding a separate entry below it.
+    // The DX wrapper inserts its own credit directly above the inherited SE
+    // credit. Change only that DX entry; never match the generic BUILD text,
+    // because the SE credit uses it too.
+    bool dx_credit_found = false;
+    bool se_credit_found = false;
+
     for (std::string& entry : menu_about)
     {
-        if (entry.find("BUILD COPYRIGHT") != std::string::npos)
+        if (entry.rfind("DX ", 0) == 0 && entry.find("BUILD") != std::string::npos)
         {
-            entry = "DX AI SLOP BUILD COPYRIGHT 2026 ENDPRODUKT";
-            break;
+            entry = DX_ABOUT_CREDIT;
+            dx_credit_found = true;
+        }
+        else if (entry == SE_ABOUT_CREDIT)
+        {
+            se_credit_found = true;
         }
     }
+
+    // Defensive fallback for old/custom menu layouts: keep both credits visible
+    // and in the intended DX-then-SE order.
+    if (!dx_credit_found)
+    {
+        auto se_entry = std::find(menu_about.begin(), menu_about.end(), SE_ABOUT_CREDIT);
+        menu_about.insert(se_entry, DX_ABOUT_CREDIT);
+    }
+
+    if (!se_credit_found)
+        menu_about.push_back(SE_ABOUT_CREDIT);
 
     // Keep the Bumper View height setting present in the rebuilt DX Gameplay
     // menu and synchronized with changes made through the in-game F4 hotkey.
