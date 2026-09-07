@@ -29,6 +29,53 @@
     static constexpr int ENDLESS_DEFAULT_TRAFFIC_INTERVAL = 3; \
     static constexpr int ENDLESS_DEFAULT_MAX_TRAFFIC = 8; \
     static constexpr int ENDLESS_DEFAULT_RANDOM_START = 0; \
+    int radio_key() \
+    { \
+        return cfg.get_int("controls.radio.keyboard", -1); \
+    } \
+    void set_radio_key(int key) \
+    { \
+        cfg.put_int("controls.radio.keyboard", key); \
+    } \
+    int radio_binding_type(int group) \
+    { \
+        return cfg.get_int( \
+            group == 0 ? "controls.radio.gamepad.type" : "controls.radio.wheel.type", \
+            -1); \
+    } \
+    int radio_binding_index(int group) \
+    { \
+        return cfg.get_int( \
+            group == 0 ? "controls.radio.gamepad.index" : "controls.radio.wheel.index", \
+            -1); \
+    } \
+    int radio_binding_value(int group) \
+    { \
+        return cfg.get_int( \
+            group == 0 ? "controls.radio.gamepad.value" : "controls.radio.wheel.value", \
+            0); \
+    } \
+    std::string radio_binding_device(int group) \
+    { \
+        return cfg.get_string( \
+            group == 0 ? "controls.radio.gamepad.device" : "controls.radio.wheel.device", \
+            ""); \
+    } \
+    void set_radio_binding(int group, int type, int index, int value, const std::string& device) \
+    { \
+        const char* type_path = group == 0 ? "controls.radio.gamepad.type" : "controls.radio.wheel.type"; \
+        const char* index_path = group == 0 ? "controls.radio.gamepad.index" : "controls.radio.wheel.index"; \
+        const char* value_path = group == 0 ? "controls.radio.gamepad.value" : "controls.radio.wheel.value"; \
+        const char* device_path = group == 0 ? "controls.radio.gamepad.device" : "controls.radio.wheel.device"; \
+        cfg.put_int(type_path, type); \
+        cfg.put_int(index_path, index); \
+        cfg.put_int(value_path, value); \
+        cfg.put_string(device_path, device); \
+    } \
+    void clear_radio_binding(int group) \
+    { \
+        set_radio_binding(group, -1, -1, 0, ""); \
+    } \
     int bumper_view_height_level() \
     { \
         int level = cfg.get_int("engine.bumper_view_height", 1); \
