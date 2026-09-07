@@ -39,10 +39,13 @@
 
 namespace
 {
-    const int BINDING_ROWS = 12;
+    const int BINDING_ROWS = 13;
+    const int RADIO_ROW = BINDING_ROWS - 1;
     const int BACK_ROW = BINDING_ROWS;
     const int EDITOR_ROWS = BINDING_ROWS + 1;
     const int EDITOR_COLUMNS = 3;
+    const int BACK_Y = 20;
+    const int STATUS_Y = 22;
 
     const int COL_KEYBOARD = 0;
     const int COL_GAMEPAD = 1;
@@ -171,6 +174,7 @@ namespace
         "VIEW 1",
         "VIEW 2",
         "VIEW 3",
+        "RADIO",
     };
 
     const int ROW_TARGETS[BINDING_ROWS] =
@@ -187,10 +191,11 @@ namespace
         device_binding_t::TARGET_VIEW1,
         device_binding_t::TARGET_VIEW2,
         device_binding_t::TARGET_VIEW3,
+        -1, // Radio uses its own persistent button/HAT binding per input group.
     };
 
-    // Steering is a two-key cell and therefore uses -1 here. The remaining
-    // rows map directly to keyconfig[].
+    // Steering is a two-key cell and therefore uses -1 here. Radio also owns a
+    // separate persistent key so the legacy fixed keyconfig array stays intact.
     const int ROW_KEY_SLOT[BINDING_ROWS] =
     {
         -1,
@@ -205,6 +210,7 @@ namespace
         12,
         13,
         14,
+        -1,
     };
 
     std::string clip_text(const std::string& text, size_t width)
@@ -247,6 +253,9 @@ namespace
             const std::string right = compact_key_name(config.controls.keyconfig[3]);
             return clip_text(left + "/" + right, 8);
         }
+
+        if (row == RADIO_ROW)
+            return clip_text(compact_key_name(config.radio_key()), 8);
 
         const int slot = ROW_KEY_SLOT[row];
         return clip_text(compact_key_name(config.controls.keyconfig[slot]), 8);
@@ -327,6 +336,24 @@ namespace
             return "MULTI";
 
         return format_physical_binding(*first);
+    }
+
+    std::string radio_group_binding_text(int group)
+    {
+        const int index = config.radio_binding_index(group);
+        const std::string device = config.radio_binding_device(group);
+
+        if (index < 0 || device.empty())
+            return "-";
+
+        device_binding_t binding;
+        binding.type = config.radio_binding_type(group);
+        binding.index = index;
+        binding.value = config.radio_binding_value(group);
+        binding.device =
+            std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
+
+        return format_physical_binding(binding);
     }
 }
 
@@ -875,9 +902,13 @@ void Menu::redefine_joystick()
 
             const std::string key_text = keyboard_binding_text(row);
             const std::string gamepad_text =
-                group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
+                row == RADIO_ROW
+                    ? radio_group_binding_text(Input::BINDING_GAMEPAD)
+                    : group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
             const std::string wheel_text =
-                group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
+                row == RADIO_ROW
+                    ? radio_group_binding_text(Input::BINDING_WHEEL)
+                    : group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
 
             ohud.blit_text_new(
                 14,
@@ -901,13 +932,13 @@ void Menu::redefine_joystick()
 
         ohud.blit_text_new(
             18,
-            19,
+            BACK_Y,
             "BACK",
             selected_row == BACK_ROW ? ohud.PINK : ohud.GREEN);
 
         if (waiting_release)
         {
-            ohud.blit_text_new(11, 21, "RELEASE CONTROL", ohud.PINK);
+            ohud.blit_text_new(11, STATUS_Y, "RELEASE CONTROL", ohud.PINK);
         }
         else if (capturing)
         {
@@ -915,7 +946,7 @@ void Menu::redefine_joystick()
             {
                 ohud.blit_text_new(
                     4,
-                    21,
+                    STATUS_Y,
                     steering_key_step == 0
                         ? "PRESS STEERING LEFT KEY"
                         : "PRESS STEERING RIGHT KEY",
@@ -923,26 +954,26 @@ void Menu::redefine_joystick()
             }
             else if (selected_col == COL_KEYBOARD)
             {
-                ohud.blit_text_new(8, 21, "PRESS A KEY", ohud.PINK);
+                ohud.blit_text_new(8, STATUS_Y, "PRESS A KEY", ohud.PINK);
             }
             else if (selected_row == 0)
             {
-                ohud.blit_text_new(5, 21, "MOVE STEERING AXIS", ohud.PINK);
+                ohud.blit_text_new(5, STATUS_Y, "MOVE STEERING AXIS", ohud.PINK);
             }
             else if (selected_row == 1 || selected_row == 2)
             {
-                ohud.blit_text_new(2, 21, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
+                ohud.blit_text_new(2, STATUS_Y, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
             }
             else
             {
-                ohud.blit_text_new(5, 21, "PRESS BUTTON OR HAT", ohud.PINK);
+                ohud.blit_text_new(5, STATUS_Y, "PRESS BUTTON OR HAT", ohud.PINK);
             }
         }
         else
         {
-            ohud.blit_text_new(1, 21, "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, 22, "DEL/BSP - CLEAR", ohud.GREY);
-            ohud.blit_text_new(1, 23, "WHEEL - ALL RAW INPUT DEVICES", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 2, "WHEEL - ALL RAW INPUT DEVICES", ohud.GREY);
         }
     };
 
@@ -1021,6 +1052,11 @@ void Menu::redefine_joystick()
 
                     if (!capture_after_release)
                         steering_key_step = 0;
+                }
+                else if (selected_row == RADIO_ROW)
+                {
+                    config.set_radio_key(captured_key);
+                    capture_after_release = false;
                 }
                 else
                 {
@@ -1101,13 +1137,25 @@ void Menu::redefine_joystick()
             const int captured_hat = input.joy_hat;
             const int captured_value = input.joy_hat_value;
 
-            input.set_device_binding(
-                target,
-                device_binding_t::TYPE_HAT,
-                captured_hat,
-                captured_value,
-                captured_device,
-                group);
+            if (selected_row == RADIO_ROW)
+            {
+                config.set_radio_binding(
+                    group,
+                    device_binding_t::TYPE_HAT,
+                    captured_hat,
+                    captured_value,
+                    input.get_device_signature(captured_device));
+            }
+            else
+            {
+                input.set_device_binding(
+                    target,
+                    device_binding_t::TYPE_HAT,
+                    captured_hat,
+                    captured_value,
+                    captured_device,
+                    group);
+            }
 
             config_save_pending = true;
             capturing = false;
@@ -1133,13 +1181,25 @@ void Menu::redefine_joystick()
             const SDL_JoystickID captured_device = input.joy_button_device;
             const int captured_button = input.joy_button;
 
-            input.set_device_binding(
-                target,
-                device_binding_t::TYPE_BUTTON,
-                captured_button,
-                0,
-                captured_device,
-                group);
+            if (selected_row == RADIO_ROW)
+            {
+                config.set_radio_binding(
+                    group,
+                    device_binding_t::TYPE_BUTTON,
+                    captured_button,
+                    0,
+                    input.get_device_signature(captured_device));
+            }
+            else
+            {
+                input.set_device_binding(
+                    target,
+                    device_binding_t::TYPE_BUTTON,
+                    captured_button,
+                    0,
+                    captured_device,
+                    group);
+            }
 
             config_save_pending = true;
             capturing = false;
@@ -1223,6 +1283,10 @@ void Menu::redefine_joystick()
                 config.controls.keyconfig[2] = -1;
                 config.controls.keyconfig[3] = -1;
             }
+            else if (selected_row == RADIO_ROW)
+            {
+                config.set_radio_key(-1);
+            }
             else
             {
                 config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] = -1;
@@ -1235,7 +1299,10 @@ void Menu::redefine_joystick()
                     ? Input::BINDING_GAMEPAD
                     : Input::BINDING_WHEEL;
 
-            input.clear_device_bindings(ROW_TARGETS[selected_row], group);
+            if (selected_row == RADIO_ROW)
+                config.clear_radio_binding(group);
+            else
+                input.clear_device_bindings(ROW_TARGETS[selected_row], group);
         }
 
         config_save_pending = true;
