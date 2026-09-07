@@ -92,6 +92,12 @@ public:
         // are disabled. The returned state is the dedicated cabinet lamp.
         const int radio_lamp = radio_button::tick();
 
+        // Treat START as a "press me" lamp, matching the common Sega cabinet
+        // behaviour: it may blink while a game can be started, but once the
+        // playable start/race/bonus sequence is active the lamp is off.
+        const int start_lamp_output =
+            radio_button::gameplay_active() ? 0 : start_lamp;
+
         if (port < 1 || port > 65535)
             port = 8000;
 
@@ -106,7 +112,7 @@ public:
 #endif
 
         const int values[ITEM_COUNT] = {
-            start_lamp,
+            start_lamp_output,
             brake_lamp,
             view_lamp,
             view1_lamp,
