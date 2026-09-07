@@ -441,13 +441,12 @@ void OOutputs::writeDigitalToConsole()
     }
 
     // MAMEHooker START lamp behaviour is deliberately cabinet-oriented rather
-    // than tied to the original D_START_LAMP bit. In particular, CannonBall's
-    // freeplay PRESS START text does not set the original hardware bit.
+    // than tied to the original D_START_LAMP bit. Only the real Attract loop is
+    // eligible here; the post-game BEST2 / high-score-entry path stays dark.
     const bool press_start_screen =
         outrun.game_state == GS_ATTRACT ||
         outrun.game_state == GS_BEST1 ||
-        outrun.game_state == GS_LOGO ||
-        outrun.game_state == GS_BEST2;
+        outrun.game_state == GS_LOGO;
 
     const bool press_start_available =
         config.engine.freeplay || ostats.credits > 0;
