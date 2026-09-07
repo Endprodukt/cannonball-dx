@@ -384,7 +384,7 @@ public:
         else if (setting == "crash_flip")               canonical_default = 70;
         else if (setting == "crash_flip_landing")       canonical_default = 70;
         else if (setting == "start_steering")           canonical_default = 70;
-        else if (setting == "start_rev_shake")          canonical_default = 11;
+        else if (setting == "start_rev_shake")          canonical_default = 30;
 
         const std::string path =
             std::string("controls.analog.haptic.effects.") + setting;
@@ -511,7 +511,7 @@ public:
         seed_effect("crash_flip", 70);
         seed_effect("crash_flip_landing", 70);
         seed_effect("start_steering", 70);
-        seed_effect("start_rev_shake", 11);
+        seed_effect("start_rev_shake", 30);
 
         seed_spring("low_speed", 28);
         seed_spring("high_speed", 70);
