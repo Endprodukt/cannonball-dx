@@ -32,6 +32,15 @@ public:
     void cycle_music();
     void cycle_music_base();
 
+    // In-game Radio button: select an explicit track while keeping the same
+    // music_selected state used by Continuous/Endless automatic music changes.
+    // The caller validates the index against config.sound.music first.
+    void play_radio_music(int index)
+    {
+        music_selected = static_cast<uint8_t>(index);
+        play_music(index);
+    }
+
     // Called by the post-output FFB hook in main.cpp. This now exposes the
     // real selected song without applying a continuous holding force. main.cpp
     // uses selection changes to generate only the short detent step pulses.
