@@ -179,12 +179,9 @@ namespace radio_button
 
         if (!can_run)
         {
-            // Tyre slip shares the current periodic SDL channel. Force one clean
-            // hand-off when leaving engine vibration so the normal tyre-slip
-            // path can rebuild its own sine parameters on the following frame.
-            if (engine_vibration_active())
-                forcefeedback::set_tyre_slip(false);
-
+            // OOutputs owns all exceptional transitions. In particular, real
+            // tyre slip may already have taken over the shared periodic channel
+            // earlier in this frame. Do not send a late OFF here and kill it.
             engine_vibration_active() = false;
             engine_vibration_bucket() = -1;
             return;
