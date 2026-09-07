@@ -83,12 +83,22 @@ namespace forcefeedback
         const int rpm_percent =
             (revs * 100 + 0x98) / 0x130;
 
-        // Deliberately slower and heavier than tyre slip: about 10.5 Hz at the
-        // bottom of the range, building to about 18 Hz at maximum revs. This
-        // keeps the effect engine-like instead of turning into a high-frequency
-        // steering-wheel buzz, while still clearly speeding up with RPM.
-        const int period_ms =
+        // Base curve: roughly 10.5 Hz at low RPM to 18.2 Hz at maximum RPM
+        // (95 ms -> 55 ms). ENGINE SPEED scales the complete curve while
+        // preserving the RPM relationship. The stored 0..100 tuning value maps
+        // to 50..150%, with 50 stored as the neutral/default 100% speed.
+        const int base_period_ms =
             95 - ((40 * rpm_percent + 50) / 100);
+
+        const int engine_speed_percent =
+            50 + effect_setting("engine_speed", 50);
+
+        const int period_ms = std::max(
+            20,
+            std::min(
+                250,
+                (base_period_ms * 100 + (engine_speed_percent / 2)) /
+                    engine_speed_percent));
 
         int effective_percent =
             master_effect_gain(effect_setting("start_rev_shake", 11));
