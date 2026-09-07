@@ -16,12 +16,25 @@
 namespace forcefeedback
 {
 #if defined(_WIN32)
+    static bool engine_source(
+        const std::source_location& source)
+    {
+        return source_function_contains(source, "update_prestart_sine");
+    }
+
     static bool engine_vibration_request(
         bool active,
         const std::source_location& source)
     {
-        return active &&
-            source_function_contains(source, "update_prestart_sine");
+        return active && engine_source(source);
+    }
+
+    static bool engine_channel_owned()
+    {
+        // While the engine sine runs we deliberately leave the normal
+        // g_tyre_slip_active flag false. g_tyre_slip_prestart therefore acts as
+        // the ownership marker without making the spring think the tyres slide.
+        return g_tyre_slip_prestart && !g_tyre_slip_active;
     }
 
     static bool clean_engine_driving_state()
@@ -38,12 +51,19 @@ namespace forcefeedback
         const std::source_location& source)
     {
         // Engine vibration must not inherit the tyre-slip spring reduction.
-        // Temporarily hide the periodic-channel active flag while applying the
-        // normal requested spring, then restore the actual running state.
         const bool periodic_active = g_tyre_slip_active;
         g_tyre_slip_active = false;
         set_centering_strength(g_centering_percent, source);
         g_tyre_slip_active = periodic_active;
+    }
+
+    static void stop_owned_engine_channel()
+    {
+        if (g_haptic && g_tyre_slip_effect >= 0)
+            SDL_HapticStopEffect(g_haptic, g_tyre_slip_effect);
+
+        g_tyre_slip_active = false;
+        g_tyre_slip_prestart = false;
     }
 
     static void apply_engine_sine_parameters(
@@ -94,6 +114,11 @@ namespace forcefeedback
         if (SDL_HapticUpdateEffect(g_haptic, g_tyre_slip_effect, &effect) == 0)
             SDL_HapticRunEffect(g_haptic, g_tyre_slip_effect, 1);
 
+        // The physical periodic effect keeps running, but logically there is no
+        // tyre slip. This prevents the engine vibration from weakening the
+        // normal speed-dependent centering spring.
+        g_tyre_slip_active = false;
+        g_tyre_slip_prestart = true;
         restore_engine_centering(source);
     }
 
@@ -104,38 +129,37 @@ namespace forcefeedback
         const bool engine_request =
             engine_vibration_request(active, source);
 
-        const bool output_tick_request =
-            source_file_contains(source, "ooutputs_base.cpp") &&
-            source_function_contains(source, "tick");
-
-        // Normal OOutputs::tick() sends tyre-slip OFF every clean driving frame.
-        // Once the engine owns the shared periodic channel, that OFF must not
-        // kill it. Crash, off-road and real tyre slip are deliberately excluded
-        // so those effects can still take ownership immediately.
+        // During clean driving the engine owns the already-running periodic
+        // effect. Ignore ordinary OFF calls, including the legacy tyre-slip OFF
+        // sent every OOutputs frame and the engine caller's own parameter refresh.
         if (!active &&
-            g_tyre_slip_active &&
-            g_tyre_slip_prestart &&
-            output_tick_request &&
+            engine_channel_owned() &&
             clean_engine_driving_state())
         {
+            return;
+        }
+
+        // Leaving clean engine operation (crash, off-road, game transition or
+        // lifting out of the start-grid rev effect) must really stop the sine.
+        if (!active && engine_channel_owned())
+        {
+            stop_owned_engine_channel();
             restore_engine_centering(source);
             return;
         }
 
-        // A real tyre-slip request arriving while the engine sine is running is
-        // a mode change, not a no-op active->active transition. Stop once so the
-        // preserved backend rebuilds the correct tyre-slip strength and spring.
-        if (active &&
-            !engine_request &&
-            g_tyre_slip_active &&
-            g_tyre_slip_prestart)
+        // Real tyre slip takes ownership immediately. The engine effect already
+        // uses the same SDL effect slot, so clearing the ownership marker lets
+        // the preserved backend update that slot in place with tyre-slip values.
+        if (active && !engine_request && engine_channel_owned())
         {
-            set_tyre_slip_base(false, source);
+            g_tyre_slip_prestart = false;
+            g_tyre_slip_active = false;
         }
 
         set_tyre_slip_base(active, source);
 
-        if (engine_request && active && g_tyre_slip_active)
+        if (engine_request && active)
             apply_engine_sine_parameters(source);
     }
 #else
