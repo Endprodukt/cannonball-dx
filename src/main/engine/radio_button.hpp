@@ -94,6 +94,15 @@ namespace radio_button
         return value;
     }
 
+    inline void stop_engine_vibration()
+    {
+        if (engine_vibration_active())
+            forcefeedback::set_tyre_slip(false);
+
+        engine_vibration_active() = false;
+        engine_vibration_bucket() = -1;
+    }
+
     inline bool gameplay_active()
     {
         return cannonball::state == cannonball::STATE_GAME &&
@@ -161,9 +170,8 @@ namespace radio_button
 
     // Keep the existing grid rev-shake and the new driving vibration as one
     // logical ENGINE VIBRATION effect. The FFB backend identifies calls from a
-    // function containing "update_prestart_sine", so this deliberately reuses
-    // the existing start_rev_shake per-effect strength instead of inventing a
-    // second strength control.
+    // function containing "update_prestart_sine", so the start-grid and race
+    // paths share one periodic motor effect and one user-facing strength value.
     inline void update_prestart_sine_engine_vibration()
     {
         const bool can_run =
@@ -179,11 +187,21 @@ namespace radio_button
 
         if (!can_run)
         {
-            // OOutputs owns all exceptional transitions. In particular, real
-            // tyre slip may already have taken over the shared periodic channel
-            // earlier in this frame. Do not send a late OFF here and kill it.
-            engine_vibration_active() = false;
-            engine_vibration_bucket() = -1;
+            // Frontend/game-state transitions are not another driving effect:
+            // stop the motor sine immediately (notably when F5 opens the menu).
+            // Crash/skid/off-road are different: OOutputs may already have
+            // handed the shared periodic channel to tyre slip earlier this frame,
+            // so only reset our local ownership markers there.
+            if (cannonball::state != cannonball::STATE_GAME ||
+                outrun.game_state != GS_INGAME)
+            {
+                stop_engine_vibration();
+            }
+            else
+            {
+                engine_vibration_active() = false;
+                engine_vibration_bucket() = -1;
+            }
             return;
         }
 
@@ -205,8 +223,8 @@ namespace radio_button
             bucket = 7;
 
         // Keep the effect subtle at idle/low revs and let it build smoothly.
-        // This is an envelope only: the user's start_rev_shake setting remains
-        // the actual maximum strength and therefore controls both grid and race.
+        // This is an envelope only: ENGINE VIBRATION is the actual maximum
+        // strength, while ENGINE PERIOD controls the low-RPM pulse spacing.
         const int envelope_percent = 18 + ((bucket * 82 + 3) / 7);
 
         if (!engine_vibration_active() || bucket != engine_vibration_bucket())
