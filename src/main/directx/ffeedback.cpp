@@ -40,6 +40,7 @@ namespace forcefeedback
     static bool clean_engine_driving_state()
     {
         return
+            cannonball::state == cannonball::STATE_GAME &&
             outrun.game_state == GS_INGAME &&
             !outrun.SkiddingOnRoad() &&
             !ocrash.crash_counter &&
@@ -83,25 +84,22 @@ namespace forcefeedback
         const int rpm_percent =
             (revs * 100 + 0x98) / 0x130;
 
-        // Base curve: roughly 10.5 Hz at low RPM to 18.2 Hz at maximum RPM
-        // (95 ms -> 55 ms). ENGINE SPEED scales the complete curve while
-        // preserving the RPM relationship. The stored 0..100 tuning value maps
-        // to 50..150%, with 50 stored as the neutral/default 100% speed.
-        const int base_period_ms =
-            95 - ((40 * rpm_percent + 50) / 100);
-
-        const int engine_speed_percent =
-            50 + effect_setting("engine_speed", 50);
-
+        // ENGINE PERIOD is the low-RPM sine period in milliseconds. RPM then
+        // shortens it progressively by up to 45%, so the motor starts with a
+        // grounded slow throb and becomes clearly faster without turning into
+        // a high-frequency buzz. Default 130 ms therefore ends near 72 ms at
+        // maximum RPM. The user-facing base period is limited to 20..250 ms.
+        const int base_period_ms = config.engine_period_ms();
+        const int period_reduction =
+            (base_period_ms * 45 * rpm_percent + 5000) / 10000;
         const int period_ms = std::max(
-            20,
+            Config::ENGINE_PERIOD_MIN_MS,
             std::min(
-                250,
-                (base_period_ms * 100 + (engine_speed_percent / 2)) /
-                    engine_speed_percent));
+                Config::ENGINE_PERIOD_MAX_MS,
+                base_period_ms - period_reduction));
 
         int effective_percent =
-            master_effect_gain(effect_setting("start_rev_shake", 11));
+            master_effect_gain(config.engine_vibration_strength());
 
         // g_gain_percent is the start-grid throttle ramp or the in-race RPM
         // amplitude envelope supplied by the unified engine-vibration caller.
@@ -140,8 +138,8 @@ namespace forcefeedback
             engine_vibration_request(active, source);
 
         // During clean driving the engine owns the already-running periodic
-        // effect. Ignore ordinary OFF calls, including the legacy tyre-slip OFF
-        // sent every OOutputs frame and the engine caller's own parameter refresh.
+        // effect. Ignore ordinary OFF calls only while CannonBall is genuinely
+        // still in gameplay. Entering the frontend/menu must stop immediately.
         if (!active &&
             engine_channel_owned() &&
             clean_engine_driving_state())
@@ -149,8 +147,8 @@ namespace forcefeedback
             return;
         }
 
-        // Leaving clean engine operation (crash, off-road, game transition or
-        // lifting out of the start-grid rev effect) must really stop the sine.
+        // Leaving clean engine operation (crash, off-road, menu/game transition
+        // or lifting out of the start-grid rev effect) must really stop the sine.
         if (!active && engine_channel_owned())
         {
             stop_owned_engine_channel();
