@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "engine/radio_button.hpp"
+
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -85,6 +87,11 @@ public:
             return;
         }
 
+        // Radio input and its short title overlay are advanced from this
+        // already-per-frame output hook even when external outputs themselves
+        // are disabled. The returned state is the dedicated cabinet lamp.
+        const int radio_lamp = radio_button::tick();
+
         if (port < 1 || port > 65535)
             port = 8000;
 
@@ -104,7 +111,8 @@ public:
             view_lamp,
             view1_lamp,
             view2_lamp,
-            view3_lamp
+            view3_lamp,
+            radio_lamp
         };
 
         for (std::size_t i = 0; i < items.size(); i++)
@@ -133,7 +141,7 @@ public:
 
 private:
     static constexpr const char* MACHINE_NAME = "cannonball";
-    static constexpr std::size_t ITEM_COUNT = 6;
+    static constexpr std::size_t ITEM_COUNT = 7;
 
     struct OutputItem
     {
@@ -150,6 +158,7 @@ private:
         { "View1_lamp", 12348, 0, -1 },
         { "View2_lamp", 12349, 0, -1 },
         { "View3_lamp", 12350, 0, -1 },
+        { "Radio_lamp", 12351, 0, -1 },
     }};
 
 #ifdef _WIN32
