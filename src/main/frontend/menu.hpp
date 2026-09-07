@@ -21,6 +21,7 @@
 #include "sdl2/pixel_scaler_state.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "engine/radio_button.hpp"
 #include "directx/ffeedback.hpp"
 
 #define Menu MenuLegacy
@@ -113,8 +114,8 @@ protected:
             { "CRASH FLIP",              "crash_flip" },
             { "CRASH FLIP LANDING",      "crash_flip_landing" },
             { "START STEERING",          "start_steering" },
-            { "ENGINE VIBRATION",        "start_rev_shake" },
-            { "ENGINE SPEED",            "engine_speed" },
+            { "ENGINE VIBRATION",        "engine_vibration" },
+            { "ENGINE PERIOD",           "engine_period" },
         };
 
         count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
@@ -132,21 +133,28 @@ protected:
         menu_ffb_effects.clear();
         for (int i = first; i < last; ++i)
         {
-            int value = 0;
-            if (std::string(items[i].setting) == "engine_speed")
+            const std::string setting = items[i].setting;
+
+            if (setting == "engine_vibration")
             {
-                // Stored 0..100 maps to a user-facing 50..150%. This lets us
-                // reuse the existing persistent per-effect XML path while 100%
-                // remains the neutral/current motor-sine speed.
-                value = 50 + config.ffb_effect_setting("engine_speed", 50);
+                menu_ffb_effects.push_back(
+                    ffb_value_text(
+                        items[i].label,
+                        config.engine_vibration_strength()));
+            }
+            else if (setting == "engine_period")
+            {
+                menu_ffb_effects.push_back(
+                    std::string(items[i].label) + " " +
+                    std::to_string(config.engine_period_ms()) + " MS");
             }
             else
             {
-                value = config.ffb_effect_setting(items[i].setting, 0);
+                menu_ffb_effects.push_back(
+                    ffb_value_text(
+                        items[i].label,
+                        config.ffb_effect_setting(items[i].setting, 0)));
             }
-
-            menu_ffb_effects.push_back(
-                ffb_value_text(items[i].label, value));
         }
 
         if (ffb_effect_page == 0)
@@ -167,16 +175,18 @@ protected:
             return;
 
         const std::string setting = items[index].setting;
-        if (setting == "engine_speed")
+        if (setting == "engine_vibration")
         {
-            int value = 50 + config.ffb_effect_setting("engine_speed", 50);
-
-            // Speed is intentionally coarser than effect strength. A 1% change
-            // is effectively inaudible/tactile here, so LEFT/RIGHT and Enter all
-            // move in useful 5% steps across the 50..150% range.
-            value += delta < 0 ? -5 : 5;
-            value = std::max(50, std::min(150, value));
-            config.set_ffb_effect_setting("engine_speed", value - 50);
+            config.set_engine_vibration_strength(
+                config.engine_vibration_strength() + delta);
+        }
+        else if (setting == "engine_period")
+        {
+            // Period is a physical timing value, not a percentage. Five
+            // milliseconds per step is useful enough to feel while still giving
+            // a broad 20..250 ms range. Larger values mean a slower pulse.
+            const int step = delta < 0 ? -5 : 5;
+            config.set_engine_period_ms(config.engine_period_ms() + step);
         }
         else
         {
@@ -452,9 +462,15 @@ protected:
 
     void tick_menu() override
     {
-        // Once inside the FFB tuning pages, use the DX handler so the engine
-        // sine speed can live beside the existing effect strengths without
-        // putting another option on the main Controls page.
+        // F5 may leave the underlying game_state at GS_INGAME while the
+        // frontend is already active. Explicitly stop/reset the motor effect on
+        // every frontend menu tick so no periodic force can leak into menus.
+        if (cannonball::state != cannonball::STATE_GAME)
+            radio_button::stop_engine_vibration();
+
+        // Once inside the FFB tuning pages, use the DX handler so engine
+        // vibration strength and period live beside the existing effect values
+        // without adding another option to the main Controls page.
         if (menu_selected == &menu_ffb_tuning ||
             menu_selected == &menu_ffb_effects ||
             menu_selected == &menu_ffb_spring)
