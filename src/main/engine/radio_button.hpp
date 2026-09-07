@@ -28,7 +28,10 @@ namespace radio_button
     static constexpr int BINDING_WHEEL = 1;
     static constexpr int TYPE_BUTTON = 0;
     static constexpr int TYPE_HAT = 2;
-    static constexpr uint16_t OVERLAY_Y = 23;
+
+    // Keep the temporary station name clear of the rev counter/minimap area.
+    // The first test used row 23, which was much too close to the bottom edge.
+    static constexpr uint16_t OVERLAY_Y = 17;
     static constexpr Uint32 OVERLAY_TIME_MS = 2200;
 
     inline bool& pressed_old()
@@ -132,7 +135,10 @@ namespace radio_button
 
     inline void stop_music()
     {
-        // Stop only music. PCM effects/engine audio continue normally.
+        // Stop both possible music backends. This is intentionally done before
+        // every manual station change, not only for MUSIC OFF. A WAV/MP3 track
+        // is mixed independently from the YM chip, so starting a file without
+        // resetting YM leaves the previous arcade song playing underneath it.
         cannonball::audio.clear_wav();
         osoundint.queue_sound(sound::FM_RESET);
     }
@@ -178,18 +184,6 @@ namespace radio_button
         return compact;
     }
 
-    inline void show_overlay(const std::string& message)
-    {
-        std::string text = message;
-        if (text.size() > 36)
-            text.resize(36);
-
-        overlay_text() = text;
-        overlay_length() = static_cast<int>(text.size());
-        overlay_x() = std::max(0, (40 - overlay_length()) / 2);
-        overlay_deadline() = SDL_GetTicks() + OVERLAY_TIME_MS;
-    }
-
     inline void clear_overlay()
     {
         if (overlay_length() <= 0)
@@ -206,6 +200,22 @@ namespace radio_button
         overlay_length() = 0;
         overlay_x() = 0;
         overlay_deadline() = 0;
+    }
+
+    inline void show_overlay(const std::string& message)
+    {
+        // Clear the complete previous label first. Without this, switching from
+        // a long title to a shorter one leaves the tail of the old title behind.
+        clear_overlay();
+
+        std::string text = message;
+        if (text.size() > 36)
+            text.resize(36);
+
+        overlay_text() = text;
+        overlay_length() = static_cast<int>(text.size());
+        overlay_x() = std::max(0, (40 - overlay_length()) / 2);
+        overlay_deadline() = SDL_GetTicks() + OVERLAY_TIME_MS;
     }
 
     inline void draw_overlay(bool active)
@@ -296,6 +306,11 @@ namespace radio_button
             show_overlay("MUSIC OFF");
             return;
         }
+
+        // Always stop the previous backend before starting the next track.
+        // This is essential when moving from YM music to a WAV/MP3 track,
+        // because those are independent mixer sources and otherwise overlap.
+        stop_music();
 
         // Keep OMusic's selected-song state in sync as well as starting the
         // track. This makes later Continuous/Endless automatic changes continue
