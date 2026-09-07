@@ -10,8 +10,11 @@
 #include "main.hpp"
 #include "frontend/config.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "engine/ocrash.hpp"
+#include "engine/oferrari.hpp"
 #include "engine/ohud.hpp"
 #include "engine/omusic.hpp"
+#include "directx/ffeedback.hpp"
 #include "sdl2/input.hpp"
 
 // In-game radio button support.
@@ -79,6 +82,18 @@ namespace radio_button
         return value;
     }
 
+    inline bool& engine_vibration_active()
+    {
+        static bool value = false;
+        return value;
+    }
+
+    inline int& engine_vibration_bucket()
+    {
+        static int value = -1;
+        return value;
+    }
+
     inline bool gameplay_active()
     {
         return cannonball::state == cannonball::STATE_GAME &&
@@ -142,6 +157,73 @@ namespace radio_button
         // resetting YM leaves the previous arcade song playing underneath it.
         cannonball::audio.clear_wav();
         osoundint.queue_sound(sound::FM_RESET);
+    }
+
+    // Keep the existing grid rev-shake and the new driving vibration as one
+    // logical ENGINE VIBRATION effect. The FFB backend identifies calls from a
+    // function containing "update_prestart_sine", so this deliberately reuses
+    // the existing start_rev_shake per-effect strength instead of inventing a
+    // second strength control.
+    inline void update_prestart_sine_engine_vibration()
+    {
+        const bool can_run =
+            cannonball::state == cannonball::STATE_GAME &&
+            outrun.game_state == GS_INGAME &&
+            config.input_mode_is_wheel() &&
+            config.controls.haptic &&
+            forcefeedback::is_supported() &&
+            !ocrash.crash_counter &&
+            !ocrash.skid_counter &&
+            !outrun.SkiddingOnRoad() &&
+            oferrari.wheel_state == OFerrari::WHEELS_ON;
+
+        if (!can_run)
+        {
+            // Tyre slip shares the current periodic SDL channel. Force one clean
+            // hand-off when leaving engine vibration so the normal tyre-slip
+            // path can rebuild its own sine parameters on the following frame.
+            if (engine_vibration_active())
+                forcefeedback::set_tyre_slip(false);
+
+            engine_vibration_active() = false;
+            engine_vibration_bucket() = -1;
+            return;
+        }
+
+        // The HUD rev bar uses (revs >> 16) >> 4 and spans roughly 0..0x13.
+        // Treat 0x130 as the useful top of the rev range and quantize it into
+        // eight steps. That prevents expensive haptic rebuilds every frame while
+        // still making the motor clearly build with RPM.
+        int revs = static_cast<int>(oferrari.revs >> 16);
+        if (revs < 0)
+            revs = 0;
+        if (revs > 0x130)
+            revs = 0x130;
+
+        int rev_percent = (revs * 100 + 0x98) / 0x130;
+        int bucket = (rev_percent * 7 + 50) / 100;
+        if (bucket < 0)
+            bucket = 0;
+        else if (bucket > 7)
+            bucket = 7;
+
+        // Keep the effect subtle at idle/low revs and let it build smoothly.
+        // This is an envelope only: the user's start_rev_shake setting remains
+        // the actual maximum strength and therefore controls both grid and race.
+        const int envelope_percent = 18 + ((bucket * 82 + 3) / 7);
+
+        if (!engine_vibration_active() || bucket != engine_vibration_bucket())
+        {
+            if (engine_vibration_active())
+                forcefeedback::set_tyre_slip(false);
+
+            forcefeedback::set_gain(envelope_percent);
+            forcefeedback::set_tyre_slip(true);
+            forcefeedback::set_gain(config.controls.ffb_strength);
+
+            engine_vibration_active() = true;
+            engine_vibration_bucket() = bucket;
+        }
     }
 
     inline std::string display_title(const std::string& source)
@@ -329,6 +411,11 @@ namespace radio_button
     // driving states and deliberately off in Attract and Music Select.
     inline int tick()
     {
+        // This per-frame hook already exists regardless of whether external
+        // cabinet outputs are enabled, so it is also a convenient place to keep
+        // the unified grid/race engine vibration alive during normal gameplay.
+        update_prestart_sine_engine_vibration();
+
         const bool active = gameplay_active();
         const bool pressed = configured_control_pressed();
         const bool edge = pressed && !pressed_old();
