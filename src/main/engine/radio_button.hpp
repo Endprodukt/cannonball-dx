@@ -29,9 +29,10 @@ namespace radio_button
     static constexpr int TYPE_BUTTON = 0;
     static constexpr int TYPE_HAT = 2;
 
-    // Keep the temporary station name clear of the rev counter/minimap area.
-    // The first test used row 23, which was much too close to the bottom edge.
-    static constexpr uint16_t OVERLAY_Y = 17;
+    // The regular HUD font is already CannonBall's compact 8x8 tile font.
+    // Row 9 keeps the temporary title close to the top edge while staying below
+    // the normal top HUD and Time Trial's TIME TO BEAT / best-lap area.
+    static constexpr uint16_t OVERLAY_Y = 9;
     static constexpr Uint32 OVERLAY_TIME_MS = 2200;
 
     inline bool& pressed_old()
