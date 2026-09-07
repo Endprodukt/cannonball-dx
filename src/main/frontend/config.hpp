@@ -19,6 +19,10 @@
 
 #define CANNONBALL_DX_CONFIG_EXTENSIONS \
     static constexpr int BUMPER_VIEW_HEIGHT_LEVELS = 5; \
+    static constexpr int ENGINE_VIBRATION_DEFAULT_STRENGTH = 7; \
+    static constexpr int ENGINE_PERIOD_DEFAULT_MS = 130; \
+    static constexpr int ENGINE_PERIOD_MIN_MS = 20; \
+    static constexpr int ENGINE_PERIOD_MAX_MS = 250; \
     static constexpr int ENDLESS_DEFAULT_START_TIME = 80; \
     static constexpr int ENDLESS_DEFAULT_CHECKPOINT_TIME = 55; \
     static constexpr int ENDLESS_DEFAULT_TIME_DECREASE = 2; \
@@ -75,6 +79,36 @@
     void clear_radio_binding(int group) \
     { \
         set_radio_binding(group, -1, -1, 0, ""); \
+    } \
+    int engine_vibration_strength() \
+    { \
+        int value = cfg.get_int( \
+            "controls.analog.haptic.engine_vibration_strength", \
+            ENGINE_VIBRATION_DEFAULT_STRENGTH); \
+        if (value < 0) value = 0; \
+        if (value > 100) value = 100; \
+        return value; \
+    } \
+    void set_engine_vibration_strength(int value) \
+    { \
+        if (value < 0) value = 0; \
+        if (value > 100) value = 100; \
+        cfg.put_int("controls.analog.haptic.engine_vibration_strength", value); \
+    } \
+    int engine_period_ms() \
+    { \
+        int value = cfg.get_int( \
+            "controls.analog.haptic.engine_period_ms", \
+            ENGINE_PERIOD_DEFAULT_MS); \
+        if (value < ENGINE_PERIOD_MIN_MS) value = ENGINE_PERIOD_MIN_MS; \
+        if (value > ENGINE_PERIOD_MAX_MS) value = ENGINE_PERIOD_MAX_MS; \
+        return value; \
+    } \
+    void set_engine_period_ms(int value) \
+    { \
+        if (value < ENGINE_PERIOD_MIN_MS) value = ENGINE_PERIOD_MIN_MS; \
+        if (value > ENGINE_PERIOD_MAX_MS) value = ENGINE_PERIOD_MAX_MS; \
+        cfg.put_int("controls.analog.haptic.engine_period_ms", value); \
     } \
     int bumper_view_height_level() \
     { \
