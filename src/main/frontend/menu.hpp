@@ -21,6 +21,7 @@
 #include "sdl2/pixel_scaler_state.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "engine/audio/osoundint.hpp"
+#include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
 #include "directx/ffeedback.hpp"
 
@@ -51,6 +52,18 @@ class Menu : public MenuLegacy
 public:
     Menu() = default;
     ~Menu() override = default;
+
+    void init(bool init_main_menu = true)
+    {
+        // Music Select may apply a temporary Ferrari colour for the current
+        // run. Entering the frontend (F5 included) always ends that run-scoped
+        // override and restores the persistent Attract/default colour chosen by
+        // F10 or the Car Setup menu before any frontend save can see it.
+        config.engine.car_pal =
+            car_palette_state::get_default(config.engine.car_pal);
+
+        MenuBase::init(init_main_menu);
+    }
 
     void populate()
     {
@@ -114,6 +127,7 @@ protected:
             { "CRASH FLIP",              "crash_flip" },
             { "CRASH FLIP LANDING",      "crash_flip_landing" },
             { "START STEERING",          "start_steering" },
+            { "START REV SHAKE",         "start_rev_shake" },
             { "ENGINE VIBRATION",        "engine_vibration" },
             { "ENGINE PERIOD",           "engine_period" },
         };
@@ -126,7 +140,7 @@ protected:
     {
         int item_count = 0;
         const FfbMenuItem* items = dx_ffb_effect_items(item_count);
-        const int page_size = 9;
+        const int page_size = 10;
         const int first = ffb_effect_page * page_size;
         const int last = std::min(first + page_size, item_count);
 
@@ -169,7 +183,7 @@ protected:
     {
         int item_count = 0;
         const FfbMenuItem* items = dx_ffb_effect_items(item_count);
-        const int page_size = 9;
+        const int page_size = 10;
         const int index = ffb_effect_page * page_size + cursor;
         if (index < 0 || index >= item_count)
             return;
@@ -255,8 +269,9 @@ protected:
 
         if (menu_selected == &menu_ffb_effects)
         {
-            const int page_size = 9;
-            const int item_count = 18;
+            const int page_size = 10;
+            int item_count = 0;
+            dx_ffb_effect_items(item_count);
             const int visible_items =
                 std::min(page_size, item_count - ffb_effect_page * page_size);
 
