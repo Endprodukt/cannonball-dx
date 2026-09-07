@@ -93,6 +93,218 @@ public:
 protected:
     std::vector<std::string> menu_endless;
 
+    static const FfbMenuItem* dx_ffb_effect_items(int& count)
+    {
+        static const FfbMenuItem ITEMS[] =
+        {
+            { "SAND",                    "sand" },
+            { "TYRE SLIP",               "tyre_slip" },
+            { "OFFROAD RUMBLE 1W",       "offroad_rumble_one_wheel" },
+            { "OFFROAD RUMBLE FULL",     "offroad_rumble_full" },
+            { "OFFROAD PULL 1W",         "offroad_pull_one_wheel" },
+            { "OFFROAD PULL FULL",       "offroad_pull_full" },
+            { "GEAR SHIFT",              "gear_shift" },
+            { "MUSIC SELECTOR",          "music_selector" },
+            { "TRAFFIC SKID",            "traffic_skid" },
+            { "CRASH BUMP",              "crash_bump" },
+            { "CRASH SPIN IMPACT",       "crash_spin_impact" },
+            { "CRASH SPIN",              "crash_spin" },
+            { "CRASH FLIP IMPACT",       "crash_flip_impact" },
+            { "CRASH FLIP",              "crash_flip" },
+            { "CRASH FLIP LANDING",      "crash_flip_landing" },
+            { "START STEERING",          "start_steering" },
+            { "ENGINE VIBRATION",        "start_rev_shake" },
+            { "ENGINE SPEED",            "engine_speed" },
+        };
+
+        count = static_cast<int>(sizeof(ITEMS) / sizeof(ITEMS[0]));
+        return ITEMS;
+    }
+
+    void populate_ffb_effects_dx()
+    {
+        int item_count = 0;
+        const FfbMenuItem* items = dx_ffb_effect_items(item_count);
+        const int page_size = 9;
+        const int first = ffb_effect_page * page_size;
+        const int last = std::min(first + page_size, item_count);
+
+        menu_ffb_effects.clear();
+        for (int i = first; i < last; ++i)
+        {
+            int value = 0;
+            if (std::string(items[i].setting) == "engine_speed")
+            {
+                // Stored 0..100 maps to a user-facing 50..150%. This lets us
+                // reuse the existing persistent per-effect XML path while 100%
+                // remains the neutral/current motor-sine speed.
+                value = 50 + config.ffb_effect_setting("engine_speed", 50);
+            }
+            else
+            {
+                value = config.ffb_effect_setting(items[i].setting, 0);
+            }
+
+            menu_ffb_effects.push_back(
+                ffb_value_text(items[i].label, value));
+        }
+
+        if (ffb_effect_page == 0)
+            menu_ffb_effects.push_back("NEXT PAGE");
+        else
+            menu_ffb_effects.push_back("PREV PAGE");
+
+        menu_ffb_effects.push_back(ENTRY_BACK);
+    }
+
+    void adjust_ffb_effect_dx(int delta)
+    {
+        int item_count = 0;
+        const FfbMenuItem* items = dx_ffb_effect_items(item_count);
+        const int page_size = 9;
+        const int index = ffb_effect_page * page_size + cursor;
+        if (index < 0 || index >= item_count)
+            return;
+
+        const std::string setting = items[index].setting;
+        if (setting == "engine_speed")
+        {
+            int value = 50 + config.ffb_effect_setting("engine_speed", 50);
+
+            // Speed is intentionally coarser than effect strength. A 1% change
+            // is effectively inaudible/tactile here, so LEFT/RIGHT and Enter all
+            // move in useful 5% steps across the 50..150% range.
+            value += delta < 0 ? -5 : 5;
+            value = std::max(50, std::min(150, value));
+            config.set_ffb_effect_setting("engine_speed", value - 50);
+        }
+        else
+        {
+            int value = config.ffb_effect_setting(items[index].setting, 0) + delta;
+            value = std::max(0, std::min(100, value));
+            config.set_ffb_effect_setting(items[index].setting, value);
+        }
+
+        if (!config.save())
+            display_message("ERROR SAVING SETTINGS!");
+        populate_ffb_effects_dx();
+    }
+
+    void tick_ffb_tuning_menu_dx()
+    {
+        if (input.has_pressed(Input::DOWN))
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            if (++cursor >= static_cast<int16_t>(menu_selected->size()))
+                cursor = 0;
+            return;
+        }
+
+        if (input.has_pressed(Input::UP))
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            if (--cursor < 0)
+                cursor = static_cast<int16_t>(menu_selected->size()) - 1;
+            return;
+        }
+
+        if (menu_selected == &menu_ffb_tuning)
+        {
+            if (!select_pressed())
+                return;
+
+            const std::string option = menu_ffb_tuning[cursor];
+            if (option == "MAIN EFFECTS")
+            {
+                ffb_effect_page = 0;
+                populate_ffb_effects_dx();
+                set_menu(&menu_ffb_effects);
+            }
+            else if (option == "SPRING EFFECTS")
+            {
+                ffb_spring_page = 0;
+                populate_ffb_spring();
+                set_menu(&menu_ffb_spring);
+            }
+            else if (option.rfind(ENTRY_BACK, 0) == 0)
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        int delta = 0;
+        if (input.has_pressed(Input::LEFT))
+            delta = -1;
+        else if (input.has_pressed(Input::RIGHT))
+            delta = 1;
+
+        const bool selected = delta == 0 && select_pressed();
+
+        if (menu_selected == &menu_ffb_effects)
+        {
+            const int page_size = 9;
+            const int item_count = 18;
+            const int visible_items =
+                std::min(page_size, item_count - ffb_effect_page * page_size);
+
+            if (cursor < visible_items && (delta != 0 || selected))
+            {
+                adjust_ffb_effect_dx(delta != 0 ? delta : 5);
+                return;
+            }
+
+            if (!selected)
+                return;
+
+            if (cursor == visible_items)
+            {
+                ffb_effect_page = ffb_effect_page == 0 ? 1 : 0;
+                populate_ffb_effects_dx();
+                cursor = 0;
+            }
+            else
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+            return;
+        }
+
+        if (menu_selected == &menu_ffb_spring)
+        {
+            const int page_size = 7;
+            const int item_count = 14;
+            const int visible_items =
+                std::min(page_size, item_count - ffb_spring_page * page_size);
+
+            if (cursor < visible_items && (delta != 0 || selected))
+            {
+                adjust_ffb_spring(delta != 0 ? delta : 5);
+                return;
+            }
+
+            if (!selected)
+                return;
+
+            if (cursor == visible_items)
+            {
+                ffb_spring_page = ffb_spring_page == 0 ? 1 : 0;
+                populate_ffb_spring();
+                cursor = 0;
+            }
+            else
+            {
+                menu_back();
+            }
+
+            refresh_menu();
+        }
+    }
+
     static int adjust_time_value(int value, int direction, int minimum)
     {
         if (direction > 0)
@@ -240,25 +452,16 @@ protected:
 
     void tick_menu() override
     {
-        auto rename_engine_vibration = [&]()
+        // Once inside the FFB tuning pages, use the DX handler so the engine
+        // sine speed can live beside the existing effect strengths without
+        // putting another option on the main Controls page.
+        if (menu_selected == &menu_ffb_tuning ||
+            menu_selected == &menu_ffb_effects ||
+            menu_selected == &menu_ffb_spring)
         {
-            if (menu_selected != &menu_ffb_effects)
-                return;
-
-            const std::string old_label = "START REV SHAKE ";
-            const std::string new_label = "ENGINE VIBRATION ";
-
-            for (std::string& entry : menu_ffb_effects)
-            {
-                if (entry.rfind(old_label, 0) == 0)
-                    entry = new_label + entry.substr(old_label.size());
-            }
-        };
-
-        // The same start_rev_shake value now owns both the grid rev shake and
-        // the RPM-linked in-race engine vibration, so present it under its new
-        // meaning only inside FFB -> Main Effects.
-        rename_engine_vibration();
+            tick_ffb_tuning_menu_dx();
+            return;
+        }
 
         // Open the Endless page from Gameplay. All other Gameplay entries are
         // still owned by the existing DX menu implementation.
@@ -331,7 +534,6 @@ protected:
         }
 
         MenuLegacy::tick_menu();
-        rename_engine_vibration();
     }
 
     void populate_controls() override;
