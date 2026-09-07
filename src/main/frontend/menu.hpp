@@ -93,6 +93,84 @@ public:
 protected:
     std::vector<std::string> menu_endless;
 
+    static constexpr const char* ENGINE_VIBRATION_LABEL = "ENGINE VIBRATION ";
+
+    static std::string engine_vibration_text()
+    {
+        return std::string(ENGINE_VIBRATION_LABEL) +
+            std::to_string(config.ffb_effect_setting("start_rev_shake", 11)) + "%";
+    }
+
+    void ensure_engine_vibration_setting()
+    {
+        auto current = std::find_if(
+            menu_controls.begin(),
+            menu_controls.end(),
+            [](const std::string& entry)
+            {
+                return entry.rfind(ENGINE_VIBRATION_LABEL, 0) == 0;
+            });
+
+        // This is wheel force feedback, not gamepad rumble. Hide the option
+        // entirely when GAMEPAD owns the controls, matching the other FFB rows.
+        if (!config.input_mode_is_wheel())
+        {
+            if (current != menu_controls.end())
+                menu_controls.erase(current);
+            return;
+        }
+
+        const std::string text = engine_vibration_text();
+        if (current != menu_controls.end())
+        {
+            *current = text;
+            return;
+        }
+
+        // Keep it with the other FFB strength controls, immediately before the
+        // centering spring maximum when that row exists.
+        auto insert_before = std::find_if(
+            menu_controls.begin(),
+            menu_controls.end(),
+            [](const std::string& entry)
+            {
+                return entry.rfind(ENTRY_CENTERING_STRENGTH, 0) == 0;
+            });
+
+        menu_controls.insert(insert_before, text);
+    }
+
+    bool adjust_engine_vibration(int direction)
+    {
+        if (menu_selected != &menu_controls ||
+            cursor < 0 ||
+            cursor >= static_cast<int>(menu_controls.size()) ||
+            menu_controls[cursor].rfind(ENGINE_VIBRATION_LABEL, 0) != 0)
+        {
+            return false;
+        }
+
+        int value = config.ffb_effect_setting("start_rev_shake", 11);
+
+        if (direction > 0)
+            value += 1;
+        else if (direction < 0)
+            value -= 1;
+        else
+            value += 5; // Enter fallback for cabinets without left/right.
+
+        if (value < 0)
+            value = 100;
+        else if (value > 100)
+            value = 0;
+
+        config.set_ffb_effect_setting("start_rev_shake", value);
+        menu_controls[cursor] = engine_vibration_text();
+        config.save();
+        osoundint.queue_sound(sound::BEEP1);
+        return true;
+    }
+
     static int adjust_time_value(int value, int direction, int minimum)
     {
         if (direction > 0)
@@ -240,6 +318,37 @@ protected:
 
     void tick_menu() override
     {
+        // The wheel-only ENGINE VIBRATION entry is injected dynamically so it
+        // follows INPUT MODE changes without disturbing the inherited controls
+        // menu layout. It controls the same start_rev_shake value used on-grid.
+        if (!config.smartypi.enabled && menu_selected == &menu_controls)
+        {
+            ensure_engine_vibration_setting();
+
+            int vibration_direction = 0;
+            if (input.has_pressed(Input::RIGHT))
+                vibration_direction = 1;
+            else if (input.has_pressed(Input::LEFT))
+                vibration_direction = -1;
+
+            if (vibration_direction && adjust_engine_vibration(vibration_direction))
+                return;
+
+            if (cursor >= 0 &&
+                cursor < static_cast<int>(menu_controls.size()) &&
+                menu_controls[cursor].rfind(ENGINE_VIBRATION_LABEL, 0) == 0)
+            {
+                if (!select_pressed())
+                {
+                    MenuBase::tick_menu();
+                    return;
+                }
+
+                adjust_engine_vibration(0);
+                return;
+            }
+        }
+
         // Open the Endless page from Gameplay. All other Gameplay entries are
         // still owned by the existing DX menu implementation.
         if (!config.smartypi.enabled &&
