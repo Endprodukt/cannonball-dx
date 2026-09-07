@@ -1,10 +1,9 @@
 /***************************************************************************
     CannonBall DX Force Feedback wrapper.
 
-    Keep the established backend in ffeedback_base.cpp and layer the unified
-    engine/rev sine behaviour on top. This avoids duplicating the large FFB
-    implementation while allowing the engine vibration to own the periodic
-    channel cleanly between the start grid and normal driving.
+    Keep the established backend in ffeedback_base.cpp and layer the driving
+    engine sine behaviour on top. The original start-grid rev shake stays on
+    the preserved backend so it can keep its own strength and timing.
 ***************************************************************************/
 
 // Preserve the existing backend implementation under a private periodic entry
@@ -16,22 +15,25 @@
 namespace forcefeedback
 {
 #if defined(_WIN32)
-    static bool engine_source(
+    static bool start_rev_source(
         const std::source_location& source)
     {
-        return source_function_contains(source, "update_prestart_sine");
+        return
+            source_function_contains(source, "update_prestart_sine") &&
+            !source_function_contains(source, "update_prestart_sine_engine_vibration");
     }
 
-    static bool engine_vibration_request(
-        bool active,
+    static bool driving_engine_source(
         const std::source_location& source)
     {
-        return active && engine_source(source);
+        return source_function_contains(
+            source,
+            "update_prestart_sine_engine_vibration");
     }
 
     static bool engine_channel_owned()
     {
-        // While the engine sine runs we deliberately leave the normal
+        // While the driving engine sine runs we deliberately leave the normal
         // g_tyre_slip_active flag false. g_tyre_slip_prestart therefore acts as
         // the ownership marker without making the spring think the tyres slide.
         return g_tyre_slip_prestart && !g_tyre_slip_active;
@@ -67,7 +69,7 @@ namespace forcefeedback
         g_tyre_slip_prestart = false;
     }
 
-    static void apply_engine_sine_parameters(
+    static void apply_driving_engine_sine_parameters(
         const std::source_location& source)
     {
         if (!g_haptic || g_tyre_slip_effect < 0)
@@ -101,8 +103,8 @@ namespace forcefeedback
         int effective_percent =
             master_effect_gain(config.engine_vibration_strength());
 
-        // g_gain_percent is the start-grid throttle ramp or the in-race RPM
-        // amplitude envelope supplied by the unified engine-vibration caller.
+        // g_gain_percent is the in-race RPM amplitude envelope supplied by the
+        // driving engine-vibration caller.
         effective_percent =
             scale_value(
                 effective_percent,
@@ -134,8 +136,12 @@ namespace forcefeedback
         bool active,
         const std::source_location& source)
     {
-        const bool engine_request =
-            engine_vibration_request(active, source);
+        const bool grid_rev_request =
+            active && start_rev_source(source);
+        const bool driving_engine_request =
+            active && driving_engine_source(source);
+        const bool engine_related_request =
+            grid_rev_request || driving_engine_request;
 
         // During clean driving the engine owns the already-running periodic
         // effect. Ignore ordinary OFF calls only while CannonBall is genuinely
@@ -147,8 +153,8 @@ namespace forcefeedback
             return;
         }
 
-        // Leaving clean engine operation (crash, off-road, menu/game transition
-        // or lifting out of the start-grid rev effect) must really stop the sine.
+        // Leaving clean engine operation (crash, off-road, menu/game transition)
+        // must really stop the driving engine sine.
         if (!active && engine_channel_owned())
         {
             stop_owned_engine_channel();
@@ -156,19 +162,23 @@ namespace forcefeedback
             return;
         }
 
-        // Real tyre slip takes ownership immediately. The engine effect already
-        // uses the same SDL effect slot, so clearing the ownership marker lets
-        // the preserved backend update that slot in place with tyre-slip values.
-        if (active && !engine_request && engine_channel_owned())
+        // Real tyre slip takes ownership immediately. The driving engine effect
+        // already uses the same SDL effect slot, so clearing the ownership
+        // marker lets the preserved backend update that slot in place.
+        if (active && !engine_related_request && engine_channel_owned())
         {
             g_tyre_slip_prestart = false;
             g_tyre_slip_active = false;
         }
 
+        // The original start-grid rev shake is intentionally handled entirely
+        // by the preserved backend: start_rev_shake controls its strength and
+        // its original 45 ms SINE period stays unchanged. Only the in-race
+        // engine request is replaced with the slower RPM-dependent motor curve.
         set_tyre_slip_base(active, source);
 
-        if (engine_request && active)
-            apply_engine_sine_parameters(source);
+        if (driving_engine_request)
+            apply_driving_engine_sine_parameters(source);
     }
 #else
     void set_tyre_slip(
