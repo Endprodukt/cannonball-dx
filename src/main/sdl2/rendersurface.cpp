@@ -170,16 +170,6 @@ void RenderSurface::destroy_buffers() {
 
 void RenderSurface::init_blargg_filter()
 {
-    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
-    if (blargg && render_scale > 2)
-    {
-        std::cout
-            << "Blargg filter bypassed at " << render_scale
-            << "x engine resolution (Blargg hi-res input is fixed at 2x)."
-            << std::endl;
-        blargg = video_settings_t::BLARGG_DISABLE;
-    }
-
     // Initialises the Blargg NTSC filter effects. This configures the output (s-video/rgb etc) and
     // also pre-calculates the pixel mapping (which is slow), so the shader then runs on a lookup basis
     // in the game (fast).

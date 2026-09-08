@@ -448,21 +448,21 @@ void Menu::tick()
         }
     }
 
-    // Replace the inherited binary ORIGINAL/HI-RES entry with a DX multi-step
-    // render scale. A different prefix prevents MenuBase from applying its old
-    // XOR toggle when this row is activated.
-    if (!menu_enhancements.empty())
+    // Replace the inherited binary ORIGINAL/HI-RES entry in VIDEO with the DX
+    // four-step render scale. A different prefix prevents MenuBase from applying
+    // its old XOR toggle when this row is activated.
+    if (!menu_video.empty())
     {
         auto resolution_entry = std::find_if(
-            menu_enhancements.begin(),
-            menu_enhancements.end(),
+            menu_video.begin(),
+            menu_video.end(),
             [](const std::string& entry)
             {
                 return starts_with_label(entry, ENTRY_HIRES) ||
                        starts_with_label(entry, ENGINE_RESOLUTION_LABEL);
             });
 
-        if (resolution_entry != menu_enhancements.end())
+        if (resolution_entry != menu_video.end())
             *resolution_entry = engine_resolution_menu_text();
     }
 
@@ -497,13 +497,13 @@ void Menu::tick()
         }
     }
 
-    // Engine resolution is a four-step value. Use the existing preserve-state
+    // Engine resolution is a four-step VIDEO value. Use the existing preserve-state
     // video restart so changing it in the menu does not reset the running S16 state.
     if (state == STATE_MENU &&
-        menu_selected == &menu_enhancements &&
+        menu_selected == &menu_video &&
         cursor >= 0 &&
-        cursor < static_cast<int>(menu_enhancements.size()) &&
-        starts_with_label(menu_enhancements[cursor], ENGINE_RESOLUTION_LABEL) &&
+        cursor < static_cast<int>(menu_video.size()) &&
+        starts_with_label(menu_video[cursor], ENGINE_RESOLUTION_LABEL) &&
         (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
     {
         int scale = engine_resolution_scale();
@@ -513,7 +513,7 @@ void Menu::tick()
             scale = scale == 1 ? 4 : scale - 1;
 
         request_engine_resolution_scale(scale);
-        menu_enhancements[cursor] = engine_resolution_menu_text(scale);
+        menu_video[cursor] = engine_resolution_menu_text(scale);
         config_save_pending = true;
         osoundint.queue_sound(sound::BEEP1);
     }
@@ -784,11 +784,11 @@ bool Menu::select_pressed()
         }
     }
 
-    if (menu_selected == &menu_enhancements &&
+    if (menu_selected == &menu_video &&
         cursor >= 0 &&
-        cursor < static_cast<int>(menu_enhancements.size()))
+        cursor < static_cast<int>(menu_video.size()))
     {
-        const std::string& option = menu_enhancements[cursor];
+        const std::string& option = menu_video[cursor];
 
         if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))
         {
@@ -797,9 +797,16 @@ bool Menu::select_pressed()
                 scale = 1;
 
             request_engine_resolution_scale(scale);
-            menu_enhancements[cursor] = engine_resolution_menu_text(scale);
+            menu_video[cursor] = engine_resolution_menu_text(scale);
             return false;
         }
+    }
+
+    if (menu_selected == &menu_enhancements &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_enhancements.size()))
+    {
+        const std::string& option = menu_enhancements[cursor];
 
         if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
         {
