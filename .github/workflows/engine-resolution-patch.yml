@@ -17,8 +17,8 @@ jobs:
         with:
           ref: test/engine-resolution-scale
 
-      - name: Apply follow-up compatibility fixes
-        run: python3 tools/fix_engine_resolution_scale_followup.py
+      - name: Apply final build fix
+        run: python3 tools/fix_engine_resolution_build.py
 
       - name: Validate source changes
         run: |
@@ -30,13 +30,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/main
-          git commit -m "Fix 3x-4x renderer compatibility"
-          git push origin HEAD:test/engine-resolution-scale
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix engine resolution build includes"
+            git push origin HEAD:test/engine-resolution-scale
+          fi
 
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsdl2-dev libgl1-mesa-dev libglu1-mesa-dev
+          sudo apt-get install -y libsdl2-dev libtinyxml2-dev libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev
 
       - name: Configure
         run: cmake -S . -B build -DWITH_MP3=OFF -DPIXEL_ACCURACY=OFF -DWITH_MARCH_NATIVE=OFF
