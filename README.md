@@ -1,3 +1,5 @@
+![CannonBall DX Logo](screenshots/CannonballDX.png)
+
 # CannonBall DX (WIP)
 
 *An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine.*
@@ -9,8 +11,6 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 > **Platform status:** CannonBall DX is currently developed and tested **only on Windows 10/11 (64-bit)**. Linux, Raspberry Pi and other platforms have **not been tested with the DX changes**. The upstream CannonBall and CannonBall-SE projects support additional platforms, but no compatibility with CannonBall DX or its added features is claimed or guaranteed outside Windows.
 
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
-
-![CannonBall DX Logo](screenshots/CannonballDX.png)
 
 ![CannonBall DX 21:9 Gameplay](screenshots/cannonballdx219.jpg)
 
