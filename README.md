@@ -1,4 +1,6 @@
+<p align="center">
 ![CannonBall DX Logo](screenshots/CannonballDX.png)
+</p>
 
 # CannonBall DX (WIP)
 
