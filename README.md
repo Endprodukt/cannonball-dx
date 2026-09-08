@@ -1,4 +1,4 @@
-# CannonBall DX
+# CannonBall DX (WIP)
 
 *An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine.*
 
