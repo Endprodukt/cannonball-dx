@@ -3,6 +3,13 @@
 #include "stdint.hpp"
 #include <chrono>
 
+// hwsprites.cpp owns PIXEL_ACCURACY locally. CMake may also provide the
+// legacy build definition, so clear it before the implementation defines
+// its renderer-specific value to avoid MSVC C4005 macro redefinition.
+#ifdef PIXEL_ACCURACY
+#undef PIXEL_ACCURACY
+#endif
+
 class video;
 
 class hwsprites
