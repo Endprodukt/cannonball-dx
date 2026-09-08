@@ -1,5 +1,5 @@
 <p align="center">
-![CannonBall DX Logo](screenshots/CannonballDX.png)
+<img src="screenshots/CannonballDX.png" alt="Beschreibung" width="500">
 </p>
 
 # CannonBall DX (WIP)
