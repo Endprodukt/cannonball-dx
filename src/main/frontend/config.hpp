@@ -22,7 +22,7 @@
     static constexpr int ENGINE_VIBRATION_DEFAULT_STRENGTH = 4; \
     static constexpr int ENGINE_PERIOD_DEFAULT_MS = 110; \
     static constexpr int ENGINE_PERIOD_MIN_MS = 10; \
-    static constexpr int ENGINE_PERIOD_MAX_MS = 250; \
+    static constexpr int ENGINE_PERIOD_MAX_MS = 500; \
     static constexpr int ENDLESS_DEFAULT_START_TIME = 80; \
     static constexpr int ENDLESS_DEFAULT_CHECKPOINT_TIME = 55; \
     static constexpr int ENDLESS_DEFAULT_TIME_DECREASE = 2; \
@@ -106,6 +106,12 @@
     } \
     void set_engine_period_ms(int value) \
     { \
+        const int current = engine_period_ms(); \
+        /* The existing FFB menu supplies +/-5 for this physical timing value. \
+           Promote those menu nudges to the requested 10 ms steps while still \
+           allowing exact values loaded or written directly through config. */ \
+        if (value == current - 5) value = current - 10; \
+        else if (value == current + 5) value = current + 10; \
         if (value < ENGINE_PERIOD_MIN_MS) value = ENGINE_PERIOD_MIN_MS; \
         if (value > ENGINE_PERIOD_MAX_MS) value = ENGINE_PERIOD_MAX_MS; \
         cfg.put_int("controls.analog.haptic.engine_period_ms", value); \
