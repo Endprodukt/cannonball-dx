@@ -166,14 +166,20 @@ public:
         if (!pixels || config.videoRestartRequired)
             return;
 
-        if (fastpass != 1 && notification_visible())
-            draw_scaler_notification(pixels);
+        const bool show_scaler_notification =
+            fastpass != 1 && notification_visible();
 
         // Serialise only scaler state/buffers. The stock SE path retains its
         // own existing drawFrameMutex/double buffering when the scaler is OFF.
         std::unique_lock<std::mutex> processing_lock(scaler_processing_mutex);
         if (!scaler_path)
         {
+            // Stock rendering still draws the notification into the native S16
+            // frame. Only an active pixel scaler needs the independent overlay
+            // path below.
+            if (show_scaler_notification)
+                draw_scaler_notification(pixels);
+
             processing_lock.unlock();
             RenderSurface::draw_frame(pixels, fastpass);
             return;
@@ -244,6 +250,13 @@ public:
 
         apply_low_factor_detail_preserve();
         apply_se_scanlines_after_scaler();
+
+        // Draw the scaler notification last, in scaler-output space. This keeps
+        // the text independent of both engine resolution and the scaler itself:
+        // xBRZ/HQx never processes the glyphs and scanlines never darken them.
+        if (show_scaler_notification)
+            draw_scaler_notification_scaled();
+
         prepare_rgba_upload();
 
         activity_counter.fetch_sub(1, std::memory_order_acq_rel);
@@ -848,6 +861,101 @@ private:
                             const int px = x0 + sx;
                             if (px >= 0 && px < src_width)
                                 pixels[py * src_width + px] = foreground;
+                        }
+                    }
+                }
+            }
+            cursor_x += advance;
+        }
+    }
+
+    uint32_t notification_argb(uint16_t palette_index) const
+    {
+        const uint16_t raw = rgb_blargg[palette_index];
+        const bool shadow = (raw & 0x8000u) != 0;
+        const uint32_t r5 = (raw >> 10) & 0x1Fu;
+        const uint32_t g5 = (raw >> 5) & 0x1Fu;
+        const uint32_t b5 = raw & 0x1Fu;
+        const auto& table = shadow ? SHADOW_DAC : STANDARD_DAC;
+
+        return 0xFF000000u |
+               (table[r5] << 16) |
+               (table[g5] << 8) |
+               table[b5];
+    }
+
+    void draw_scaler_notification_scaled()
+    {
+        if (scaled_pixels.empty() || scaled_width <= 0 || scaled_height <= 0)
+            return;
+
+        const std::string text =
+            std::string("PIXEL SCALER: ") +
+            pixel_scaler::name(notification_mode);
+
+        // One native UI pixel must occupy exactly one scaler block. Therefore
+        // the on-screen notification size is constant for 3x/4x/5x/6x scalers
+        // and is completely independent of the engine's 1x..4x resolution.
+        const int ui_scale = std::max(1, factor);
+        const int glyph_height = 7 * ui_scale;
+        const int advance = 6 * ui_scale;
+        const int padding = 2 * ui_scale;
+        const int text_width =
+            static_cast<int>(text.size()) * advance - ui_scale;
+        const int box_width = text_width + padding * 2;
+        const int box_height = glyph_height + padding * 2;
+        const int box_x = std::max(0, (scaled_width - box_width) / 2);
+        const int box_y = 4 * ui_scale;
+
+        const auto [background_index, foreground_index] =
+            notification_palette_indices();
+        const uint32_t background = notification_argb(background_index);
+        const uint32_t foreground = notification_argb(foreground_index);
+
+        for (int y = 0; y < box_height; ++y)
+        {
+            const int py = box_y + y;
+            if (py < 0 || py >= scaled_height)
+                continue;
+
+            uint32_t* row = scaled_pixels.data() +
+                static_cast<size_t>(py) * scaled_width;
+            for (int x = 0; x < box_width; ++x)
+            {
+                const int px = box_x + x;
+                if (px >= 0 && px < scaled_width)
+                    row[px] = background;
+            }
+        }
+
+        int cursor_x = box_x + padding;
+        const int text_y = box_y + padding;
+
+        for (char c : text)
+        {
+            const auto rows = glyph(c);
+            for (int row_index = 0; row_index < 7; ++row_index)
+            {
+                for (int col = 0; col < 5; ++col)
+                {
+                    if ((rows[row_index] & (1u << (4 - col))) == 0)
+                        continue;
+
+                    const int x0 = cursor_x + col * ui_scale;
+                    const int y0 = text_y + row_index * ui_scale;
+                    for (int sy = 0; sy < ui_scale; ++sy)
+                    {
+                        const int py = y0 + sy;
+                        if (py < 0 || py >= scaled_height)
+                            continue;
+
+                        uint32_t* row = scaled_pixels.data() +
+                            static_cast<size_t>(py) * scaled_width;
+                        for (int sx = 0; sx < ui_scale; ++sx)
+                        {
+                            const int px = x0 + sx;
+                            if (px >= 0 && px < scaled_width)
+                                row[px] = foreground;
                         }
                     }
                 }
