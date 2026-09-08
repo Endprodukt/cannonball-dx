@@ -54,6 +54,7 @@ namespace
     const char* INPUT_MODE_LABEL = "INPUT MODE ";
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
+    const char* ENGINE_RESOLUTION_LABEL = "ENGINE RESOLUTION ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
@@ -103,6 +104,34 @@ namespace
         return std::string(PIXEL_SCALER_LABEL) +
             pixel_scaler::name(
                 pixel_scaler::mode.load(std::memory_order_relaxed));
+    }
+
+    int engine_resolution_scale()
+    {
+        return std::clamp(config.video.hires + 1, 1, 4);
+    }
+
+    std::string engine_resolution_menu_text(int scale = -1)
+    {
+        if (scale < 1)
+            scale = engine_resolution_scale();
+
+        const std::string value =
+            scale == 1 ? "ORIGINAL" : std::to_string(scale) + "X";
+        return std::string(ENGINE_RESOLUTION_LABEL) + value;
+    }
+
+    void request_engine_resolution_scale(int scale)
+    {
+        scale = std::clamp(scale, 1, 4);
+
+        // Backward compatible storage:
+        // video.hires 0/1/2/3 means render scale 1x/2x/3x/4x.
+        config.video.hires_next = scale - 1;
+        if (scale == 1)
+            config.video.hiresprites = 0;
+
+        config.videoRestartRequired = true;
     }
 
     std::string selection_timer_menu_text()
@@ -419,6 +448,24 @@ void Menu::tick()
         }
     }
 
+    // Replace the inherited binary ORIGINAL/HI-RES entry with a DX multi-step
+    // render scale. A different prefix prevents MenuBase from applying its old
+    // XOR toggle when this row is activated.
+    if (!menu_enhancements.empty())
+    {
+        auto resolution_entry = std::find_if(
+            menu_enhancements.begin(),
+            menu_enhancements.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, ENTRY_HIRES) ||
+                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);
+            });
+
+        if (resolution_entry != menu_enhancements.end())
+            *resolution_entry = engine_resolution_menu_text();
+    }
+
     // Keep the Ferrari detail correction visible in Enhancements. OFF is the
     // untouched arcade/CannonBall behavior where the complete sprite, including
     // the badge and number plate, is mirrored on left-facing Ferrari frames.
@@ -448,6 +495,27 @@ void Menu::tick()
         {
             *fix_entry = ferrari_mirror_fix_menu_text();
         }
+    }
+
+    // Engine resolution is a four-step value. Use the existing preserve-state
+    // video restart so changing it in the menu does not reset the running S16 state.
+    if (state == STATE_MENU &&
+        menu_selected == &menu_enhancements &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_enhancements.size()) &&
+        starts_with_label(menu_enhancements[cursor], ENGINE_RESOLUTION_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        int scale = engine_resolution_scale();
+        if (input.has_pressed(Input::RIGHT))
+            scale = scale == 4 ? 1 : scale + 1;
+        else
+            scale = scale == 1 ? 4 : scale - 1;
+
+        request_engine_resolution_scale(scale);
+        menu_enhancements[cursor] = engine_resolution_menu_text(scale);
+        config_save_pending = true;
+        osoundint.queue_sound(sound::BEEP1);
     }
 
     // LEFT/RIGHT set this boolean directly like the other DX value options.
@@ -721,6 +789,17 @@ bool Menu::select_pressed()
         cursor < static_cast<int>(menu_enhancements.size()))
     {
         const std::string& option = menu_enhancements[cursor];
+
+        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))
+        {
+            int scale = engine_resolution_scale() + 1;
+            if (scale > 4)
+                scale = 1;
+
+            request_engine_resolution_scale(scale);
+            menu_enhancements[cursor] = engine_resolution_menu_text(scale);
+            return false;
+        }
 
         if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
         {

@@ -1,4 +1,5 @@
 #include <cstring> // memcpy
+#include <algorithm> // std::fill_n, std::clamp
 #include "globals.hpp"
 #include "romloader.hpp"
 #include "hwvideo/hwtiles.hpp"
@@ -125,7 +126,8 @@ void hwtiles::init(uint8_t* src_tiles, const bool hires)
 
     if (hires)
     {
-        s16_width_noscale = config.s16_width >> 1;
+        const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+        s16_width_noscale = config.s16_width / render_scale;
         render8x8_tile_mask      = &hwtiles::render8x8_tile_mask_hires;
         render8x8_tile_mask_clip = &hwtiles::render8x8_tile_mask_clip_hires;
     }
@@ -350,7 +352,7 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
         const int width = config.s16_width;
         const int height = config.s16_height;
         const int source_width = width - (overscan << 1);
-        uint16_t row_copy[S16_WIDTH_ULTRAWIDE * 2];
+        uint16_t row_copy[S16_WIDTH_ULTRAWIDE * 4];
 
         for (int row_index = 0; row_index < height; ++row_index)
         {
@@ -507,101 +509,113 @@ void hwtiles::render8x8_tile_mask_clip_lores(
 // proportional.
 // ------------------------------------------------------------------------------------------------
 
-// Hires Mode: Set 4 pixels instead of one.
-inline void set_pixel_x4(uint16_t *buf, uint32_t data, uint16_t width)
+// Hi-res mode: paint one logical System 16 pixel as an NxN block.
+inline void set_pixel_scaled(uint16_t* buf, uint16_t data, int width, int scale)
 {
-    buf[0] = buf[1] = buf[width] = buf[1 + width] = data;
+    for (int row = 0; row < scale; ++row)
+        std::fill_n(buf + (row * width), scale, data);
 }
 
-
 void hwtiles::render8x8_tile_mask_hires(
-    uint16_t *buf,
-    uint16_t nTileNumber, 
-    uint16_t StartX, 
-    uint16_t StartY, 
-    uint16_t nTilePalette, 
-    uint16_t nColourDepth, 
-    uint16_t nMaskColour, 
-    uint16_t nPaletteOffset) 
+    uint16_t* buf,
+    uint16_t nTileNumber,
+    uint16_t StartX,
+    uint16_t StartY,
+    uint16_t nTilePalette,
+    uint16_t nColourDepth,
+    uint16_t nMaskColour,
+    uint16_t nPaletteOffset)
 {
-    uint32_t nPalette = (nTilePalette << nColourDepth) | nMaskColour;
+    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+    const int width = config.s16_width;
+    const uint32_t nPalette = (nTilePalette << nColourDepth) | nMaskColour;
     uint32_t* pTileData = tiles + (nTileNumber << 3);
-    buf += ((StartY << 1) * config.s16_width) + (StartX << 1);
 
-    uint16_t s16width = config.s16_width;
-    for (int y = 0; y < 8; y++) 
+    uint16_t* tile_origin =
+        buf + (StartY * render_scale * width) + (StartX * render_scale);
+
+    for (int y = 0; y < 8; ++y)
     {
-        uint32_t p0 = *pTileData;
+        const uint32_t p0 = *pTileData++;
+        if (p0 == nMaskColour)
+            continue;
 
-        if (p0 != nMaskColour) 
+        const uint32_t colours[8] =
         {
-            uint32_t c7 = p0 & 0xf;
-            uint32_t c6 = (p0 >> 4) & 0xf;
-            uint32_t c5 = (p0 >> 8) & 0xf;
-            uint32_t c4 = (p0 >> 12) & 0xf;
-            uint32_t c3 = (p0 >> 16) & 0xf;
-            uint32_t c2 = (p0 >> 20) & 0xf;
-            uint32_t c1 = (p0 >> 24) & 0xf;
-            uint32_t c0 = (p0 >> 28);
+            (p0 >> 28) & 0xf,
+            (p0 >> 24) & 0xf,
+            (p0 >> 20) & 0xf,
+            (p0 >> 16) & 0xf,
+            (p0 >> 12) & 0xf,
+            (p0 >>  8) & 0xf,
+            (p0 >>  4) & 0xf,
+             p0        & 0xf,
+        };
 
-            if (c0) set_pixel_x4(&buf[0],  nPalette + c0, s16width);
-            if (c1) set_pixel_x4(&buf[2],  nPalette + c1, s16width);
-            if (c2) set_pixel_x4(&buf[4],  nPalette + c2, s16width);
-            if (c3) set_pixel_x4(&buf[6],  nPalette + c3, s16width);
-            if (c4) set_pixel_x4(&buf[8],  nPalette + c4, s16width);
-            if (c5) set_pixel_x4(&buf[10], nPalette + c5, s16width);
-            if (c6) set_pixel_x4(&buf[12], nPalette + c6, s16width);
-            if (c7) set_pixel_x4(&buf[14], nPalette + c7, s16width);
+        uint16_t* row = tile_origin + (y * render_scale * width);
+        for (int x = 0; x < 8; ++x)
+        {
+            if (colours[x])
+            {
+                set_pixel_scaled(
+                    row + (x * render_scale),
+                    static_cast<uint16_t>(nPalette + colours[x]),
+                    width,
+                    render_scale);
+            }
         }
-        buf += (s16width << 1);
-        pTileData++;
     }
 }
 
 void hwtiles::render8x8_tile_mask_clip_hires(
-    uint16_t *buf,
-    uint16_t nTileNumber, 
-    int16_t StartX, 
-    int16_t StartY, 
-    uint16_t nTilePalette, 
-    uint16_t nColourDepth, 
-    uint16_t nMaskColour, 
-    uint16_t nPaletteOffset) 
+    uint16_t* buf,
+    uint16_t nTileNumber,
+    int16_t StartX,
+    int16_t StartY,
+    uint16_t nTilePalette,
+    uint16_t nColourDepth,
+    uint16_t nMaskColour,
+    uint16_t nPaletteOffset)
 {
-    uint32_t nPalette = (nTilePalette << nColourDepth) | nMaskColour;
+    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+    const int width = config.s16_width;
+    const uint32_t nPalette = (nTilePalette << nColourDepth) | nMaskColour;
     uint32_t* pTileData = tiles + (nTileNumber << 3);
 
-    uint16_t s16width = config.s16_width;
-    buf += ((StartY << 1) * s16width) + (StartX << 1);
-
-    for (int y = 0; y < 8; y++) 
+    for (int y = 0; y < 8; ++y)
     {
-        if ((StartY + y) >= 0 && (StartY + y) < S16_HEIGHT) 
+        const int logical_y = StartY + y;
+        const uint32_t p0 = *pTileData++;
+
+        if (logical_y < 0 || logical_y >= S16_HEIGHT || p0 == nMaskColour)
+            continue;
+
+        const uint32_t colours[8] =
         {
-            uint32_t p0 = *pTileData;
+            (p0 >> 28) & 0xf,
+            (p0 >> 24) & 0xf,
+            (p0 >> 20) & 0xf,
+            (p0 >> 16) & 0xf,
+            (p0 >> 12) & 0xf,
+            (p0 >>  8) & 0xf,
+            (p0 >>  4) & 0xf,
+             p0        & 0xf,
+        };
 
-            if (p0 != nMaskColour) 
-            {
-                uint32_t c7 = p0 & 0xf;
-                uint32_t c6 = (p0 >> 4) & 0xf;
-                uint32_t c5 = (p0 >> 8) & 0xf;
-                uint32_t c4 = (p0 >> 12) & 0xf;
-                uint32_t c3 = (p0 >> 16) & 0xf;
-                uint32_t c2 = (p0 >> 20) & 0xf;
-                uint32_t c1 = (p0 >> 24) & 0xf;
-                uint32_t c0 = (p0 >> 28);
+        for (int x = 0; x < 8; ++x)
+        {
+            const int logical_x = StartX + x;
+            if (!colours[x] || logical_x < 0 || logical_x >= s16_width_noscale)
+                continue;
 
-                if (c0 && 0 + StartX >= 0 && 0 + StartX < s16_width_noscale) set_pixel_x4(&buf[0],  nPalette + c0, s16width);
-                if (c1 && 1 + StartX >= 0 && 1 + StartX < s16_width_noscale) set_pixel_x4(&buf[2],  nPalette + c1, s16width);
-                if (c2 && 2 + StartX >= 0 && 2 + StartX < s16_width_noscale) set_pixel_x4(&buf[4],  nPalette + c2, s16width);
-                if (c3 && 3 + StartX >= 0 && 3 + StartX < s16_width_noscale) set_pixel_x4(&buf[6],  nPalette + c3, s16width);
-                if (c4 && 4 + StartX >= 0 && 4 + StartX < s16_width_noscale) set_pixel_x4(&buf[8],  nPalette + c4, s16width);
-                if (c5 && 5 + StartX >= 0 && 5 + StartX < s16_width_noscale) set_pixel_x4(&buf[10], nPalette + c5, s16width);
-                if (c6 && 6 + StartX >= 0 && 6 + StartX < s16_width_noscale) set_pixel_x4(&buf[12], nPalette + c6, s16width);
-                if (c7 && 7 + StartX >= 0 && 7 + StartX < s16_width_noscale) set_pixel_x4(&buf[14], nPalette + c7, s16width);
-            }
+            uint16_t* dest =
+                buf + (logical_y * render_scale * width) +
+                (logical_x * render_scale);
+            set_pixel_scaled(
+                dest,
+                static_cast<uint16_t>(nPalette + colours[x]),
+                width,
+                render_scale);
         }
-        buf += (s16width << 1);
-        pTileData++;
     }
 }

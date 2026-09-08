@@ -22,6 +22,7 @@
 #include <cstring>      // std::memset
 #include <iostream>
 #include <bit>          // std::byteswap (C++20/23)
+#include <algorithm>    // std::clamp
 #include <cstring>      // std::memcpy
 
 #include "video.hpp"
@@ -153,12 +154,11 @@ int Video::set_video_mode(video_settings_t* settings)
 
     config.s16_height = S16_HEIGHT;
 
-    // Internal video buffer is doubled in hi-res mode.
-    if (settings->hires)
-    {
-        config.s16_width  <<= 1;
-        config.s16_height <<= 1;
-    }
+    // DX: video.hires is a backward-compatible render-scale index.
+    // 0 = original 1x, 1 = existing 2x, 2 = 3x, 3 = 4x.
+    const int render_scale = std::clamp(settings->hires + 1, 1, 4);
+    config.s16_width  *= render_scale;
+    config.s16_height *= render_scale;
 
     if (settings->scanlines < 0) settings->scanlines = 0;
     else if (settings->scanlines > 100) settings->scanlines = 100;
