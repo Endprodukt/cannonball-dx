@@ -75,30 +75,34 @@ namespace forcefeedback
         if (!g_haptic || g_tyre_slip_effect < 0)
             return;
 
-        // The Ferrari rev counter spans roughly 0x000..0x130 in the value used
-        // by the HUD. Convert that to a stable 0..100 RPM factor.
+        // OutRun's converted engine-rev value normally bottoms out around 0x1F
+        // and reaches roughly 0x130 near the top of the useful rev range.
         int revs = static_cast<int>(oferrari.revs >> 16);
-        if (revs < 0)
-            revs = 0;
-        else if (revs > 0x130)
-            revs = 0x130;
+        const int idle_revs = 0x1F;
+        const int max_revs = 0x130;
 
-        const int rpm_percent =
-            (revs * 100 + 0x98) / 0x130;
+        if (revs < idle_revs)
+            revs = idle_revs;
+        else if (revs > max_revs)
+            revs = max_revs;
 
-        // ENGINE PERIOD is the low-RPM sine period in milliseconds. RPM then
-        // shortens it progressively by up to 45%, so the motor starts with a
-        // grounded slow throb and becomes clearly faster without turning into
-        // a high-frequency buzz. Default 130 ms therefore ends near 72 ms at
-        // maximum RPM. The user-facing base period is limited to 20..250 ms.
+        // ENGINE PERIOD is the low-RPM/base sine period. Frequency should track
+        // engine speed, so period is inversely proportional to RPM:
+        //
+        //     period = base_period * idle_revs / current_revs
+        //
+        // With the 110 ms default this gives about 110 ms at idle and about
+        // 11 ms near maximum revs instead of the old shallow 45% reduction.
+        // The user-facing range is 10..250 ms; the lower clamp also prevents
+        // extremely high periodic frequencies on devices that dislike them.
         const int base_period_ms = config.engine_period_ms();
-        const int period_reduction =
-            (base_period_ms * 45 * rpm_percent + 5000) / 10000;
+        const int scaled_period_ms =
+            (base_period_ms * idle_revs + (revs / 2)) / revs;
         const int period_ms = std::max(
             Config::ENGINE_PERIOD_MIN_MS,
             std::min(
                 Config::ENGINE_PERIOD_MAX_MS,
-                base_period_ms - period_reduction));
+                scaled_period_ms));
 
         int effective_percent =
             master_effect_gain(config.engine_vibration_strength());
@@ -174,7 +178,7 @@ namespace forcefeedback
         // The original start-grid rev shake is intentionally handled entirely
         // by the preserved backend: start_rev_shake controls its strength and
         // its original 45 ms SINE period stays unchanged. Only the in-race
-        // engine request is replaced with the slower RPM-dependent motor curve.
+        // engine request is replaced with the RPM-dependent motor curve.
         set_tyre_slip_base(active, source);
 
         if (driving_engine_request)
