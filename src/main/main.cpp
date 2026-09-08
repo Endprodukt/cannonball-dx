@@ -389,6 +389,21 @@ static void tick()
             oinputs.init();
             outrun.outputs->init();
             menu->init();
+
+            // Enter every frontend menu with a clean digital navigation state.
+            // SDL can queue initial controller/HAT state while devices are opened;
+            // if one direction is left logically held, the first real press in
+            // that direction cannot create a new edge and appears to be ignored.
+            // Discard only menu-navigation state collected before the menu became
+            // active. A real press after this point will generate a fresh event.
+            for (Input::presses direction :
+                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT })
+            {
+                input.keys[direction] = false;
+                input.keys_old[direction] = false;
+                input.keys_pressed[direction] = false;
+            }
+
             cannonball::state = STATE_MENU;
             break;
     }
