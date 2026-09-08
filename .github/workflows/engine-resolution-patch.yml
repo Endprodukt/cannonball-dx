@@ -17,15 +17,6 @@ jobs:
         with:
           ref: test/engine-resolution-scale
 
-      - name: Apply final build fix
-        run: python3 tools/fix_engine_resolution_build.py
-
-      - name: Apply video menu and Blargg fix
-        run: python3 tools/fix_engine_resolution_video_blargg.py
-
-      - name: Apply filter stability and scanline fix
-        run: python3 tools/fix_engine_resolution_filter_stability.py
-
       - name: Apply independent scaler notification overlay
         run: python3 tools/fix_pixel_scaler_notification_overlay.py
 
