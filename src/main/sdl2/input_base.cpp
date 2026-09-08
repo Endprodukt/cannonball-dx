@@ -58,6 +58,10 @@ Input::Input(void)
     gamepad = false;
     rumble_supported = false;
 
+    memset(keys, 0, sizeof(keys));
+    memset(keys_old, 0, sizeof(keys_old));
+    memset(keys_pressed, 0, sizeof(keys_pressed));
+
     joy_button_device = -1;
     axis_last_device = -1;
     axis_config_device = -1;
@@ -573,10 +577,12 @@ void Input::close_joy()
     gamepad = false;
 }
 
-// Detect whether a key press change has occurred
+// Detect whether a positive input edge occurred during this frame.
+// The edge is latched so a fast DOWN+UP pair delivered in one SDL poll cannot
+// disappear before menu/game logic gets a chance to consume it.
 bool Input::has_pressed(presses p)
 {
-    return keys[p] && !keys_old[p];
+    return keys_pressed[p];
 }
 
 // Detect whether key is still pressed
@@ -590,13 +596,27 @@ bool Input::is_pressed_clear(presses p)
 {
     bool pressed = keys[p];
     keys[p] = false;
+    keys_pressed[p] = false;
     return pressed;
 }
 
-// Denote that a frame has been done by copying key presses into previous array
+// Denote that a frame has been done by copying held state and clearing
+// one-frame edge latches.
 void Input::frame_done()
 {
     memcpy(&keys_old, &keys, sizeof(keys));
+    memset(keys_pressed, 0, sizeof(keys_pressed));
+}
+
+void Input::set_key_state(int p, bool is_pressed)
+{
+    if (p < 0 || p >= static_cast<int>(sizeof(keys) / sizeof(keys[0])))
+        return;
+
+    if (is_pressed && !keys[p])
+        keys_pressed[p] = true;
+
+    keys[p] = is_pressed;
 }
 
 void Input::handle_key_down(SDL_Keysym* keysym)
@@ -620,44 +640,44 @@ void Input::handle_key(const int key, const bool is_pressed)
 if (key == SDLK_UP)    keys[UP]    = is_pressed;
 if (key == SDLK_DOWN)  keys[DOWN]  = is_pressed;
 if (key == SDLK_LEFT)  keys[LEFT]  = is_pressed;
-if (key == SDLK_RIGHT) keys[RIGHT] = is_pressed;
-    if (key == key_config[0])  keys[UP] = is_pressed;
-    if (key == key_config[1])  keys[DOWN] = is_pressed;
-    if (key == key_config[2])  keys[LEFT] = is_pressed;
-    if (key == key_config[3])  keys[RIGHT] = is_pressed;
-    if (key == key_config[4])  keys[ACCEL] = is_pressed;
-    if (key == key_config[5])  keys[BRAKE] = is_pressed;
-    if (key == key_config[6])  keys[GEAR1] = is_pressed;
-    if (key == key_config[7])  keys[GEAR2] = is_pressed;
-    if (key == key_config[8])  keys[START] = is_pressed;
-    if (key == key_config[9])  keys[COIN] = is_pressed;
-    if (key == key_config[10]) keys[MENU] = is_pressed;
-    if (key == key_config[11]) keys[VIEWPOINT] = is_pressed;
+if (key == SDLK_RIGHT) set_key_state(RIGHT, is_pressed);
+    if (key == key_config[0])  set_key_state(UP, is_pressed);
+    if (key == key_config[1])  set_key_state(DOWN, is_pressed);
+    if (key == key_config[2])  set_key_state(LEFT, is_pressed);
+    if (key == key_config[3])  set_key_state(RIGHT, is_pressed);
+    if (key == key_config[4])  set_key_state(ACCEL, is_pressed);
+    if (key == key_config[5])  set_key_state(BRAKE, is_pressed);
+    if (key == key_config[6])  set_key_state(GEAR1, is_pressed);
+    if (key == key_config[7])  set_key_state(GEAR2, is_pressed);
+    if (key == key_config[8])  set_key_state(START, is_pressed);
+    if (key == key_config[9])  set_key_state(COIN, is_pressed);
+    if (key == key_config[10]) set_key_state(MENU, is_pressed);
+    if (key == key_config[11]) set_key_state(VIEWPOINT, is_pressed);
 
     // Permanent menu navigation fallback.
 // Arrow keys must always remain usable.
-    if (key == SDLK_UP)    keys[UP] = is_pressed;
-    if (key == SDLK_DOWN)  keys[DOWN] = is_pressed;
-    if (key == SDLK_LEFT)  keys[LEFT] = is_pressed;
-    if (key == SDLK_RIGHT) keys[RIGHT] = is_pressed;
+    if (key == SDLK_UP)    set_key_state(UP, is_pressed);
+    if (key == SDLK_DOWN)  set_key_state(DOWN, is_pressed);
+    if (key == SDLK_LEFT)  set_key_state(LEFT, is_pressed);
+    if (key == SDLK_RIGHT) set_key_state(RIGHT, is_pressed);
 
     // Function keys are not redefinable
     switch (key)
     {
         case SDLK_F1:
-            keys[PAUSE] = is_pressed;
+            set_key_state(PAUSE, is_pressed);
             break;
 
         case SDLK_F2:
-            keys[STEP] = is_pressed;
+            set_key_state(STEP, is_pressed);
             break;
 
         case SDLK_F3:
-            keys[TIMER] = is_pressed;
+            set_key_state(TIMER, is_pressed);
             break;
 
         case SDLK_F5:
-            keys[MENU] = is_pressed;
+            set_key_state(MENU, is_pressed);
             break;
 
         case SDLK_F7:
@@ -962,18 +982,18 @@ void Input::handle_joy(SDL_JoystickID device,
                 (button_device[slot] == -1 || button_device[slot] == device);
         };
 
-    if (matches(0))  keys[ACCEL] = is_pressed;
-    if (matches(1))  keys[BRAKE] = is_pressed;
-    if (matches(2))  keys[GEAR1] = is_pressed;
-    if (matches(3))  keys[GEAR2] = is_pressed;
-    if (matches(4))  keys[START] = is_pressed;
-    if (matches(5))  keys[COIN] = is_pressed;
-    if (matches(6))  keys[MENU] = is_pressed;
-    if (matches(7))  keys[VIEWPOINT] = is_pressed;
-    if (matches(8))  keys[UP] = is_pressed;
-    if (matches(9))  keys[DOWN] = is_pressed;
-    if (matches(10)) keys[LEFT] = is_pressed;
-    if (matches(11)) keys[RIGHT] = is_pressed;
+    if (matches(0))  set_key_state(ACCEL, is_pressed);
+    if (matches(1))  set_key_state(BRAKE, is_pressed);
+    if (matches(2))  set_key_state(GEAR1, is_pressed);
+    if (matches(3))  set_key_state(GEAR2, is_pressed);
+    if (matches(4))  set_key_state(START, is_pressed);
+    if (matches(5))  set_key_state(COIN, is_pressed);
+    if (matches(6))  set_key_state(MENU, is_pressed);
+    if (matches(7))  set_key_state(VIEWPOINT, is_pressed);
+    if (matches(8))  set_key_state(UP, is_pressed);
+    if (matches(9))  set_key_state(DOWN, is_pressed);
+    if (matches(10)) set_key_state(LEFT, is_pressed);
+    if (matches(11)) set_key_state(RIGHT, is_pressed);
 
     if (matches(12)) motor_limits[SW_LEFT] = is_pressed;
     if (matches(13)) motor_limits[SW_CENTRE] = is_pressed;
@@ -1031,10 +1051,10 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
     {
         // No custom mapping for this physical HAT.
         // Always use it as a natural navigation fallback.
-        keys[UP] = (value & SDL_HAT_UP) != 0;
-        keys[DOWN] = (value & SDL_HAT_DOWN) != 0;
-        keys[LEFT] = (value & SDL_HAT_LEFT) != 0;
-        keys[RIGHT] = (value & SDL_HAT_RIGHT) != 0;
+        set_key_state(UP, (value & SDL_HAT_UP) != 0);
+        set_key_state(DOWN, (value & SDL_HAT_DOWN) != 0);
+        set_key_state(LEFT, (value & SDL_HAT_LEFT) != 0);
+        set_key_state(RIGHT, (value & SDL_HAT_RIGHT) != 0);
     }
     else
     {
@@ -1048,9 +1068,10 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
                 !signature.empty() &&
                 signature == config.controls.hat_device[slot];
 
-            keys[action[slot]] =
+            set_key_state(
+                action[slot],
                 matches_hat &&
-                ((value & config.controls.hat_value[slot]) != 0);
+                ((value & config.controls.hat_value[slot]) != 0));
         }
     }
 }

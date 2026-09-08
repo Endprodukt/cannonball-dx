@@ -129,6 +129,7 @@ public:
 
     bool keys[18];
     bool keys_old[18];
+    bool keys_pressed[18];
 
     enum limits
     {
@@ -240,6 +241,7 @@ private:
     void apply_device_axis(SDL_JoystickID device, int axis, int value, int group);
     void apply_device_hat(SDL_JoystickID device, int hat, int value, int group);
     void set_device_target(int target, bool is_pressed);
+    void set_key_state(int p, bool is_pressed);
     void ensure_gamecontroller_open();
 
     // The current multi-device implementations are retained under these names

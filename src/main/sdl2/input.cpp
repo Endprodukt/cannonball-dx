@@ -747,47 +747,47 @@ void Input::set_device_target(int target, bool is_pressed)
     switch (target)
     {
         case device_binding_t::TARGET_ACCEL:
-            keys[ACCEL] = is_pressed;
+            set_key_state(ACCEL, is_pressed);
             break;
 
         case device_binding_t::TARGET_BRAKE:
-            keys[BRAKE] = is_pressed;
+            set_key_state(BRAKE, is_pressed);
             break;
 
         case device_binding_t::TARGET_GEAR1:
-            keys[GEAR1] = is_pressed;
+            set_key_state(GEAR1, is_pressed);
             break;
 
         case device_binding_t::TARGET_GEAR2:
-            keys[GEAR2] = is_pressed;
+            set_key_state(GEAR2, is_pressed);
             break;
 
         case device_binding_t::TARGET_START:
-            keys[START] = is_pressed;
+            set_key_state(START, is_pressed);
             break;
 
         case device_binding_t::TARGET_COIN:
-            keys[COIN] = is_pressed;
+            set_key_state(COIN, is_pressed);
             break;
 
         case device_binding_t::TARGET_MENU:
-            keys[MENU] = is_pressed;
+            set_key_state(MENU, is_pressed);
             break;
 
         case device_binding_t::TARGET_VIEW:
-            keys[VIEWPOINT] = is_pressed;
+            set_key_state(VIEWPOINT, is_pressed);
             break;
 
         case device_binding_t::TARGET_VIEW1:
-            keys[VIEW1] = is_pressed;
+            set_key_state(VIEW1, is_pressed);
             break;
 
         case device_binding_t::TARGET_VIEW2:
-            keys[VIEW2] = is_pressed;
+            set_key_state(VIEW2, is_pressed);
             break;
 
         case device_binding_t::TARGET_VIEW3:
-            keys[VIEW3] = is_pressed;
+            set_key_state(VIEW3, is_pressed);
             break;
 
         default:
@@ -1073,9 +1073,9 @@ void Input::handle_key_down(SDL_Keysym* keysym)
 
     handle_key_down_base(keysym);
 
-    if (keysym->sym == key_config[12]) keys[VIEW1] = true;
-    if (keysym->sym == key_config[13]) keys[VIEW2] = true;
-    if (keysym->sym == key_config[14]) keys[VIEW3] = true;
+    if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);
+    if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
+    if (keysym->sym == key_config[14]) set_key_state(VIEW3, true);
 }
 
 void Input::handle_key_up(SDL_Keysym* keysym)
@@ -1088,9 +1088,9 @@ void Input::handle_key_up(SDL_Keysym* keysym)
 
     handle_key_up_base(keysym);
 
-    if (keysym->sym == key_config[12]) keys[VIEW1] = false;
-    if (keysym->sym == key_config[13]) keys[VIEW2] = false;
-    if (keysym->sym == key_config[14]) keys[VIEW3] = false;
+    if (keysym->sym == key_config[12]) set_key_state(VIEW1, false);
+    if (keysym->sym == key_config[13]) set_key_state(VIEW2, false);
+    if (keysym->sym == key_config[14]) set_key_state(VIEW3, false);
 }
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
@@ -1247,9 +1247,9 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
                    (button_device[slot] == -1 || button_device[slot] == evt->which);
         };
 
-        if (matches(15)) keys[VIEW1] = true;
-        if (matches(16)) keys[VIEW2] = true;
-        if (matches(17)) keys[VIEW3] = true;
+        if (matches(15)) set_key_state(VIEW1, true);
+        if (matches(16)) set_key_state(VIEW2, true);
+        if (matches(17)) set_key_state(VIEW3, true);
     }
 }
 
@@ -1286,9 +1286,9 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
                    (button_device[slot] == -1 || button_device[slot] == evt->which);
         };
 
-        if (matches(15)) keys[VIEW1] = false;
-        if (matches(16)) keys[VIEW2] = false;
-        if (matches(17)) keys[VIEW3] = false;
+        if (matches(15)) set_key_state(VIEW1, false);
+        if (matches(16)) set_key_state(VIEW2, false);
+        if (matches(17)) set_key_state(VIEW3, false);
     }
 }
 
@@ -1356,16 +1356,16 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
         switch (evt->button)
         {
             case SDL_CONTROLLER_BUTTON_DPAD_UP:
-                keys[UP] = true;
+                set_key_state(UP, true);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-                keys[DOWN] = true;
+                set_key_state(DOWN, true);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-                keys[LEFT] = true;
+                set_key_state(LEFT, true);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-                keys[RIGHT] = true;
+                set_key_state(RIGHT, true);
                 break;
             default:
                 break;
@@ -1386,9 +1386,9 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
                    (button_device[slot] == -1 || button_device[slot] == evt->which);
         };
 
-        if (matches(15)) keys[VIEW1] = true;
-        if (matches(16)) keys[VIEW2] = true;
-        if (matches(17)) keys[VIEW3] = true;
+        if (matches(15)) set_key_state(VIEW1, true);
+        if (matches(16)) set_key_state(VIEW2, true);
+        if (matches(17)) set_key_state(VIEW3, true);
     }
 }
 
@@ -1414,16 +1414,16 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
         switch (evt->button)
         {
             case SDL_CONTROLLER_BUTTON_DPAD_UP:
-                keys[UP] = false;
+                set_key_state(UP, false);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-                keys[DOWN] = false;
+                set_key_state(DOWN, false);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-                keys[LEFT] = false;
+                set_key_state(LEFT, false);
                 break;
             case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-                keys[RIGHT] = false;
+                set_key_state(RIGHT, false);
                 break;
             default:
                 break;
@@ -1444,9 +1444,9 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
                    (button_device[slot] == -1 || button_device[slot] == evt->which);
         };
 
-        if (matches(15)) keys[VIEW1] = false;
-        if (matches(16)) keys[VIEW2] = false;
-        if (matches(17)) keys[VIEW3] = false;
+        if (matches(15)) set_key_state(VIEW1, false);
+        if (matches(16)) set_key_state(VIEW2, false);
+        if (matches(17)) set_key_state(VIEW3, false);
     }
 }
 
