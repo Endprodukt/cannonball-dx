@@ -635,12 +635,6 @@ void Input::handle_key_up(SDL_Keysym* keysym)
 void Input::handle_key(const int key, const bool is_pressed)
 {
     // Redefinable Key Input
-    // Permanent menu navigation fallback.
-// Arrow keys must always remain usable.
-if (key == SDLK_UP)    keys[UP]    = is_pressed;
-if (key == SDLK_DOWN)  keys[DOWN]  = is_pressed;
-if (key == SDLK_LEFT)  keys[LEFT]  = is_pressed;
-if (key == SDLK_RIGHT) set_key_state(RIGHT, is_pressed);
     if (key == key_config[0])  set_key_state(UP, is_pressed);
     if (key == key_config[1])  set_key_state(DOWN, is_pressed);
     if (key == key_config[2])  set_key_state(LEFT, is_pressed);
