@@ -10,7 +10,7 @@ The additional work in this fork was developed with the assistance of **ChatGPT 
 
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
-![CannonBall DX Start Line](screenshots/CannonBall-DX-Startline.jpg)
+![CannonBall DX Logo](screenshots/CannonBallDX.png)
 
 ![CannonBall DX 21:9 Gameplay](screenshots/cannonballdx219.jpg)
 
