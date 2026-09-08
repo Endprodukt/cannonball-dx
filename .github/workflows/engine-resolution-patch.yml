@@ -1,4 +1,4 @@
-name: Engine Resolution Patch Test
+name: Engine Resolution Scale Test
 
 on:
   push:
@@ -9,9 +9,32 @@ permissions:
   contents: write
 
 jobs:
-  smoke:
+  patch-and-build:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Smoke test
-        run: echo "Actions runner is available"
+        with:
+          ref: test/engine-resolution-scale
+
+      - name: Apply render-scale patch
+        run: python3 tools/apply_engine_resolution_scale.py
+
+      - name: Validate source changes
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main
+          git commit -m "Add 1x-4x game engine render scale"
+          git push origin HEAD:test/engine-resolution-scale
+
+      - name: Configure
+        run: cmake -S . -B build -DWITH_MP3=OFF -DPIXEL_ACCURACY=OFF -DWITH_MARCH_NATIVE=OFF
+
+      - name: Build
+        run: cmake --build build --config Release -j2
