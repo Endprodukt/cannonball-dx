@@ -368,6 +368,7 @@ CannonBall DX builds directly on the work of the original projects and their con
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
 - **Endprodukt** - CannonBall DX fork, multi-device input, ultrawide, cabinet-output and modern wheel / feedback extensions
 - **ChatGPT by OpenAI - GPT-5.6 Sol** - development assistance for the additional work in CannonBall DX
+- **POOTERMAN** - CannonBall DX Logo. https://www.deviantart.com/pooterman
 
 Upstream projects:
 
