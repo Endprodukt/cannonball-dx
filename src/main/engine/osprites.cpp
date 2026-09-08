@@ -218,7 +218,7 @@ void OSprites::sprite_control()
     if (pos <= oroad.road_pos >> 16)
     {
         seg_pos = pos;                                                          // Position In Level Data [Word]
-        seg_total_sprites = trackloader.read_total_sprites();                   // Number Of Sprites In Segment
+        seg_total_sprites = trackloader.read_total_sprites();                   // Number of Sprites In Segment
         uint8_t pattern_index = trackloader.read_sprite_pattern_index();        // Block Of Sprites
         trackloader.scenery_offset += 4;                                        // Advance to next scenery point
         
@@ -289,6 +289,7 @@ void OSprites::clear_palette_data()
 // Input:          Source address in rom of data format
 // Output:         None
 //
+
 void OSprites::copy_palette_data()
 {
     // Return if no palette entries to copy
@@ -319,6 +320,7 @@ void OSprites::copy_palette_data()
 // 2. Otherwise set the mapping between ROM and the HW Palette to be used
 // 3. pal_copy_count contains the number of entries we need to copy
 // 4. pal_addresses contains the address mapping
+
 void OSprites::map_palette(oentry* spr)
 {
     uint8_t pal = pal_lookup[spr->pal_src];
@@ -360,6 +362,7 @@ void OSprites::map_palette(oentry* spr)
 // 4/ Optionally adds shadow to sprite if requires
 //
 // The end result is a table of sprite entries at 0x64000
+
 void OSprites::do_spr_order_shadows(oentry* input)
 {
     if (input->hidden) return;  // JJP ghost car related safety-net check
@@ -424,6 +427,8 @@ void OSprites::do_spr_order_shadows(oentry* input)
 // Source Address: 0x78B0
 // Input:          None
 // Output:         None
+//
+
 void OSprites::sprite_copy()
 {
     if (spr_cnt_main == 0)
@@ -548,6 +553,8 @@ void OSprites::sprite_copy()
 // Source Address: 0x7942
 // Input:          None
 // Output:         None
+//
+
 void OSprites::finalise_sprites()
 {
     sprite_count = spr_cnt_main + spr_cnt_shadow;
@@ -571,6 +578,8 @@ void OSprites::finalise_sprites()
 // Source Address: 0x97E4
 // Input:          None
 // Output:         None
+//
+
 void OSprites::blit_sprites()
 {
     uint32_t dst_addr = SPRITE_RAM;
@@ -611,6 +620,7 @@ void OSprites::blit_sprites()
 // + 5 : [Byte] Sprite Pitch
 // + 7 : [Byte] Sprite Bank
 // + 8 : [Word] Offset Within Sprite Bank
+
 void OSprites::do_sprite(oentry* input)
 {
     input->control |= DRAW_SPRITE; // Display input sprite
@@ -784,10 +794,9 @@ std::exit(9);
         }
     }
 
-    // Use integer ceiling division here. The previous ceil(integer_division)
-    // had already discarded the fractional part before ceil() was called.
-    int32_t calc_width  = static_cast<int32_t>((((uint64_t)0x200 * sprite_width)  + zoom - 1) / zoom);
-    int32_t calc_height = static_cast<int32_t>((((uint64_t)0x200 * sprite_height) + zoom - 1) / zoom);
+    //int32_t sprite_width = (roms.rom0p->read8(src_offsets + 5)) * 8; // pitch, 8 pixels per 32-bit word
+    int32_t calc_width   = ceil((0x200 * sprite_width)  / zoom);
+    int32_t calc_height  = ceil((0x200 * sprite_height) / zoom);
 
 /*
 {
@@ -801,9 +810,7 @@ if ((calc_width < width) || (calc_height < height)) {
 */
     // loc 9582:
 //    input->width = width;
-    // Keep game/road geometry tied to the original logical sprite size.
-    // calc_width/calc_height are renderer dimensions and can differ slightly.
-    input->width = width;
+    input->width = calc_width;
 
     // Bumper view: visually move the camera forward without altering gameplay Z or collision sizes.
     if (oroad.get_view_mode() == ORoad::VIEW_INCAR && input->road_priority > 0)
@@ -827,7 +834,7 @@ if ((calc_width < width) || (calc_height < height)) {
     // Set Sprite X & Y Values
     // -------------------------------------------------------------------------
 //    set_sprite_xy(input, output, width, height);
-    set_sprite_xy(input, output, width, height);
+    set_sprite_xy(input, output, calc_width, calc_height);
 
     // Here we need the entire value set by above routine, not just top 0x1FF mask!
     int16_t sprite_x1 = output->get_x() + offset;
@@ -835,7 +842,7 @@ if ((calc_width < width) || (calc_height < height)) {
     int16_t sprite_x2 = sprite_x1 + calc_width + offset;
     int16_t sprite_y1 = output->get_y();
 //    int16_t sprite_y2 = sprite_y1 + height;
-    int16_t sprite_y2 = sprite_y1 + height;
+    int16_t sprite_y2 = sprite_y1 + calc_height;
 
     const uint16_t x1_bounds = 512 + config.s16_x_off; // right edge
     const uint16_t x2_bounds = 192 - config.s16_x_off; // left edge
@@ -876,7 +883,7 @@ if ((calc_width < width) || (calc_height < height)) {
         int16_t y_adj = -(sprite_y1 - 256);
         y_adj *= roms.rom0p->read16(src_offsets + 2); // Width of line data (Unsigned multiply)
 //        y_adj /= height; // Unsigned divide
-        y_adj /= height; // Unsigned divide
+        y_adj /= calc_height; // Unsigned divide
         y_adj *= roms.rom0p->read16(src_offsets + 4); // Length of line data (Unsigned multiply)
         output->inc_offset(y_adj);
         output->data[0x0] = (output->data[0x0] & 0xFF00) | 0x100; // Mask on negative y index
@@ -885,7 +892,7 @@ if ((calc_width < width) || (calc_height < height)) {
     else
     {
 //        output->set_height((uint8_t) height);
-        output->set_height((uint8_t) height);
+        output->set_height((uint8_t) calc_height);
     }
     
     // -------------------------------------------------------------------------
@@ -957,9 +964,7 @@ if ((calc_width < width) || (calc_height < height)) {
     }
 
     // cont2:
-    // Keep the horizontal render-direction adjustment in the same coordinate
-    // space as the width stored for the optimized renderer.
-    set_hrender(input, output, roms.rom0p->read16(src_offsets + 4), calc_width);
+    set_hrender(input, output, roms.rom0p->read16(src_offsets + 4), width);
     
     // -------------------------------------------------------------------------
     // Set Sprite Pitch & Priority
@@ -978,8 +983,10 @@ void OSprites::hide_hwsprite(oentry* input, osprite* output)
 // Sets Sprite Render Point
 // 
 // Source Address: 0x967C
-// Input:          Jump Table Entry, Output Sprite Entry
+// Input:          Jump Table Entry, Output Sprite Entry, Width & Height
 // Output:         Updated Sprite Output Entry
+//
+
 void OSprites::set_sprite_xy(oentry* input, osprite* output, uint16_t width, uint16_t height)
 {
     uint8_t anchor = input->draw_props;
@@ -1053,6 +1060,7 @@ void OSprites::set_sprite_xy(oentry* input, osprite* output, uint16_t width, uin
 // Source Address: 0x96E4
 // Input:          Jump Table Entry, Output Sprite Entry, Offset
 // Output:         Updated Sprite Output Entry
+//
 void OSprites::set_hrender(oentry* input, osprite* output, uint16_t offset, uint16_t width)
 {
     uint8_t props = 0x60;
