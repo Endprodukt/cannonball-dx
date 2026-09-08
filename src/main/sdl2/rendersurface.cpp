@@ -1103,12 +1103,15 @@ static inline void apply_scanlines(uint32_t *pixels,
     const size_t endy   = starty + block_height;
 
     const size_t render_scale = static_cast<size_t>(std::clamp(config.video.hires + 1, 1, 4));
+    const size_t scanline_pitch = render_scale > 1 ? render_scale : 2;
+    const size_t scanline_phase = scanline_pitch - 1;
 
     for (size_t y = starty; y < endy; ++y) {
-        // Preserve the original 224-line scanline raster. At Nx engine
-        // resolution, all N internal rows belonging to the same native row
-        // receive the same scanline treatment.
-        if (((y / render_scale) & 1u) == 0)
+        // One thin dark row per original System 16 pixel row. Do not darken
+        // the complete Nx block: higher engine resolution must not make the
+        // visible scanlines thicker. Original 1x retains the legacy every-
+        // other-row behaviour.
+        if ((y % scanline_pitch) != scanline_phase)
             continue;
 
         uint32_t *row = pixels + y * width;
@@ -1164,12 +1167,15 @@ static inline void apply_scanlines(uint16_t *pixels,
     const uint16_t Amask = (Ashift < 16) ? (uint16_t(1u) << Ashift) : 0; // A is 1 bit in 1555; 0 if no alpha in format
 
     const size_t render_scale = static_cast<size_t>(std::clamp(config.video.hires + 1, 1, 4));
+    const size_t scanline_pitch = render_scale > 1 ? render_scale : 2;
+    const size_t scanline_phase = scanline_pitch - 1;
 
     for (size_t y = starty; y < endy; ++y) {
-        // Preserve the original 224-line scanline raster. At Nx engine
-        // resolution, all N internal rows belonging to the same native row
-        // receive the same scanline treatment.
-        if (((y / render_scale) & 1u) == 0)
+        // One thin dark row per original System 16 pixel row. Do not darken
+        // the complete Nx block: higher engine resolution must not make the
+        // visible scanlines thicker. Original 1x retains the legacy every-
+        // other-row behaviour.
+        if ((y % scanline_pitch) != scanline_phase)
             continue;
 
         uint16_t *row = pixels + y * width;
