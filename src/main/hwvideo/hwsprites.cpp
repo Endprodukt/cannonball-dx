@@ -597,7 +597,7 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         // Determine underlying sprite height
         int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.
         // Use 64-bit multiply to avoid overflow
-        sprite_height = ((uint64_t)steps * zoom) >> 9;
+        sprite_height = steps > 0 ? ((((uint64_t)(steps - 1) * zoom) >> 9) + 1) : 0;
 
 //std::cout << "\rSprite height: " << height << ", Calculated Height: " << sprite_height << ", raw height: " << rawh << "\n";
 
@@ -860,7 +860,7 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                                 break;
                         }
                         // accumulate extra zoom factors
-                        for (int i=1; i<2; i++) {
+                        for (int i=1; i<3; i++) {
                             yacc += zoom;
                             addr += pitch * (yacc >> 9);
                             yacc &= 0x1ff;
@@ -937,7 +937,7 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                             // stop if the second-to-last pixel in the group was 0xf
                         } while ((pixels & 0x000000f0) != 0x000000f0);
                         // accumulate extra zoom factors
-                        for (int i=1; i<2; i++) {
+                        for (int i=1; i<3; i++) {
                             yacc += zoom;
                             addr += pitch * (yacc >> 9);
                             yacc &= 0x1ff;
@@ -1016,7 +1016,7 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                                 break;
                         }
                         // accumulate extra zoom factors
-                        for (int i=1; i<2; i++) {
+                        for (int i=1; i<3; i++) {
                             yacc += zoom;
                             addr += pitch * (yacc >> 9);
                             yacc &= 0x1ff;
@@ -1093,7 +1093,7 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                             // stop if the second-to-last pixel in the group was 0xf
                         } while ((pixels & 0x000000f0) != 0x000000f0);
                         // accumulate extra zoom factors
-                        for (int i=1; i<2; i++) {
+                        for (int i=1; i<3; i++) {
                             yacc += zoom;
                             addr += pitch * (yacc >> 9);
                             yacc &= 0x1ff;
