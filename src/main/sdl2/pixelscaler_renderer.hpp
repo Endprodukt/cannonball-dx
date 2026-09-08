@@ -471,7 +471,7 @@ private:
 
         std::lock_guard<std::mutex> processing_lock(scaler_processing_mutex);
 
-        input_step = config.video.hires ? 2 : 1;
+        input_step = std::clamp(config.video.hires + 1, 1, 4);
         scaler_input_width = std::max(1, src_width / input_step);
         scaler_input_height = std::max(1, src_height / input_step);
 

@@ -196,21 +196,20 @@ namespace music_side_art_corrections
 
     inline void write_pixel(uint16_t* buffer, int x, int y, uint16_t pixel)
     {
-        if (!config.video.hires)
-        {
-            buffer[y * config.s16_width + x] = pixel;
-            return;
-        }
-
-        const int physical_x = x << 1;
-        const int physical_y = y << 1;
+        const int render_scale =
+            config.video.hires < 0 ? 1 :
+            (config.video.hires > 3 ? 4 : config.video.hires + 1);
+        const int physical_x = x * render_scale;
+        const int physical_y = y * render_scale;
         uint16_t* dst =
             buffer + physical_y * config.s16_width + physical_x;
 
-        dst[0] = pixel;
-        dst[1] = pixel;
-        dst[config.s16_width] = pixel;
-        dst[config.s16_width + 1] = pixel;
+        for (int sy = 0; sy < render_scale; ++sy)
+        {
+            uint16_t* row = dst + sy * config.s16_width;
+            for (int sx = 0; sx < render_scale; ++sx)
+                row[sx] = pixel;
+        }
     }
 
     inline void render(uint16_t* buffer)

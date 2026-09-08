@@ -253,7 +253,9 @@ namespace music_side_art
             state.logged = true;
         }
 
-        const bool hires = config.video.hires != 0;
+        const int render_scale =
+            config.video.hires < 0 ? 1 :
+            (config.video.hires > 3 ? 4 : config.video.hires + 1);
         constexpr int SIDE_WIDTH = 68;
         constexpr int RIGHT_START = S16_WIDTH_ULTRAWIDE - SIDE_WIDTH;
 
@@ -269,21 +271,16 @@ namespace music_side_art
             {
                 const int logical_x = logical_start_x + dx;
 
-                if (!hires)
-                {
-                    buffer[static_cast<int>(span.y) * config.s16_width + logical_x] = pixel;
-                }
-                else
-                {
-                    const int physical_x = logical_x << 1;
-                    const int physical_y = static_cast<int>(span.y) << 1;
-                    uint16_t* dst =
-                        buffer + physical_y * config.s16_width + physical_x;
+                const int physical_x = logical_x * render_scale;
+                const int physical_y = static_cast<int>(span.y) * render_scale;
+                uint16_t* dst =
+                    buffer + physical_y * config.s16_width + physical_x;
 
-                    dst[0] = pixel;
-                    dst[1] = pixel;
-                    dst[config.s16_width] = pixel;
-                    dst[config.s16_width + 1] = pixel;
+                for (int sy = 0; sy < render_scale; ++sy)
+                {
+                    uint16_t* row = dst + sy * config.s16_width;
+                    for (int sx = 0; sx < render_scale; ++sx)
+                        row[sx] = pixel;
                 }
             }
         }
