@@ -1102,7 +1102,15 @@ static inline void apply_scanlines(uint32_t *pixels,
     const size_t starty = (section == 1 ? block_height : 0);
     const size_t endy   = starty + block_height;
 
-    for (size_t y = (starty+1); y < endy; y += 2) {
+    const size_t render_scale = static_cast<size_t>(std::clamp(config.video.hires + 1, 1, 4));
+
+    for (size_t y = starty; y < endy; ++y) {
+        // Preserve the original 224-line scanline raster. At Nx engine
+        // resolution, all N internal rows belonging to the same native row
+        // receive the same scanline treatment.
+        if (((y / render_scale) & 1u) == 0)
+            continue;
+
         uint32_t *row = pixels + y * width;
         for (size_t x = 0; x < width; x++, row++) {
             uint32_t p = *row;
@@ -1155,7 +1163,15 @@ static inline void apply_scanlines(uint16_t *pixels,
 
     const uint16_t Amask = (Ashift < 16) ? (uint16_t(1u) << Ashift) : 0; // A is 1 bit in 1555; 0 if no alpha in format
 
-    for (size_t y = starty + 1; y < endy; y += 2) {
+    const size_t render_scale = static_cast<size_t>(std::clamp(config.video.hires + 1, 1, 4));
+
+    for (size_t y = starty; y < endy; ++y) {
+        // Preserve the original 224-line scanline raster. At Nx engine
+        // resolution, all N internal rows belonging to the same native row
+        // receive the same scanline treatment.
+        if (((y / render_scale) & 1u) == 0)
+            continue;
+
         uint16_t *row = pixels + y * width;
         for (size_t x = 0; x < width; ++x, ++row) {
             uint16_t p = *row;
