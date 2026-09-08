@@ -8,6 +8,7 @@
 
 #include <SDL.h>
 #include <string>
+#include <algorithm>
 
 #include "sdl2/input.hpp"
 
