@@ -17,8 +17,8 @@ jobs:
         with:
           ref: test/engine-resolution-scale
 
-      - name: Apply render-scale patch
-        run: python3 tools/apply_engine_resolution_scale.py
+      - name: Apply follow-up compatibility fixes
+        run: python3 tools/fix_engine_resolution_scale_followup.py
 
       - name: Validate source changes
         run: |
@@ -30,8 +30,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/main
-          git commit -m "Add 1x-4x game engine render scale"
+          git commit -m "Fix 3x-4x renderer compatibility"
           git push origin HEAD:test/engine-resolution-scale
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libgl1-mesa-dev libglu1-mesa-dev
 
       - name: Configure
         run: cmake -S . -B build -DWITH_MP3=OFF -DPIXEL_ACCURACY=OFF -DWITH_MARCH_NATIVE=OFF
