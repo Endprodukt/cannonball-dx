@@ -454,34 +454,46 @@ void Menu::tick_ui()
         ohud.blit_text_new(0, 1, msg.c_str(), ohud.GREY);
     }
 
-    // Shift horizon
-    if (oroad.horizon_base > HORIZON_DEST)
-    {
-        oroad.horizon_base -= config.fps == 120 ? ((frame & 1) == 0 ? 1 : 0) : 60 / config.fps;
-        if (oroad.horizon_base < HORIZON_DEST)
-            oroad.horizon_base = HORIZON_DEST;
-    }
-    // Advance road
-    else
-    {
-        uint32_t scroll_speed = config.fps == 30 ? (config.menu.road_scroll_speed << 1) :
-                                config.fps == 120 ? std::max(1, config.menu.road_scroll_speed >> 1) :
-                                config.menu.road_scroll_speed;
+    // The menu road has its own simulation loop, separate from gameplay.
+    // At 120 FPS keep that simulation on the established 60 Hz cadence so
+    // road speed, acceleration, horizon movement and granular scrolling keep
+    // exactly the same real-time behaviour as the existing 60 FPS mode.
+    const bool frontend_road_tick =
+        config.fps != 120 || ((frame & 1) == 0);
 
-        if (oinitengine.car_increment < scroll_speed << 16)
-            oinitengine.car_increment += config.fps == 120 ? (1 << 13) : (1 << 14);
-        if (oinitengine.car_increment > scroll_speed << 16)
-            oinitengine.car_increment = scroll_speed << 16;
-        uint32_t result = 0x12F * (oinitengine.car_increment >> 16);
-        oroad.road_pos_change = result;
-        oroad.road_pos += result;
-        if (oroad.road_pos >> 16 > ROAD_END) // loop to beginning of track data
-            oroad.road_pos = 0;
-        oinitengine.update_road();
-        oinitengine.set_granular_position();
-        oroad.road_width_bak = oroad.road_width >> 16; 
-        oroad.car_x_bak = -oroad.road_width_bak; 
-        oinitengine.car_x_pos = oroad.car_x_bak;
+    if (frontend_road_tick)
+    {
+        // Shift horizon
+        if (oroad.horizon_base > HORIZON_DEST)
+        {
+            oroad.horizon_base -= config.fps == 30 ? 2 : 1;
+            if (oroad.horizon_base < HORIZON_DEST)
+                oroad.horizon_base = HORIZON_DEST;
+        }
+        // Advance road
+        else
+        {
+            const uint32_t scroll_speed =
+                config.fps == 30 ? (config.menu.road_scroll_speed << 1) :
+                                   config.menu.road_scroll_speed;
+
+            if (oinitengine.car_increment < scroll_speed << 16)
+                oinitengine.car_increment += (1 << 14);
+            if (oinitengine.car_increment > scroll_speed << 16)
+                oinitengine.car_increment = scroll_speed << 16;
+
+            uint32_t result = 0x12F * (oinitengine.car_increment >> 16);
+            oroad.road_pos_change = result;
+            oroad.road_pos += result;
+            if (oroad.road_pos >> 16 > ROAD_END) // loop to beginning of track data
+                oroad.road_pos = 0;
+
+            oinitengine.update_road();
+            oinitengine.set_granular_position();
+            oroad.road_width_bak = oroad.road_width >> 16;
+            oroad.car_x_bak = -oroad.road_width_bak;
+            oinitengine.car_x_pos = oroad.car_x_bak;
+        }
     }
 
     // Do Animations at 30 fps
