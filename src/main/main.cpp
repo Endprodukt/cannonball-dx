@@ -734,6 +734,17 @@ static int main_loop() {
         if (t0.joinable()) t0.join();
         if (t1.joinable()) t1.join();
         if (t2.joinable()) t2.join();
+
+        // A worker can observe running=false before consuming the wake-up
+        // release above. Drain every semaphore after join so a newly-created
+        // worker can never inherit a stale permit or completion token from the
+        // previous renderer generation.
+        while (prepareReady.try_acquire()) {}
+        while (renderReady0.try_acquire()) {}
+        while (renderReady1.try_acquire()) {}
+        while (prepareDone.try_acquire()) {}
+        while (renderDone0.try_acquire()) {}
+        while (renderDone1.try_acquire()) {}
     };
 
     if (using_threading)
