@@ -1,4 +1,4 @@
-name: Fix 120 FPS menu input and graphics settings
+name: Fix actual DX video menu and 120 FPS cycling
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Apply menu and defaults update
+      - name: Patch active DX menu layer
         shell: pwsh
         run: |
           @'
@@ -29,116 +29,75 @@ jobs:
               text = p.read_text(encoding='utf-8')
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:140]!r}')
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
               p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          # ------------------------------------------------------------------
-          # Video menu layout: visual/render enhancements belong together.
-          # ------------------------------------------------------------------
+          legacy = 'src/main/frontend/menu_legacy.hpp.inc'
+
+          # The DX wrapper rebuilds menu_video after MenuBase::populate().
+          # Put the graphics enhancements in THIS list, which is the one users see.
           replace_once(
-              'src/main/frontend/menu_base.cpp',
-              '''    menu_video.push_back(ENTRY_FRAME_RATE);\n    menu_video.push_back(ENTRY_FPS_COUNTER);\n    // always run fullscreen\n''',
-              '''    menu_video.push_back(ENTRY_FRAME_RATE);\n    menu_video.push_back(ENTRY_FPS_COUNTER);\n    menu_video.push_back(ENTRY_HIRES);\n    menu_video.push_back(ENTRY_SPRITERES);\n    menu_video.push_back(ENTRY_OBJECTS);\n    // always run fullscreen\n''')
+              legacy,
+              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(scaler_entry);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_CRT_SHADER1);\n            menu_video.push_back(ENTRY_BLARGG_FILTER);\n            menu_video.push_back(ENTRY_BACK);\n''',
+              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_SPRITERES);\n            menu_video.push_back(ENTRY_OBJECTS);\n            menu_video.push_back(\n                std::string("FERRARI LOGO FIX ") +\n                (config.ferrari_mirror_fix() ? "ON" : "OFF"));\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(scaler_entry);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_CRT_SHADER1);\n            menu_video.push_back(ENTRY_BLARGG_FILTER);\n            menu_video.push_back(ENTRY_BACK);\n''')
 
+          # Remove the two moved entries from the visible Enhancements page.
           replace_once(
-              'src/main/frontend/menu_base.cpp',
-              '''    menu_enhancements.push_back(ENTRY_HIRES);\n    menu_enhancements.push_back(ENTRY_SPRITERES);\n    menu_enhancements.push_back(ENTRY_TIMER);\n    menu_enhancements.push_back(ENTRY_ATTRACT);\n    menu_enhancements.push_back(ENTRY_OBJECTS);\n    menu_enhancements.push_back(ENTRY_PROTOTYPE);\n''',
-              '''    menu_enhancements.push_back(ENTRY_TIMER);\n    menu_enhancements.push_back(ENTRY_ATTRACT);\n    menu_enhancements.push_back(ENTRY_PROTOTYPE);\n''')
+              legacy,
+              '''            menu_enhancements.clear();\n            menu_enhancements.push_back(ENTRY_SPRITERES);\n            menu_enhancements.push_back(ENTRY_ATTRACT);\n            menu_enhancements.push_back(ENTRY_OBJECTS);\n            menu_enhancements.push_back(ENTRY_PROTOTYPE);\n            menu_enhancements.push_back(ENTRY_TIMER);\n            menu_enhancements.push_back(ENTRY_BACK);\n''',
+              '''            menu_enhancements.clear();\n            menu_enhancements.push_back(ENTRY_ATTRACT);\n            menu_enhancements.push_back(ENTRY_PROTOTYPE);\n            menu_enhancements.push_back(ENTRY_TIMER);\n            menu_enhancements.push_back(ENTRY_BACK);\n''')
 
-          # New installs already default to video.hires=1 (which DX exposes as 2X),
-          # level objects ON and Ferrari logo fix ON. Enable hi-res sprites too.
+          # This is the real LEFT/RIGHT value editor used by the shallow DX menus.
+          # Replace its old binary 30/60 frame-rate toggle and add the moved rows.
           replace_once(
-              'src/main/frontend/config_base.cpp',
-              '    video.hiresprites   = cfg.get_int("video.hiresprites",     0); // enable hires sprites with hires mode',
-              '    video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution')
+              legacy,
+              '''            else if (selected(ENTRY_FRAME_RATE))\n            {\n                handled = true;\n                const int next = config.video.fps == 0 ? 2 : 0;\n                if (next != config.video.fps)\n                {\n                    config.video.fps = next;\n                    config.set_fps(config.video.fps);\n                    changed = true;\n                }\n            }\n''',
+              '''            else if (selected(ENTRY_HIRES) || option.rfind("ENGINE RESOLUTION ", 0) == 0)\n            {\n                handled = true;\n                const int current = std::clamp(config.video.hires + 1, 1, 4);\n                const int next = wrap_value(current, 1, 4, 1, direction);\n                if (next != current)\n                {\n                    config.video.hires_next = next - 1;\n                    if (next == 1)\n                        config.video.hiresprites = 0;\n                    menu_video[cursor] = std::string("ENGINE RESOLUTION ") +\n                        (next == 1 ? "ORIGINAL" : std::to_string(next) + "X");\n                    config.videoRestartRequired = true;\n                    changed = true;\n                }\n            }\n            else if (selected(ENTRY_SPRITERES) || option.rfind("SPRITE ENHANCEMENT ", 0) == 0)\n            {\n                handled = true;\n                if (config.video.hires == 0)\n                {\n                    display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n                }\n                else\n                {\n                    const int target = direction > 0 ? 1 : 0;\n                    if (config.video.hiresprites != target)\n                    {\n                        config.video.hiresprites = target;\n                        menu_video[cursor] = std::string("SPRITE ENHANCEMENT ") +\n                            (target ? "ON" : "OFF");\n                        changed = true;\n                    }\n                }\n            }\n            else if (selected(ENTRY_OBJECTS) || option.rfind("OBJECT ENHANCEMENT ", 0) == 0)\n            {\n                handled = true;\n                const int target = direction > 0 ? 1 : 0;\n                if (config.engine.level_objects != target)\n                {\n                    config.engine.level_objects = target;\n                    menu_video[cursor] = std::string("OBJECT ENHANCEMENT ") +\n                        (target ? "ON" : "OFF");\n                    changed = true;\n                }\n            }\n            else if (option.rfind("FERRARI LOGO FIX ", 0) == 0)\n            {\n                handled = true;\n                const bool target = direction > 0;\n                if (config.ferrari_mirror_fix() != target)\n                {\n                    config.set_ferrari_mirror_fix(target);\n                    menu_video[cursor] = std::string("FERRARI LOGO FIX ") +\n                        (target ? "ON" : "OFF");\n                    changed = true;\n                }\n            }\n            else if (selected(ENTRY_FRAME_RATE))\n            {\n                handled = true;\n                const int current =\n                    config.video.fps == 0 ? 30 :\n                    config.video.fps == 3 ? 120 : 60;\n                int next = current;\n\n                if (direction > 0)\n                    next = current == 30 ? 60 : (current == 60 ? 120 : 30);\n                else\n                    next = current == 30 ? 120 : (current == 120 ? 60 : 30);\n\n                const int encoded = next == 30 ? 0 : (next == 120 ? 3 : 2);\n                if (encoded != config.video.fps)\n                {\n                    config.video.fps = encoded;\n                    config.set_fps(config.video.fps);\n                    menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                        std::to_string(next) + " FPS";\n                    changed = true;\n                }\n            }\n''')
 
-          # ------------------------------------------------------------------
-          # DX menu wrapper: friendly labels + robust left/right edges.
-          # ------------------------------------------------------------------
-          replace_once(
-              'src/main/frontend/menu.cpp',
-              '''    const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";\n''',
-              '''    const char* SPRITE_ENHANCEMENT_LABEL = "SPRITE ENHANCEMENT ";\n    const char* OBJECT_ENHANCEMENT_LABEL = "OBJECT ENHANCEMENT ";\n    const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI LOGO FIX ";\n''')
+          # Remove the experimental duplicate LEFT/RIGHT path from Menu::tick().
+          # The active MenuLegacy::tick_menu()/adjust_current_value() path above
+          # now owns directional editing, so one press can only be processed once.
+          p = Path('src/main/frontend/menu.cpp')
+          text = p.read_text(encoding='utf-8')
+          start_marker = '    // Use held-state edges for menu LEFT/RIGHT.\n'
+          end_marker = '    // The original frontend uses analog steering as a menu up/down control.\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('menu.cpp: directional wrapper markers not found')
+          text = text[:start] + text[end:]
+          p.write_text(text, encoding='utf-8')
 
-          replace_once(
-              'src/main/frontend/menu.cpp',
-              '''    std::string ferrari_mirror_fix_menu_text()\n    {\n        return std::string(FERRARI_MIRROR_FIX_LABEL) +\n            (config.ferrari_mirror_fix() ? "ON" : "OFF");\n    }\n''',
-              '''    std::string sprite_enhancement_menu_text()\n    {\n        return std::string(SPRITE_ENHANCEMENT_LABEL) +\n            (config.video.hiresprites ? "ON" : "OFF");\n    }\n\n    std::string object_enhancement_menu_text()\n    {\n        return std::string(OBJECT_ENHANCEMENT_LABEL) +\n            (config.engine.level_objects ? "ON" : "OFF");\n    }\n\n    std::string ferrari_mirror_fix_menu_text()\n    {\n        return std::string(FERRARI_MIRROR_FIX_LABEL) +\n            (config.ferrari_mirror_fix() ? "ON" : "OFF");\n    }\n''')
+          # Guardrails against patching the dead SE-only list again.
+          legacy_text = Path(legacy).read_text(encoding='utf-8')
+          required = [
+              'menu_video.push_back(ENTRY_SPRITERES);',
+              'menu_video.push_back(ENTRY_OBJECTS);',
+              'std::string("FERRARI LOGO FIX ")',
+              'current == 30 ? 60 : (current == 60 ? 120 : 30)',
+              'current == 30 ? 120 : (current == 120 ? 60 : 30)',
+              'option.rfind("ENGINE RESOLUTION ", 0) == 0',
+              'option.rfind("SPRITE ENHANCEMENT ", 0) == 0',
+              'option.rfind("OBJECT ENHANCEMENT ", 0) == 0',
+          ]
+          for needle in required:
+              if needle not in legacy_text:
+                  raise SystemExit(f'missing active DX menu change: {needle}')
 
-          old_video_refresh = '''    // Replace the inherited binary ORIGINAL/HI-RES entry in VIDEO with the DX\n    // four-step render scale. A different prefix prevents MenuBase from applying\n    // its old XOR toggle when this row is activated.\n    if (!menu_video.empty())\n    {\n        auto resolution_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_HIRES) ||\n                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);\n            });\n\n        if (resolution_entry != menu_video.end())\n            *resolution_entry = engine_resolution_menu_text();\n    }\n\n    // Keep the Ferrari detail correction visible in Enhancements. OFF is the\n    // untouched arcade/CannonBall behavior where the complete sprite, including\n    // the badge and number plate, is mirrored on left-facing Ferrari frames.\n    if (!menu_enhancements.empty())\n    {\n        auto fix_entry = std::find_if(\n            menu_enhancements.begin(),\n            menu_enhancements.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);\n            });\n\n        if (fix_entry == menu_enhancements.end())\n        {\n            auto insert_before = std::find_if(\n                menu_enhancements.begin(),\n                menu_enhancements.end(),\n                [](const std::string& entry)\n                {\n                    return starts_with_label(entry, ENTRY_BACK);\n                });\n\n            menu_enhancements.insert(insert_before, ferrari_mirror_fix_menu_text());\n        }\n        else\n        {\n            *fix_entry = ferrari_mirror_fix_menu_text();\n        }\n    }\n\n    // Frame rate is a DX three-step value. Handle it here rather than in\n'''
-
-          new_video_refresh = '''    // Keep all visual/render enhancements together in VIDEO. Re-label the\n    // inherited entries so the setting names describe what DX actually does.\n    if (!menu_video.empty())\n    {\n        auto resolution_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_HIRES) ||\n                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);\n            });\n        if (resolution_entry != menu_video.end())\n            *resolution_entry = engine_resolution_menu_text();\n\n        auto sprite_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_SPRITERES) ||\n                       starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL);\n            });\n        if (sprite_entry != menu_video.end())\n            *sprite_entry = sprite_enhancement_menu_text();\n\n        auto object_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_OBJECTS) ||\n                       starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL);\n            });\n        if (object_entry != menu_video.end())\n            *object_entry = object_enhancement_menu_text();\n\n        auto fix_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);\n            });\n\n        if (fix_entry == menu_video.end())\n        {\n            auto insert_before = object_entry != menu_video.end()\n                ? object_entry + 1\n                : std::find_if(\n                    menu_video.begin(),\n                    menu_video.end(),\n                    [](const std::string& entry)\n                    {\n                        return starts_with_label(entry, ENTRY_CRT_SHADER1);\n                    });\n            menu_video.insert(insert_before, ferrari_mirror_fix_menu_text());\n        }\n        else\n        {\n            *fix_entry = ferrari_mirror_fix_menu_text();\n        }\n    }\n\n    // Use held-state edges for menu LEFT/RIGHT. The normal one-frame latch is\n    // still ORed in so a very quick press/release in one SDL poll is preserved.\n    // This makes value rows independent from the 30 Hz gameplay input cadence.\n    static bool menu_left_was_down = false;\n    static bool menu_right_was_down = false;\n    const bool menu_left_down = input.is_pressed(Input::LEFT);\n    const bool menu_right_down = input.is_pressed(Input::RIGHT);\n    const bool menu_left_pressed =\n        input.has_pressed(Input::LEFT) || (menu_left_down && !menu_left_was_down);\n    const bool menu_right_pressed =\n        input.has_pressed(Input::RIGHT) || (menu_right_down && !menu_right_was_down);\n    menu_left_was_down = menu_left_down;\n    menu_right_was_down = menu_right_down;\n\n    // Frame rate is a DX three-step value. Handle it here rather than in\n'''
-          replace_once('src/main/frontend/menu.cpp', old_video_refresh, new_video_refresh)
-
-          replace_once(
-              'src/main/frontend/menu.cpp',
-              '''        starts_with_label(menu_video[cursor], ENTRY_FRAME_RATE) &&\n        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))\n    {\n        int rate = config.fps;\n        if (input.has_pressed(Input::RIGHT))\n''',
-              '''        starts_with_label(menu_video[cursor], ENTRY_FRAME_RATE) &&\n        (menu_left_pressed || menu_right_pressed))\n    {\n        int rate = config.fps;\n        if (menu_right_pressed)\n''')
-
-          replace_once(
-              'src/main/frontend/menu.cpp',
-              '''        starts_with_label(menu_video[cursor], ENGINE_RESOLUTION_LABEL) &&\n        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))\n    {\n        int scale = engine_resolution_scale();\n        if (input.has_pressed(Input::RIGHT))\n''',
-              '''        starts_with_label(menu_video[cursor], ENGINE_RESOLUTION_LABEL) &&\n        (menu_left_pressed || menu_right_pressed))\n    {\n        int scale = engine_resolution_scale();\n        if (menu_right_pressed)\n''')
-
-          # Replace the old enhancement-menu Ferrari left/right block with the
-          # three visual boolean rows in VIDEO. LEFT=OFF, RIGHT=ON.
-          old_ferrari_lr = '''    // LEFT/RIGHT set this boolean directly like the other DX value options.\n    // Enter remains a toggle fallback in select_pressed().\n    if (state == STATE_MENU &&\n        menu_selected == &menu_enhancements &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_enhancements.size()) &&\n        starts_with_label(menu_enhancements[cursor], FERRARI_MIRROR_FIX_LABEL) &&\n        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))\n    {\n        const bool target = input.has_pressed(Input::RIGHT);\n        if (config.ferrari_mirror_fix() != target)\n        {\n            config.set_ferrari_mirror_fix(target);\n            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();\n            config_save_pending = true;\n        }\n        osoundint.queue_sound(sound::BEEP1);\n    }\n'''
-
-          new_visual_lr = '''    // Visual enhancement booleans use LEFT=OFF and RIGHT=ON. Enter remains\n    // a toggle fallback for cabinets that only expose a confirm button.\n    if (state == STATE_MENU &&\n        menu_selected == &menu_video &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_video.size()) &&\n        (menu_left_pressed || menu_right_pressed))\n    {\n        const bool target = menu_right_pressed;\n        std::string& option = menu_video[cursor];\n\n        if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))\n        {\n            if (target && config.video.hires == 0)\n            {\n                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n            }\n            else if (config.video.hiresprites != static_cast<int>(target))\n            {\n                config.video.hiresprites = target ? 1 : 0;\n                option = sprite_enhancement_menu_text();\n                config_save_pending = true;\n            }\n            osoundint.queue_sound(sound::BEEP1);\n        }\n        else if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))\n        {\n            if (config.engine.level_objects != static_cast<int>(target))\n            {\n                config.engine.level_objects = target ? 1 : 0;\n                option = object_enhancement_menu_text();\n                config_save_pending = true;\n            }\n            osoundint.queue_sound(sound::BEEP1);\n        }\n        else if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))\n        {\n            if (config.ferrari_mirror_fix() != target)\n            {\n                config.set_ferrari_mirror_fix(target);\n                option = ferrari_mirror_fix_menu_text();\n                config_save_pending = true;\n            }\n            osoundint.queue_sound(sound::BEEP1);\n        }\n    }\n'''
-          replace_once('src/main/frontend/menu.cpp', old_ferrari_lr, new_visual_lr)
-
-          # ENTER handling for the three rows. Returning false prevents MenuBase
-          # from trying to interpret the re-labelled entries itself.
-          old_enter_marker = '''        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))\n        {\n            int scale = engine_resolution_scale() + 1;\n            if (scale > 4)\n                scale = 1;\n\n            request_engine_resolution_scale(scale);\n            menu_video[cursor] = engine_resolution_menu_text(scale);\n            return false;\n        }\n'''
-          new_enter_marker = old_enter_marker + '''\n        if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))\n        {\n            if (config.video.hires == 0)\n            {\n                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n            }\n            else\n            {\n                config.video.hiresprites ^= 1;\n                menu_video[cursor] = sprite_enhancement_menu_text();\n            }\n            return false;\n        }\n\n        if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))\n        {\n            config.engine.level_objects ^= 1;\n            menu_video[cursor] = object_enhancement_menu_text();\n            return false;\n        }\n\n        if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))\n        {\n            config.toggle_ferrari_mirror_fix();\n            menu_video[cursor] = ferrari_mirror_fix_menu_text();\n            return false;\n        }\n'''
-          replace_once('src/main/frontend/menu.cpp', old_enter_marker, new_enter_marker)
-
-          # The visual Ferrari row no longer belongs in Enhancements.
-          old_enh_ferrari = '''        if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))\n        {\n            config.toggle_ferrari_mirror_fix();\n            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();\n            return false;\n        }\n\n'''
-          replace_once('src/main/frontend/menu.cpp', old_enh_ferrari, '')
-
-          # Guardrails.
-          checks = {
-              'src/main/frontend/config_base.cpp': [
-                  'video.hires         = cfg.get_int("video.hires",           1)',
-                  'video.hiresprites   = cfg.get_int("video.hiresprites",     1)',
-                  'engine.level_objects   = cfg.get_int("engine.levelobjects",  1)',
-              ],
-              'src/main/frontend/menu_base.cpp': [
-                  'menu_video.push_back(ENTRY_HIRES);',
-                  'menu_video.push_back(ENTRY_SPRITERES);',
-                  'menu_video.push_back(ENTRY_OBJECTS);',
-              ],
-              'src/main/frontend/menu.cpp': [
-                  'SPRITE ENHANCEMENT ',
-                  'OBJECT ENHANCEMENT ',
-                  'FERRARI LOGO FIX ',
-                  'const bool menu_left_pressed',
-                  'menu_left_pressed || menu_right_pressed',
-                  'SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST',
-              ],
-          }
-          for path, needles in checks.items():
-              text = Path(path).read_text(encoding='utf-8')
-              for needle in needles:
-                  if needle not in text:
-                      raise SystemExit(f'{path}: missing {needle}')
-
-          # Ferrari fix default is stored in the DX config wrapper and must remain ON.
-          config_hpp = Path('src/main/frontend/config.hpp').read_text(encoding='utf-8')
-          if 'cfg.get_int("engine.ferrari_mirror_fix", 1)' not in config_hpp:
-              raise SystemExit('Ferrari logo fix default is no longer ON')
-          '@ | Set-Content -Encoding UTF8 update_120_menu_graphics.py
-          python update_120_menu_graphics.py
-          Remove-Item update_120_menu_graphics.py
+          menu_text = Path('src/main/frontend/menu.cpp').read_text(encoding='utf-8')
+          if 'Use held-state edges for menu LEFT/RIGHT' in menu_text:
+              raise SystemExit('duplicate Menu::tick directional handler still present')
+          '@ | Set-Content -Encoding UTF8 patch_active_dx_menu.py
+          python patch_active_dx_menu.py
+          Remove-Item patch_active_dx_menu.py
           git diff --check
-          git diff -- src/main/frontend/menu.cpp src/main/frontend/menu_base.cpp src/main/frontend/config_base.cpp
+          git diff -- src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
 
-      - name: Commit update
+      - name: Commit fix
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/frontend/menu.cpp src/main/frontend/menu_base.cpp src/main/frontend/config_base.cpp
-          git commit -m 'Fix menu cycling and group graphics enhancements'
+          git add src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
+          git commit -m 'Fix active DX video menu and 120 FPS cycling'
           git push origin HEAD:test/120fps
