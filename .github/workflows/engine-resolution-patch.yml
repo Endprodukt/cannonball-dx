@@ -20,6 +20,9 @@ jobs:
       - name: Apply independent scaler notification overlay
         run: python3 tools/fix_pixel_scaler_notification_overlay.py
 
+      - name: Apply quiescent resolution restart fix
+        run: python3 tools/fix_engine_resolution_quiescent_restart.py
+
       - name: Validate source changes
         run: |
           git diff --check
@@ -31,7 +34,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/main
           if ! git diff --cached --quiet; then
-            git commit -m "Render scaler notification independently"
+            git commit -m "Make engine resolution restarts quiescent"
             git push origin HEAD:test/engine-resolution-scale
           fi
 
