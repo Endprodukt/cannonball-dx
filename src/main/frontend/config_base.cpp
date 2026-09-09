@@ -215,7 +215,7 @@ void Config::load()
     video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode
     video.hires_next    =
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
-    video.hiresprites   = cfg.get_int("video.hiresprites",     0); // enable hires sprites with hires mode
+    video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution
     video.vsync         = cfg.get_int("video.vsync",           1); // Use V-Sync where available (e.g. Open GL)
     video.x_offset      = cfg.get_int("video.x_offset",        0); // Offset from calculated image X position
     video.y_offset      = cfg.get_int("video.y_offset",        0); // Offset from calculated image Y position

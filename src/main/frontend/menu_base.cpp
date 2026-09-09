@@ -172,6 +172,9 @@ void Menu::populate_for_pc()
 
     menu_video.push_back(ENTRY_FRAME_RATE);
     menu_video.push_back(ENTRY_FPS_COUNTER);
+    menu_video.push_back(ENTRY_HIRES);
+    menu_video.push_back(ENTRY_SPRITERES);
+    menu_video.push_back(ENTRY_OBJECTS);
     // always run fullscreen
     menu_video.push_back(ENTRY_WIDESCREEN);
     // scale not needed - image is expanded on GPU
@@ -236,11 +239,8 @@ void Menu::populate_for_pc()
     menu_engine.push_back(ENTRY_SUB_HANDLING);
     menu_engine.push_back(ENTRY_BACK);
 
-    menu_enhancements.push_back(ENTRY_HIRES);
-    menu_enhancements.push_back(ENTRY_SPRITERES);
     menu_enhancements.push_back(ENTRY_TIMER);
     menu_enhancements.push_back(ENTRY_ATTRACT);
-    menu_enhancements.push_back(ENTRY_OBJECTS);
     menu_enhancements.push_back(ENTRY_PROTOTYPE);
     menu_enhancements.push_back(ENTRY_BACK);
 }
