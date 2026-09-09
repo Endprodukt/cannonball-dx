@@ -436,7 +436,7 @@ bool Config::save()
     // JJP - CRT emulation settings
     cfg.put_int("video.mode",               video.mode);          // Video Mode: Full Screen (2)
     cfg.put_int("video.window.scale",       video.scale);         // Video Scale: 1x (1)
-    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS
+    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS, 3=120 FPS
     cfg.put_int("video.fps_counter",        video.fps_count);     // FPS Counter (0)
     cfg.put_int("video.widescreen",         video.widescreen);    // Widescreen Mode (1)
     cfg.put_int("video.vsync",              video.vsync);         // V-Sync (1)

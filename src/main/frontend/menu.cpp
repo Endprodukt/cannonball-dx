@@ -497,6 +497,29 @@ void Menu::tick()
         }
     }
 
+    // Frame rate is a DX three-step value. Handle it here rather than in
+    // MenuBase so 120 FPS cannot be collapsed by the inherited binary toggle.
+    if (state == STATE_MENU &&
+        menu_selected == &menu_video &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_video.size()) &&
+        starts_with_label(menu_video[cursor], ENTRY_FRAME_RATE) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        int rate = config.fps;
+        if (input.has_pressed(Input::RIGHT))
+            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);
+        else
+            rate = rate == 30 ? 120 : (rate == 120 ? 60 : 30);
+
+        config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);
+        config.set_fps(config.video.fps);
+        menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +
+                             std::to_string(rate) + " FPS";
+        config_save_pending = true;
+        osoundint.queue_sound(sound::BEEP1);
+    }
+
     // Engine resolution is a four-step VIDEO value. Use the existing preserve-state
     // video restart so changing it in the menu does not reset the running S16 state.
     if (state == STATE_MENU &&
@@ -789,6 +812,17 @@ bool Menu::select_pressed()
         cursor < static_cast<int>(menu_video.size()))
     {
         const std::string& option = menu_video[cursor];
+
+        if (starts_with_label(option, ENTRY_FRAME_RATE))
+        {
+            int rate = config.fps;
+            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);
+            config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);
+            config.set_fps(config.video.fps);
+            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +
+                                 std::to_string(rate) + " FPS";
+            return false;
+        }
 
         if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))
         {

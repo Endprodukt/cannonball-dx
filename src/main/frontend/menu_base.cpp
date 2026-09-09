@@ -457,17 +457,19 @@ void Menu::tick_ui()
     // Shift horizon
     if (oroad.horizon_base > HORIZON_DEST)
     {
-        oroad.horizon_base -= 60 / config.fps;
+        oroad.horizon_base -= config.fps == 120 ? ((frame & 1) == 0 ? 1 : 0) : 60 / config.fps;
         if (oroad.horizon_base < HORIZON_DEST)
             oroad.horizon_base = HORIZON_DEST;
     }
     // Advance road
     else
     {
-        uint32_t scroll_speed = (config.fps == 60) ? config.menu.road_scroll_speed : config.menu.road_scroll_speed << 1;
+        uint32_t scroll_speed = config.fps == 30 ? (config.menu.road_scroll_speed << 1) :
+                                config.fps == 120 ? std::max(1, config.menu.road_scroll_speed >> 1) :
+                                config.menu.road_scroll_speed;
 
         if (oinitengine.car_increment < scroll_speed << 16)
-            oinitengine.car_increment += (1 << 14);
+            oinitengine.car_increment += config.fps == 120 ? (1 << 13) : (1 << 14);
         if (oinitengine.car_increment > scroll_speed << 16)
             oinitengine.car_increment = scroll_speed << 16;
         uint32_t result = 0x12F * (oinitengine.car_increment >> 16);
@@ -483,7 +485,9 @@ void Menu::tick_ui()
     }
 
     // Do Animations at 30 fps
-    if (config.fps != 60 || (frame & 1) == 0)
+    if (config.fps == 30 ||
+        (config.fps == 60 && (frame & 1) == 0) ||
+        (config.fps == 120 && (frame & 3) == 0))
     {
         ologo.tick();
         osprites.sprite_copy();
