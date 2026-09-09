@@ -216,7 +216,7 @@ void Config::load()
     video.hires_next    =
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
     video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution
-    video.vsync         = cfg.get_int("video.vsync",           1); // Use V-Sync where available (e.g. Open GL)
+    video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence
     video.x_offset      = cfg.get_int("video.x_offset",        0); // Offset from calculated image X position
     video.y_offset      = cfg.get_int("video.y_offset",        0); // Offset from calculated image Y position
     // JJP Additional configuration for CRT emulation
@@ -391,7 +391,7 @@ void Config::load()
     engine.randomgen       = cfg.get_int("engine.randomgen",     1);
     engine.fix_bugs_backup = 
     engine.fix_bugs        = cfg.get_int("engine.fix_bugs",      1) != 0;
-    engine.fix_timer       = cfg.get_int("engine.fix_timer",     0) != 0;
+    engine.fix_timer       = cfg.get_int("engine.fix_timer",     1) != 0;
     engine.layout_debug    = cfg.get_int("engine.layout_debug",   0) != 0;
     engine.hiscore_delete  = cfg.get_int("scores.delete_last_entry", 1);
     engine.hiscore_timer   = cfg.get_int("scores.hiscore_timer", 0);
@@ -739,6 +739,11 @@ bool Config::clear_scores()
     try_remove(data.file_ttrial_jap);
     try_remove(data.file_cont);
     try_remove(data.file_cont_jap);
+
+    // DX Endless owns dedicated score files rather than using the
+    // Continuous table. Clear both course-set variants as well.
+    try_remove(data.save_path + "hiscores_endless.xml");
+    try_remove(data.save_path + "hiscores_endless_jap.xml");
 
     // returns true if at least one file was deleted
     return (deleted > 0);
