@@ -1,4 +1,4 @@
-name: Remove duplicate DX menu direction handler
+name: Organize DX video settings submenus
 
 on:
   push:
@@ -18,37 +18,115 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Remove duplicate menu direction path
+      - name: Organize video settings
         shell: pwsh
         run: |
-          $path = 'src/main/frontend/menu.cpp'
-          $text = Get-Content $path -Raw
+          @'
+          from pathlib import Path
 
-          $start = '    // Use held-state edges for menu LEFT/RIGHT.'
-          $end = '    // The original frontend uses analog steering as a menu up/down control.'
-          $startIndex = $text.IndexOf($start)
-          $endIndex = $text.IndexOf($end)
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:140]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          if ($startIndex -lt 0 -or $endIndex -lt 0 -or $endIndex -le $startIndex) {
-            throw 'Could not locate duplicate LEFT/RIGHT handler block.'
-          }
+          legacy = 'src/main/frontend/menu_legacy.hpp.inc'
+          menu_cpp = 'src/main/frontend/menu.cpp'
 
-          $text = $text.Substring(0, $startIndex) + $text.Substring($endIndex)
-          Set-Content $path $text -Encoding UTF8 -NoNewline
+          # ------------------------------------------------------------------
+          # Visible DX VIDEO hierarchy.
+          # Keep fundamental render/display settings on the first page, move
+          # optional visual additions and analogue/CRT emulation into submenus.
+          # ------------------------------------------------------------------
+          replace_once(
+              legacy,
+              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_SPRITERES);\n            menu_video.push_back(ENTRY_OBJECTS);\n            menu_video.push_back(\n                std::string("FERRARI LOGO FIX ") +\n                (config.ferrari_mirror_fix() ? "ON" : "OFF"));\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(scaler_entry);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_CRT_SHADER1);\n            menu_video.push_back(ENTRY_BLARGG_FILTER);\n            menu_video.push_back(ENTRY_BACK);\n''',
+              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back("VIDEO ENHANCEMENTS");\n            menu_video.push_back("CRT / VIDEO EMULATION");\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_BACK);\n\n            menu_video_enhancements.clear();\n            menu_video_enhancements.push_back(\n                std::string("SPRITE ENHANCEMENT ") +\n                (config.video.hiresprites ? "ON" : "OFF"));\n            menu_video_enhancements.push_back(\n                std::string("OBJECT ENHANCEMENT ") +\n                (config.engine.level_objects ? "ON" : "OFF"));\n            menu_video_enhancements.push_back(\n                std::string("FERRARI LOGO FIX ") +\n                (config.ferrari_mirror_fix() ? "ON" : "OFF"));\n            menu_video_enhancements.push_back(scaler_entry);\n            menu_video_enhancements.push_back(ENTRY_BACK);\n\n            menu_video_emulation.clear();\n            menu_video_emulation.push_back(ENTRY_CRT_SHADER1);\n            menu_video_emulation.push_back(ENTRY_BLARGG_FILTER);\n            menu_video_emulation.push_back(ENTRY_BACK);\n''')
 
-          $check = Get-Content $path -Raw
-          if ($check.Contains('Use held-state edges for menu LEFT/RIGHT')) {
-            throw 'Duplicate LEFT/RIGHT handler still present.'
-          }
+          replace_once(
+              legacy,
+              '''    // DX-only submenu for infrequently used administrative options.\n    std::vector<std::string> menu_system;\n''',
+              '''    // DX-only submenus.\n    std::vector<std::string> menu_system;\n    std::vector<std::string> menu_video_enhancements;\n    std::vector<std::string> menu_video_emulation;\n''')
 
+          # Directional editing is shared by the VIDEO root and Video Enhancements.
+          replace_once(
+              legacy,
+              '''        if (menu_selected == &menu_video)\n        {\n            if (selected(ENTRY_FULLSCREEN))\n''',
+              '''        if (menu_selected == &menu_video ||\n            menu_selected == &menu_video_enhancements)\n        {\n            if (selected(ENTRY_FULLSCREEN))\n''')
+
+          # Enhancement rows must update whichever submenu is currently visible.
+          replace_once(
+              legacy,
+              '''                        menu_video[cursor] = std::string("SPRITE ENHANCEMENT ") +\n                            (target ? "ON" : "OFF");\n''',
+              '''                        menu_selected->at(cursor) = std::string("SPRITE ENHANCEMENT ") +\n                            (target ? "ON" : "OFF");\n''')
+          replace_once(
+              legacy,
+              '''                    menu_video[cursor] = std::string("OBJECT ENHANCEMENT ") +\n                        (target ? "ON" : "OFF");\n''',
+              '''                    menu_selected->at(cursor) = std::string("OBJECT ENHANCEMENT ") +\n                        (target ? "ON" : "OFF");\n''')
+          replace_once(
+              legacy,
+              '''                    menu_video[cursor] = std::string("FERRARI LOGO FIX ") +\n                        (target ? "ON" : "OFF");\n''',
+              '''                    menu_selected->at(cursor) = std::string("FERRARI LOGO FIX ") +\n                        (target ? "ON" : "OFF");\n''')
+          replace_once(
+              legacy,
+              '''                menu_video[cursor] =\n                    std::string("PIXEL SCALER ") + pixel_scaler::name(next);\n''',
+              '''                menu_selected->at(cursor) =\n                    std::string("PIXEL SCALER ") + pixel_scaler::name(next);\n''')
+
+          # Replace the old one-off Pixel Scaler intercept with navigation for
+          # both new submenus. Ordinary value rows still flow through MenuBase,
+          # whose virtual select_pressed() dispatches to the DX handlers.
+          old_tail = '''        // Pixel Scaler now belongs to VIDEO. Intercept only this one entry;\n        // all other video settings continue through the original handler.\n        if (!config.smartypi.enabled &&\n            menu_selected == &menu_video &&\n            cursor >= 0 &&\n            cursor < static_cast<int>(menu_video.size()) &&\n            menu_video[cursor].rfind("PIXEL SCALER ", 0) == 0)\n        {\n            if (!select_pressed())\n            {\n                MenuBase::tick_menu();\n                return;\n            }\n\n            pixel_scaler::cycle();\n            menu_video[cursor] =\n                std::string("PIXEL SCALER ") +\n                pixel_scaler::name(\n                    pixel_scaler::mode.load(std::memory_order_relaxed));\n            return;\n        }\n\n        MenuBase::tick_menu();\n'''
+
+          new_tail = '''        // VIDEO root: optional effects are grouped into two submenus.\n        if (!config.smartypi.enabled &&\n            menu_selected == &menu_video &&\n            cursor >= 0 &&\n            cursor < static_cast<int>(menu_video.size()))\n        {\n            const std::string option = menu_video[cursor];\n            if (option == "VIDEO ENHANCEMENTS" ||\n                option == "CRT / VIDEO EMULATION")\n            {\n                if (!select_pressed())\n                {\n                    MenuBase::tick_menu();\n                    return;\n                }\n\n                set_menu(option == "VIDEO ENHANCEMENTS"\n                    ? &menu_video_enhancements\n                    : &menu_video_emulation);\n                refresh_menu();\n                return;\n            }\n        }\n\n        // VIDEO ENHANCEMENTS owns only value rows plus BACK. Value rows are\n        // handled by adjust_current_value()/Menu::select_pressed().\n        if (!config.smartypi.enabled &&\n            menu_selected == &menu_video_enhancements &&\n            cursor >= 0 &&\n            cursor < static_cast<int>(menu_video_enhancements.size()) &&\n            menu_video_enhancements[cursor].rfind(ENTRY_BACK, 0) == 0)\n        {\n            if (!select_pressed())\n            {\n                MenuBase::tick_menu();\n                return;\n            }\n\n            menu_back();\n            refresh_menu();\n            return;\n        }\n\n        // CRT / VIDEO EMULATION is a directory for the existing CRT shader\n        // and Blargg configuration pages. Their original pages stay untouched.\n        if (!config.smartypi.enabled && menu_selected == &menu_video_emulation)\n        {\n            if (!select_pressed())\n            {\n                MenuBase::tick_menu();\n                return;\n            }\n\n            const std::string option = menu_video_emulation[cursor];\n            if (option.rfind(ENTRY_CRT_SHADER1, 0) == 0)\n                set_menu(&menu_crt_shader1);\n            else if (option.rfind(ENTRY_BLARGG_FILTER, 0) == 0)\n                set_menu(&menu_blargg_filter);\n            else if (option.rfind(ENTRY_BACK, 0) == 0)\n                menu_back();\n\n            refresh_menu();\n            return;\n        }\n\n        MenuBase::tick_menu();\n'''
+          replace_once(legacy, old_tail, new_tail)
+
+          # ------------------------------------------------------------------
+          # menu.cpp live labels and Enter fallback must follow the new submenu.
+          # ------------------------------------------------------------------
+          old_sync = '''    // Keep all visual/render enhancements together in VIDEO. Re-label the\n    // inherited entries so the setting names describe what DX actually does.\n    if (!menu_video.empty())\n    {\n        auto resolution_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_HIRES) ||\n                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);\n            });\n        if (resolution_entry != menu_video.end())\n            *resolution_entry = engine_resolution_menu_text();\n\n        auto sprite_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_SPRITERES) ||\n                       starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL);\n            });\n        if (sprite_entry != menu_video.end())\n            *sprite_entry = sprite_enhancement_menu_text();\n\n        auto object_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_OBJECTS) ||\n                       starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL);\n            });\n        if (object_entry != menu_video.end())\n            *object_entry = object_enhancement_menu_text();\n\n        auto fix_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);\n            });\n\n        if (fix_entry == menu_video.end())\n        {\n            auto insert_before = object_entry != menu_video.end()\n                ? object_entry + 1\n                : std::find_if(\n                    menu_video.begin(),\n                    menu_video.end(),\n                    [](const std::string& entry)\n                    {\n                        return starts_with_label(entry, ENTRY_CRT_SHADER1);\n                    });\n            menu_video.insert(insert_before, ferrari_mirror_fix_menu_text());\n        }\n        else\n        {\n            *fix_entry = ferrari_mirror_fix_menu_text();\n        }\n    }\n'''
+
+          new_sync = '''    // Fundamental render scale stays on the VIDEO root.\n    if (!menu_video.empty())\n    {\n        auto resolution_entry = std::find_if(\n            menu_video.begin(),\n            menu_video.end(),\n            [](const std::string& entry)\n            {\n                return starts_with_label(entry, ENTRY_HIRES) ||\n                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);\n            });\n        if (resolution_entry != menu_video.end())\n            *resolution_entry = engine_resolution_menu_text();\n    }\n\n    // Optional visual additions live in VIDEO ENHANCEMENTS and stay synced\n    // with hotkeys or other paths that can change their underlying settings.\n    if (!menu_video_enhancements.empty())\n    {\n        for (std::string& entry : menu_video_enhancements)\n        {\n            if (starts_with_label(entry, ENTRY_SPRITERES) ||\n                starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))\n                entry = sprite_enhancement_menu_text();\n            else if (starts_with_label(entry, ENTRY_OBJECTS) ||\n                     starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))\n                entry = object_enhancement_menu_text();\n            else if (starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL))\n                entry = ferrari_mirror_fix_menu_text();\n            else if (starts_with_label(entry, PIXEL_SCALER_LABEL))\n                entry = pixel_scaler_menu_text();\n        }\n    }\n'''
+          replace_once(menu_cpp, old_sync, new_sync)
+
+          old_select = '''    if (menu_selected == &menu_video &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_video.size()))\n    {\n        const std::string& option = menu_video[cursor];\n\n        if (starts_with_label(option, ENTRY_FRAME_RATE))\n        {\n            int rate = config.fps;\n            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);\n            config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);\n            config.set_fps(config.video.fps);\n            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                                 std::to_string(rate) + " FPS";\n            return false;\n        }\n\n        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))\n        {\n            int scale = engine_resolution_scale() + 1;\n            if (scale > 4)\n                scale = 1;\n\n            request_engine_resolution_scale(scale);\n            menu_video[cursor] = engine_resolution_menu_text(scale);\n            return false;\n        }\n\n        if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))\n        {\n            if (config.video.hires == 0)\n            {\n                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n            }\n            else\n            {\n                config.video.hiresprites ^= 1;\n                menu_video[cursor] = sprite_enhancement_menu_text();\n            }\n            return false;\n        }\n\n        if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))\n        {\n            config.engine.level_objects ^= 1;\n            menu_video[cursor] = object_enhancement_menu_text();\n            return false;\n        }\n\n        if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))\n        {\n            config.toggle_ferrari_mirror_fix();\n            menu_video[cursor] = ferrari_mirror_fix_menu_text();\n            return false;\n        }\n    }\n\n    if (menu_selected == &menu_enhancements &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_enhancements.size()))\n    {\n        const std::string& option = menu_enhancements[cursor];\n\n        if (starts_with_label(option, PIXEL_SCALER_LABEL))\n        {\n            pixel_scaler::cycle();\n            menu_enhancements[cursor] = pixel_scaler_menu_text();\n            return false;\n        }\n    }\n'''
+
+          new_select = '''    if (menu_selected == &menu_video &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_video.size()))\n    {\n        const std::string& option = menu_video[cursor];\n\n        if (starts_with_label(option, ENTRY_FRAME_RATE))\n        {\n            int rate = config.fps;\n            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);\n            config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);\n            config.set_fps(config.video.fps);\n            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                                 std::to_string(rate) + " FPS";\n            return false;\n        }\n\n        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))\n        {\n            int scale = engine_resolution_scale() + 1;\n            if (scale > 4)\n                scale = 1;\n\n            request_engine_resolution_scale(scale);\n            menu_video[cursor] = engine_resolution_menu_text(scale);\n            return false;\n        }\n    }\n\n    if (menu_selected == &menu_video_enhancements &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_video_enhancements.size()))\n    {\n        const std::string& option = menu_video_enhancements[cursor];\n\n        if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))\n        {\n            if (config.video.hires == 0)\n                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n            else\n            {\n                config.video.hiresprites ^= 1;\n                menu_video_enhancements[cursor] = sprite_enhancement_menu_text();\n            }\n            return false;\n        }\n\n        if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))\n        {\n            config.engine.level_objects ^= 1;\n            menu_video_enhancements[cursor] = object_enhancement_menu_text();\n            return false;\n        }\n\n        if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))\n        {\n            config.toggle_ferrari_mirror_fix();\n            menu_video_enhancements[cursor] = ferrari_mirror_fix_menu_text();\n            return false;\n        }\n\n        if (starts_with_label(option, PIXEL_SCALER_LABEL))\n        {\n            pixel_scaler::cycle();\n            menu_video_enhancements[cursor] = pixel_scaler_menu_text();\n            return false;\n        }\n    }\n'''
+          replace_once(menu_cpp, old_select, new_select)
+
+          # Guardrails.
+          legacy_text = Path(legacy).read_text(encoding='utf-8')
+          menu_text = Path(menu_cpp).read_text(encoding='utf-8')
+          for needle in [
+              'menu_video.push_back("VIDEO ENHANCEMENTS")',
+              'menu_video.push_back("CRT / VIDEO EMULATION")',
+              'menu_video_enhancements.push_back(scaler_entry)',
+              'menu_video_emulation.push_back(ENTRY_CRT_SHADER1)',
+              'menu_video_emulation.push_back(ENTRY_BLARGG_FILTER)',
+              'menu_selected == &menu_video_enhancements',
+          ]:
+              if needle not in legacy_text:
+                  raise SystemExit(f'missing video hierarchy change: {needle}')
+
+          if 'menu_selected == &menu_video_enhancements' not in menu_text:
+              raise SystemExit('menu.cpp does not handle Video Enhancements')
+          if 'menu_video.push_back(ENTRY_BLARGG_FILTER);' in legacy_text:
+              raise SystemExit('Blargg still appears directly in VIDEO')
+          if 'menu_video.push_back(ENTRY_CRT_SHADER1);' in legacy_text:
+              raise SystemExit('CRT shader still appears directly in VIDEO')
+
+          '@ | Set-Content -Encoding UTF8 patch_video_submenus.py
+          python patch_video_submenus.py
+          Remove-Item patch_video_submenus.py
           git diff --check
-          git diff -- src/main/frontend/menu.cpp
+          git diff -- src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
 
-      - name: Commit cleanup
+      - name: Commit video menu cleanup
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/frontend/menu.cpp
-          git commit -m 'Remove duplicate menu direction handler'
+          git add src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
+          git commit -m 'Organize video settings into submenus'
           git push origin HEAD:test/120fps
