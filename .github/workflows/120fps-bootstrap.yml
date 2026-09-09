@@ -1,4 +1,4 @@
-name: Rename CRT emulation menu
+name: Set DX defaults and clear all high scores
 
 on:
   push:
@@ -18,25 +18,58 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Rename menu entry
+      - name: Update defaults and score reset
         shell: pwsh
         run: |
-          $path = 'src/main/frontend/menu_legacy.hpp.inc'
+          $path = 'src/main/frontend/config_base.cpp'
           $text = Get-Content $path -Raw
-          $old = 'CRT / VIDEO EMULATION'
-          $new = 'CRT EMULATION...'
-          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
-          if ($count -lt 2) { throw "Expected active label references, found $count" }
-          $text = $text.Replace($old, $new)
+
+          $oldVsync = 'video.vsync         = cfg.get_int("video.vsync",           1); // Use V-Sync where available (e.g. Open GL)'
+          $newVsync = 'video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence'
+          if (-not $text.Contains($oldVsync)) { throw 'Could not locate VSync default.' }
+          $text = $text.Replace($oldVsync, $newVsync)
+
+          $oldTimer = 'engine.fix_timer       = cfg.get_int("engine.fix_timer",     0) != 0;'
+          $newTimer = 'engine.fix_timer       = cfg.get_int("engine.fix_timer",     1) != 0;'
+          if (-not $text.Contains($oldTimer)) { throw 'Could not locate timer-fix default.' }
+          $text = $text.Replace($oldTimer, $newTimer)
+
+          $oldClear = @'
+              try_remove(data.file_cont);
+              try_remove(data.file_cont_jap);
+
+              // returns true if at least one file was deleted
+          '@
+          $newClear = @'
+              try_remove(data.file_cont);
+              try_remove(data.file_cont_jap);
+
+              // DX Endless owns dedicated score files rather than using the
+              // Continuous table. Clear both course-set variants as well.
+              try_remove(data.save_path + "hiscores_endless.xml");
+              try_remove(data.save_path + "hiscores_endless_jap.xml");
+
+              // returns true if at least one file was deleted
+          '@
+          if (-not $text.Contains($oldClear)) { throw 'Could not locate clear_scores file list.' }
+          $text = $text.Replace($oldClear, $newClear)
+
           Set-Content $path $text -Encoding UTF8 -NoNewline
+
+          $check = Get-Content $path -Raw
+          if (-not $check.Contains('cfg.get_int("video.vsync",           0)')) { throw 'VSync default not updated.' }
+          if (-not $check.Contains('cfg.get_int("engine.fix_timer",     1)')) { throw 'Timer fix default not updated.' }
+          if (-not $check.Contains('hiscores_endless.xml')) { throw 'Endless normal reset missing.' }
+          if (-not $check.Contains('hiscores_endless_jap.xml')) { throw 'Endless Japanese reset missing.' }
+
           git diff --check
           git diff -- $path
 
-      - name: Commit rename
+      - name: Commit changes
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/frontend/menu_legacy.hpp.inc
-          git commit -m 'Rename CRT emulation menu'
+          git add src/main/frontend/config_base.cpp
+          git commit -m 'Set defaults and clear Endless high scores'
           git push origin HEAD:test/120fps
