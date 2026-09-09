@@ -274,7 +274,7 @@ public:
         if (config.videoRestartRequired)
             return true;
 
-        if (!base_renderer_initialized || !window || !glContext)
+        if (!base_renderer_started || !window || !glContext)
             return false;
 
         if (shutting_down.load(std::memory_order_acquire))
