@@ -1,4 +1,4 @@
-name: Restore SDL window focus
+name: Fix flipped sprite edge rows
 
 on:
   push:
@@ -18,64 +18,52 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Add focus recovery
+      - name: Fix flipped sprite source-row coverage
         shell: pwsh
         run: |
           @'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          path = Path('src/main/hwvideo/hwsprites.cpp')
+          text = path.read_text(encoding='utf-8')
 
-          replace_once(
-              'src/main/sdl2/renderbase.hpp',
-              '''    virtual bool supports_window() { return true; }\n    virtual bool supports_vsync() { return false; }\n''',
-              '''    virtual bool supports_window() { return true; }\n    virtual bool supports_vsync() { return false; }\n    virtual void focus_window() {}\n''')
+          old = '''        // JJP - maintain converted sprites to aid writing them
+        uint32_t sprite_height = 0;
+        // Determine underlying sprite height
+        int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.
+        // Use 64-bit multiply to avoid overflow
+        sprite_height = ((uint64_t)steps * zoom) >> 9;
+'''
 
-          replace_once(
-              'src/main/sdl2/rendersurface.hpp',
-              '''    void swap_buffers();\n    void disable();\n    bool start_frame() {return true;};\n''',
-              '''    void swap_buffers();\n    void disable();\n    void focus_window() override;\n    bool start_frame() {return true;};\n''')
+          new = '''        // Determine every source row the renderer can actually address.
+        // The draw loop samples the current source row before advancing yacc,
+        // so floor(destination_rows * zoom / 0x200) can be one row too short
+        // when the final zoom step has a remainder. That leaves the last row of
+        // a flipped sprite reading stale scratch data from another sprite and
+        // shows up as a thin horizontal strip at animated sprite edges.
+        const uint32_t destination_rows = static_cast<uint32_t>(
+            ytarget >= top ? ytarget - top : top - ytarget);
+        const uint32_t sprite_height = destination_rows == 0 ? 0 :
+            static_cast<uint32_t>(
+                (static_cast<uint64_t>(destination_rows - 1) *
+                 static_cast<uint64_t>(zoom)) >> 9) + 1;
+'''
 
-          replace_once(
-              'src/main/sdl2/rendersurface.cpp',
-              '''    initialised = false;\n}\n\n\nvoid RenderSurface::create_buffers() {\n''',
-              '''    initialised = false;\n}\n\nvoid RenderSurface::focus_window()\n{\n    if (!window)\n        return;\n\n    // Do this only when CannonBall explicitly asks for focus after startup or\n    // a renderer restart. SDL window creation/fullscreen transitions alone do\n    // not reliably leave the new window focused on Windows.\n    SDL_ShowWindow(window);\n    SDL_RaiseWindow(window);\n\n    if (SDL_SetWindowInputFocus(window) != 0)\n    {\n        std::cerr << "Unable to focus CannonBall window: "\n                  << SDL_GetError() << std::endl;\n    }\n}\n\n\nvoid RenderSurface::create_buffers() {\n''')
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected one sprite-height block, found {count}')
 
-          replace_once(
-              'src/main/video.hpp',
-              '''    void swap_buffers();\n    void disable();\n    int set_video_mode(video_settings_t* settings);\n''',
-              '''    void swap_buffers();\n    void disable();\n    void focus_window();\n    int set_video_mode(video_settings_t* settings);\n''')
-
-          replace_once(
-              'src/main/video.cpp',
-              '''    enabled = false;\n}\n\n// ------------------------------------------------------------------------------------------------\n// Configure video settings from config file\n''',
-              '''    enabled = false;\n}\n\nvoid Video::focus_window()\n{\n    if (renderer)\n        renderer->focus_window();\n}\n\n// ------------------------------------------------------------------------------------------------\n// Configure video settings from config file\n''')
-
-          replace_once(
-              'src/main/main.cpp',
-              '''            video.sprite_layer->set_x_clip(false);\n            config.videoRestartRequired = false;\n\n            // Only expose the newly-created renderer to workers after every\n''',
-              '''            video.sprite_layer->set_x_clip(false);\n            config.videoRestartRequired = false;\n            video.focus_window();\n\n            // Only expose the newly-created renderer to workers after every\n''')
-
-          replace_once(
-              'src/main/main.cpp',
-              '''    // Now start the main game loop, which includes SDL video and input\n    audio.init();\n    const int exit_code = main_loop();\n''',
-              '''    // Now start the main game loop, which includes SDL video and input.\n    // Request focus only after video, controllers, haptics and audio are all\n    // initialized so no later startup subsystem can leave the SDL window in\n    // the background. This also makes direct EXE launches behave like launchers\n    // that explicitly activate the CannonBall window.\n    audio.init();\n    video.focus_window();\n    const int exit_code = main_loop();\n''')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
           '@ | python -
 
           git diff --check
-          git diff -- src/main/sdl2/renderbase.hpp src/main/sdl2/rendersurface.hpp src/main/sdl2/rendersurface.cpp src/main/video.hpp src/main/video.cpp src/main/main.cpp
+          git diff -- src/main/hwvideo/hwsprites.cpp
 
       - name: Commit changes
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/sdl2/renderbase.hpp src/main/sdl2/rendersurface.hpp src/main/sdl2/rendersurface.cpp src/main/video.hpp src/main/video.cpp src/main/main.cpp
-          git commit -m 'Restore SDL window focus after startup'
+          git add src/main/hwvideo/hwsprites.cpp
+          git commit -m 'Fix flipped sprite bottom-edge artifacts'
           git push origin HEAD:test/120fps
