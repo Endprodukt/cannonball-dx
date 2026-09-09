@@ -53,6 +53,11 @@ bool RenderSurface::init(int source_width, int source_height,
                          int source_scale, int video_mode_requested, int scanlines_requested)
 {
     ntsc = (snes_ntsc_t*) malloc( sizeof(snes_ntsc_t) );
+    if (!ntsc)
+    {
+        std::cerr << "Unable to allocate the NTSC filter.\n";
+        return false;
+    }
     // Can only be called from the thread with the SDL context (usuablly the main thread)
     src_width  = source_width;
     src_height = source_height;
@@ -134,10 +139,12 @@ void RenderSurface::disable()
     // Free the CPU surfaces.
     if (GameSurface[0]) { SDL_FreeSurface(GameSurface[0]); GameSurface[0] = nullptr; }
     if (GameSurface[1]) { SDL_FreeSurface(GameSurface[1]); GameSurface[1] = nullptr; }
+    GameSurfacePixels = nullptr;
 
     // Release any additional buffers.
     destroy_buffers();
     free(ntsc);
+    ntsc = nullptr;
 
     initialised = false;
 }
@@ -356,10 +363,6 @@ bool RenderSurface::init_sdl(int video_mode)
         }
     }
 
-    // Fix the GL viewport to the actual drawable size in both fullscreen and
-    // windowed modes.
-    glb::on_drawable_resized();
-
     // --- Tiny ES2 backend init (replaces SDL_gpu) ---
     auto loadTextFile = [](const char* path)->std::string {
         std::ifstream f(path, std::ios::binary);
@@ -379,7 +382,8 @@ bool RenderSurface::init_sdl(int video_mode)
             return false;
         }
     }
-    // Initialize GL backend
+    // glb::init binds the new window before querying its drawable size and
+    // setting the viewport. Do not query the previous window before that.
     if (blargg)
         glb::set_game_pixel_format(glb::State::PixFmt::RGBA);
     else

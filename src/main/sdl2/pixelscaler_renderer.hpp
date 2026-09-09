@@ -31,7 +31,7 @@ public:
 
     ~PixelScalerRenderer() override
     {
-        if (base_renderer_initialized)
+        if (base_renderer_started)
             disable();
     }
 
@@ -44,7 +44,7 @@ public:
 
         active_mode = pixel_scaler::OFF;
         scaler_path = false;
-        base_renderer_initialized = false;
+        base_renderer_started = false;
         scaler_last_config = -1;
         scaler_ticks = 3;
 
@@ -63,6 +63,9 @@ public:
         // Always initialise the stock SE renderer first. It owns the one and
         // only SDL window / GLES context / shader program. The scaler is then
         // optionally attached to that live renderer without replacing it.
+        // Own partial initialization too, so disable() can release resources
+        // if SDL/GL initialization fails or an allocation throws.
+        base_renderer_started = true;
         if (!RenderSurface::init(
                 source_width,
                 source_height,
@@ -70,10 +73,9 @@ public:
                 requested_video_mode,
                 requested_scanlines))
         {
+            disable();
             return false;
         }
-
-        base_renderer_initialized = true;
 
         // Windowed mode is mouse-resizable. SDL2 has no portable
         // window-aspect constraint, so finalize_frame() keeps it locked
@@ -141,14 +143,14 @@ public:
 
     void disable() override
     {
-        if (!base_renderer_initialized)
+        if (!base_renderer_started)
             return;
 
         // RenderSurface::disable() waits on activity_counter. Custom scaler
         // work participates in that counter below, so this also safely waits
         // for xBRZ/HQx before deleting the GLES context and stock surfaces.
         RenderSurface::disable();
-        base_renderer_initialized = false;
+        base_renderer_started = false;
 
         std::lock_guard<std::mutex> processing_lock(scaler_processing_mutex);
         release_scaler_buffers_locked();
@@ -477,7 +479,7 @@ private:
     bool enable_scaler_in_place(int requested_mode, bool initial)
     {
         if (!pixel_scaler::active(requested_mode) ||
-            !base_renderer_initialized || !window || !glContext)
+            !base_renderer_started || !window || !glContext)
         {
             return false;
         }
@@ -1079,7 +1081,7 @@ private:
     }
 
     bool scaler_path = false;
-    bool base_renderer_initialized = false;
+    bool base_renderer_started = false;
     bool f6_was_down = false;
     int active_mode = pixel_scaler::OFF;
     int notification_mode = pixel_scaler::OFF;

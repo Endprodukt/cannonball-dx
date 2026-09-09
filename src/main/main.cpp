@@ -652,7 +652,8 @@ void pin_thread_to_core(std::thread& t, int core_id) {
 }
 
 
-static void main_loop() {
+static int main_loop() {
+    int exit_code = 0;
     // Frame rate is an explicit user setting. -30/-60 remain optional
     // command-line overrides, but there is no automatic performance switch.
     int configured_fps =
@@ -794,9 +795,24 @@ static void main_loop() {
 
         // Check to see if anything happened needing a video restart
         if (config.videoRestartRequired) {
+            const int previous_hires = config.video.hires;
             video.disable();
             config.video.hires = config.video.hires_next;
-            video.init(&roms, &config.video, true);
+            if (!video.init(&roms, &config.video, true))
+            {
+                std::cerr << "Video restart failed; restoring the previous engine resolution.\n";
+                config.video.hires = previous_hires;
+                config.video.hires_next = previous_hires;
+                if (!video.init(&roms, &config.video, true))
+                {
+                    // Leave the loop before another frame can use missing
+                    // buffers, then join workers and run the normal shutdown.
+                    std::cerr << "Unable to restore video; shutting down.\n";
+                    cannonball::state = STATE_QUIT;
+                    exit_code = 1;
+                    break;
+                }
+            }
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
             // reset timers as video restart can take a while
@@ -851,6 +867,7 @@ static void main_loop() {
     audio.stop_audio();
 
     // we're done
+    return exit_code;
 }
 
 
@@ -1071,12 +1088,12 @@ int main(int argc, char* argv[]) {
 
     // Now start the main game loop, which includes SDL video and input
     audio.init();
-    main_loop();
+    const int exit_code = main_loop();
 
     // Wait for threads to finish
     //sound.join();
     stats.join();
-    quit_func(0);
+    quit_func(exit_code);
 
     // Never Reached
     return 0;

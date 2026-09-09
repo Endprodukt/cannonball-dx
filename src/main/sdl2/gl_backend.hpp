@@ -724,7 +724,12 @@ inline void shutdown() {
     if (G.texGame)    { glDeleteTextures(1, &G.texGame); G.texGame = 0; }
     if (G.texOverlay) { glDeleteTextures(1, &G.texOverlay); G.texOverlay = 0; }
     if (G.texPass)    { glDeleteTextures(1, &G.texPass); G.texPass = 0; }
+    if (G.fbo)       { glDeleteFramebuffers(1, &G.fbo); G.fbo = 0; }
     if (G.program)    { glDeleteProgram(G.program); G.program = 0; }
+
+    // The SDL window/context are destroyed by RenderSurface immediately after
+    // this call. No window pointer, GL name or cached state may outlive them.
+    G = State{};
 }
 
 

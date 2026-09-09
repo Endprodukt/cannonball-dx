@@ -49,7 +49,7 @@ Video::Video(void)
 
 Video::~Video(void)
 {
-    video.disable(); // JJP
+    disable();
     delete sprite_layer;
     delete tile_layer;
     // JJP - moved to disable - if (pixels) delete[] pixels;
@@ -58,9 +58,18 @@ Video::~Video(void)
 }
 
 int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state)
+try
 {
-    if (!set_video_mode(settings))
+    if (!roms->tiles.rom || !roms->sprites.rom || !roms->road.rom) {
+        std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
         return false;
+    }
+
+    if (!set_video_mode(settings))
+    {
+        disable();
+        return false;
+    }
 
     // Internal pixel arrays.
     // JJP - add 128 bytes to each video buffer so that we can then avoid testing for x>0 in the sprite rendering loop
@@ -76,10 +85,6 @@ int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_s
     std::memset(pixel_buffers[1], 0, size);
 
     // Convert S16 tiles to a more useable format
-    if (!roms->tiles.rom || !roms->sprites.rom || !roms->road.rom) {
-        std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
-        return false;
-    }
     const bool hires = config.video.hires != 0;
 
     if (preserve_hardware_state)
@@ -107,6 +112,12 @@ int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_s
     enabled = true;
     return true;
 }
+catch (const std::bad_alloc&)
+{
+    std::cerr << "Unable to allocate video buffers.\n";
+    disable();
+    return false;
+}
 
 void Video::swap_buffers()
 {
@@ -119,12 +130,10 @@ void Video::swap_buffers()
 void Video::disable()
 {
     renderer->disable();
-    if (pixels)
-    {
-        if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
-        if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
-        pixels = nullptr;
-    }
+    // The second allocation may have failed before pixels was assigned.
+    if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
+    if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
+    pixels = nullptr;
     enabled = false;
 }
 
