@@ -649,6 +649,14 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
                 uint32_t readaddr     = shadowaddr;
                 uint32_t writeaddr    = shadowaddr + pitch;
                 uint32_t shadow_found = 0;
+
+                // The flipped-row buffer is scratch for the current sprite,
+                // not a safe ROM-address-only cache. Different sprite
+                // definitions can overlap the same source region with a
+                // different pitch/frame context, so always regenerate this
+                // row before the optimized draw pass consumes it.
+                spriterom_flipped[readaddr] = 0xffffffff;
+
                 if (spriterom_flipped[readaddr] == 0xffffffff) {
 /*
 processed_lines++;
