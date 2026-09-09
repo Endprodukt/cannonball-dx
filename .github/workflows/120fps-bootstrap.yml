@@ -1,4 +1,4 @@
-name: Fix actual DX video menu and 120 FPS cycling
+name: Remove duplicate DX menu direction handler
 
 on:
   push:
@@ -18,86 +18,37 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Patch active DX menu layer
+      - name: Remove duplicate menu direction path
         shell: pwsh
         run: |
-          @'
-          from pathlib import Path
+          $path = 'src/main/frontend/menu.cpp'
+          $text = Get-Content $path -Raw
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          $start = '    // Use held-state edges for menu LEFT/RIGHT.'
+          $end = '    // The original frontend uses analog steering as a menu up/down control.'
+          $startIndex = $text.IndexOf($start)
+          $endIndex = $text.IndexOf($end)
 
-          legacy = 'src/main/frontend/menu_legacy.hpp.inc'
+          if ($startIndex -lt 0 -or $endIndex -lt 0 -or $endIndex -le $startIndex) {
+            throw 'Could not locate duplicate LEFT/RIGHT handler block.'
+          }
 
-          # The DX wrapper rebuilds menu_video after MenuBase::populate().
-          # Put the graphics enhancements in THIS list, which is the one users see.
-          replace_once(
-              legacy,
-              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(scaler_entry);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_CRT_SHADER1);\n            menu_video.push_back(ENTRY_BLARGG_FILTER);\n            menu_video.push_back(ENTRY_BACK);\n''',
-              '''            menu_video.clear();\n            menu_video.push_back(ENTRY_FULLSCREEN);\n            menu_video.push_back(ENTRY_WIDESCREEN);\n            menu_video.push_back(ENTRY_HIRES);\n            menu_video.push_back(ENTRY_SPRITERES);\n            menu_video.push_back(ENTRY_OBJECTS);\n            menu_video.push_back(\n                std::string("FERRARI LOGO FIX ") +\n                (config.ferrari_mirror_fix() ? "ON" : "OFF"));\n            menu_video.push_back(ENTRY_FRAME_RATE);\n            menu_video.push_back(ENTRY_VSYNC);\n            menu_video.push_back(scaler_entry);\n            menu_video.push_back(ENTRY_FPS_COUNTER);\n            menu_video.push_back(ENTRY_X_OFFSET);\n            menu_video.push_back(ENTRY_Y_OFFSET);\n            menu_video.push_back(ENTRY_CRT_SHADER1);\n            menu_video.push_back(ENTRY_BLARGG_FILTER);\n            menu_video.push_back(ENTRY_BACK);\n''')
+          $text = $text.Substring(0, $startIndex) + $text.Substring($endIndex)
+          Set-Content $path $text -Encoding UTF8 -NoNewline
 
-          # Remove the two moved entries from the visible Enhancements page.
-          replace_once(
-              legacy,
-              '''            menu_enhancements.clear();\n            menu_enhancements.push_back(ENTRY_SPRITERES);\n            menu_enhancements.push_back(ENTRY_ATTRACT);\n            menu_enhancements.push_back(ENTRY_OBJECTS);\n            menu_enhancements.push_back(ENTRY_PROTOTYPE);\n            menu_enhancements.push_back(ENTRY_TIMER);\n            menu_enhancements.push_back(ENTRY_BACK);\n''',
-              '''            menu_enhancements.clear();\n            menu_enhancements.push_back(ENTRY_ATTRACT);\n            menu_enhancements.push_back(ENTRY_PROTOTYPE);\n            menu_enhancements.push_back(ENTRY_TIMER);\n            menu_enhancements.push_back(ENTRY_BACK);\n''')
+          $check = Get-Content $path -Raw
+          if ($check.Contains('Use held-state edges for menu LEFT/RIGHT')) {
+            throw 'Duplicate LEFT/RIGHT handler still present.'
+          }
 
-          # This is the real LEFT/RIGHT value editor used by the shallow DX menus.
-          # Replace its old binary 30/60 frame-rate toggle and add the moved rows.
-          replace_once(
-              legacy,
-              '''            else if (selected(ENTRY_FRAME_RATE))\n            {\n                handled = true;\n                const int next = config.video.fps == 0 ? 2 : 0;\n                if (next != config.video.fps)\n                {\n                    config.video.fps = next;\n                    config.set_fps(config.video.fps);\n                    changed = true;\n                }\n            }\n''',
-              '''            else if (selected(ENTRY_HIRES) || option.rfind("ENGINE RESOLUTION ", 0) == 0)\n            {\n                handled = true;\n                const int current = std::clamp(config.video.hires + 1, 1, 4);\n                const int next = wrap_value(current, 1, 4, 1, direction);\n                if (next != current)\n                {\n                    config.video.hires_next = next - 1;\n                    if (next == 1)\n                        config.video.hiresprites = 0;\n                    menu_video[cursor] = std::string("ENGINE RESOLUTION ") +\n                        (next == 1 ? "ORIGINAL" : std::to_string(next) + "X");\n                    config.videoRestartRequired = true;\n                    changed = true;\n                }\n            }\n            else if (selected(ENTRY_SPRITERES) || option.rfind("SPRITE ENHANCEMENT ", 0) == 0)\n            {\n                handled = true;\n                if (config.video.hires == 0)\n                {\n                    display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");\n                }\n                else\n                {\n                    const int target = direction > 0 ? 1 : 0;\n                    if (config.video.hiresprites != target)\n                    {\n                        config.video.hiresprites = target;\n                        menu_video[cursor] = std::string("SPRITE ENHANCEMENT ") +\n                            (target ? "ON" : "OFF");\n                        changed = true;\n                    }\n                }\n            }\n            else if (selected(ENTRY_OBJECTS) || option.rfind("OBJECT ENHANCEMENT ", 0) == 0)\n            {\n                handled = true;\n                const int target = direction > 0 ? 1 : 0;\n                if (config.engine.level_objects != target)\n                {\n                    config.engine.level_objects = target;\n                    menu_video[cursor] = std::string("OBJECT ENHANCEMENT ") +\n                        (target ? "ON" : "OFF");\n                    changed = true;\n                }\n            }\n            else if (option.rfind("FERRARI LOGO FIX ", 0) == 0)\n            {\n                handled = true;\n                const bool target = direction > 0;\n                if (config.ferrari_mirror_fix() != target)\n                {\n                    config.set_ferrari_mirror_fix(target);\n                    menu_video[cursor] = std::string("FERRARI LOGO FIX ") +\n                        (target ? "ON" : "OFF");\n                    changed = true;\n                }\n            }\n            else if (selected(ENTRY_FRAME_RATE))\n            {\n                handled = true;\n                const int current =\n                    config.video.fps == 0 ? 30 :\n                    config.video.fps == 3 ? 120 : 60;\n                int next = current;\n\n                if (direction > 0)\n                    next = current == 30 ? 60 : (current == 60 ? 120 : 30);\n                else\n                    next = current == 30 ? 120 : (current == 120 ? 60 : 30);\n\n                const int encoded = next == 30 ? 0 : (next == 120 ? 3 : 2);\n                if (encoded != config.video.fps)\n                {\n                    config.video.fps = encoded;\n                    config.set_fps(config.video.fps);\n                    menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                        std::to_string(next) + " FPS";\n                    changed = true;\n                }\n            }\n''')
-
-          # Remove the experimental duplicate LEFT/RIGHT path from Menu::tick().
-          # The active MenuLegacy::tick_menu()/adjust_current_value() path above
-          # now owns directional editing, so one press can only be processed once.
-          p = Path('src/main/frontend/menu.cpp')
-          text = p.read_text(encoding='utf-8')
-          start_marker = '    // Use held-state edges for menu LEFT/RIGHT.\n'
-          end_marker = '    // The original frontend uses analog steering as a menu up/down control.\n'
-          start = text.find(start_marker)
-          end = text.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit('menu.cpp: directional wrapper markers not found')
-          text = text[:start] + text[end:]
-          p.write_text(text, encoding='utf-8')
-
-          # Guardrails against patching the dead SE-only list again.
-          legacy_text = Path(legacy).read_text(encoding='utf-8')
-          required = [
-              'menu_video.push_back(ENTRY_SPRITERES);',
-              'menu_video.push_back(ENTRY_OBJECTS);',
-              'std::string("FERRARI LOGO FIX ")',
-              'current == 30 ? 60 : (current == 60 ? 120 : 30)',
-              'current == 30 ? 120 : (current == 120 ? 60 : 30)',
-              'option.rfind("ENGINE RESOLUTION ", 0) == 0',
-              'option.rfind("SPRITE ENHANCEMENT ", 0) == 0',
-              'option.rfind("OBJECT ENHANCEMENT ", 0) == 0',
-          ]
-          for needle in required:
-              if needle not in legacy_text:
-                  raise SystemExit(f'missing active DX menu change: {needle}')
-
-          menu_text = Path('src/main/frontend/menu.cpp').read_text(encoding='utf-8')
-          if 'Use held-state edges for menu LEFT/RIGHT' in menu_text:
-              raise SystemExit('duplicate Menu::tick directional handler still present')
-          '@ | Set-Content -Encoding UTF8 patch_active_dx_menu.py
-          python patch_active_dx_menu.py
-          Remove-Item patch_active_dx_menu.py
           git diff --check
-          git diff -- src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
+          git diff -- src/main/frontend/menu.cpp
 
-      - name: Commit fix
+      - name: Commit cleanup
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/frontend/menu_legacy.hpp.inc src/main/frontend/menu.cpp
-          git commit -m 'Fix active DX video menu and 120 FPS cycling'
+          git add src/main/frontend/menu.cpp
+          git commit -m 'Remove duplicate menu direction handler'
           git push origin HEAD:test/120fps
