@@ -1,4 +1,4 @@
-name: Set DX defaults and clear all high scores
+name: Restore SDL window focus
 
 on:
   push:
@@ -18,58 +18,64 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Update defaults and score reset
+      - name: Add focus recovery
         shell: pwsh
         run: |
-          $path = 'src/main/frontend/config_base.cpp'
-          $text = Get-Content $path -Raw
+          @'
+          from pathlib import Path
 
-          $oldVsync = 'video.vsync         = cfg.get_int("video.vsync",           1); // Use V-Sync where available (e.g. Open GL)'
-          $newVsync = 'video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence'
-          if (-not $text.Contains($oldVsync)) { throw 'Could not locate VSync default.' }
-          $text = $text.Replace($oldVsync, $newVsync)
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          $oldTimer = 'engine.fix_timer       = cfg.get_int("engine.fix_timer",     0) != 0;'
-          $newTimer = 'engine.fix_timer       = cfg.get_int("engine.fix_timer",     1) != 0;'
-          if (-not $text.Contains($oldTimer)) { throw 'Could not locate timer-fix default.' }
-          $text = $text.Replace($oldTimer, $newTimer)
+          replace_once(
+              'src/main/sdl2/renderbase.hpp',
+              '''    virtual bool supports_window() { return true; }\n    virtual bool supports_vsync() { return false; }\n''',
+              '''    virtual bool supports_window() { return true; }\n    virtual bool supports_vsync() { return false; }\n    virtual void focus_window() {}\n''')
 
-          $oldClear = @'
-              try_remove(data.file_cont);
-              try_remove(data.file_cont_jap);
+          replace_once(
+              'src/main/sdl2/rendersurface.hpp',
+              '''    void swap_buffers();\n    void disable();\n    bool start_frame() {return true;};\n''',
+              '''    void swap_buffers();\n    void disable();\n    void focus_window() override;\n    bool start_frame() {return true;};\n''')
 
-              // returns true if at least one file was deleted
-          '@
-          $newClear = @'
-              try_remove(data.file_cont);
-              try_remove(data.file_cont_jap);
+          replace_once(
+              'src/main/sdl2/rendersurface.cpp',
+              '''    initialised = false;\n}\n\n\nvoid RenderSurface::create_buffers() {\n''',
+              '''    initialised = false;\n}\n\nvoid RenderSurface::focus_window()\n{\n    if (!window)\n        return;\n\n    // Do this only when CannonBall explicitly asks for focus after startup or\n    // a renderer restart. SDL window creation/fullscreen transitions alone do\n    // not reliably leave the new window focused on Windows.\n    SDL_ShowWindow(window);\n    SDL_RaiseWindow(window);\n\n    if (SDL_SetWindowInputFocus(window) != 0)\n    {\n        std::cerr << "Unable to focus CannonBall window: "\n                  << SDL_GetError() << std::endl;\n    }\n}\n\n\nvoid RenderSurface::create_buffers() {\n''')
 
-              // DX Endless owns dedicated score files rather than using the
-              // Continuous table. Clear both course-set variants as well.
-              try_remove(data.save_path + "hiscores_endless.xml");
-              try_remove(data.save_path + "hiscores_endless_jap.xml");
+          replace_once(
+              'src/main/video.hpp',
+              '''    void swap_buffers();\n    void disable();\n    int set_video_mode(video_settings_t* settings);\n''',
+              '''    void swap_buffers();\n    void disable();\n    void focus_window();\n    int set_video_mode(video_settings_t* settings);\n''')
 
-              // returns true if at least one file was deleted
-          '@
-          if (-not $text.Contains($oldClear)) { throw 'Could not locate clear_scores file list.' }
-          $text = $text.Replace($oldClear, $newClear)
+          replace_once(
+              'src/main/video.cpp',
+              '''    enabled = false;\n}\n\n// ------------------------------------------------------------------------------------------------\n// Configure video settings from config file\n''',
+              '''    enabled = false;\n}\n\nvoid Video::focus_window()\n{\n    if (renderer)\n        renderer->focus_window();\n}\n\n// ------------------------------------------------------------------------------------------------\n// Configure video settings from config file\n''')
 
-          Set-Content $path $text -Encoding UTF8 -NoNewline
+          replace_once(
+              'src/main/main.cpp',
+              '''            video.sprite_layer->set_x_clip(false);\n            config.videoRestartRequired = false;\n\n            // Only expose the newly-created renderer to workers after every\n''',
+              '''            video.sprite_layer->set_x_clip(false);\n            config.videoRestartRequired = false;\n            video.focus_window();\n\n            // Only expose the newly-created renderer to workers after every\n''')
 
-          $check = Get-Content $path -Raw
-          if (-not $check.Contains('cfg.get_int("video.vsync",           0)')) { throw 'VSync default not updated.' }
-          if (-not $check.Contains('cfg.get_int("engine.fix_timer",     1)')) { throw 'Timer fix default not updated.' }
-          if (-not $check.Contains('hiscores_endless.xml')) { throw 'Endless normal reset missing.' }
-          if (-not $check.Contains('hiscores_endless_jap.xml')) { throw 'Endless Japanese reset missing.' }
+          replace_once(
+              'src/main/main.cpp',
+              '''    // Now start the main game loop, which includes SDL video and input\n    audio.init();\n    const int exit_code = main_loop();\n''',
+              '''    // Now start the main game loop, which includes SDL video and input.\n    // Request focus only after video, controllers, haptics and audio are all\n    // initialized so no later startup subsystem can leave the SDL window in\n    // the background. This also makes direct EXE launches behave like launchers\n    // that explicitly activate the CannonBall window.\n    audio.init();\n    video.focus_window();\n    const int exit_code = main_loop();\n''')
+          '@ | python -
 
           git diff --check
-          git diff -- $path
+          git diff -- src/main/sdl2/renderbase.hpp src/main/sdl2/rendersurface.hpp src/main/sdl2/rendersurface.cpp src/main/video.hpp src/main/video.cpp src/main/main.cpp
 
       - name: Commit changes
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/frontend/config_base.cpp
-          git commit -m 'Set defaults and clear Endless high scores'
+          git add src/main/sdl2/renderbase.hpp src/main/sdl2/rendersurface.hpp src/main/sdl2/rendersurface.cpp src/main/video.hpp src/main/video.cpp src/main/main.cpp
+          git commit -m 'Restore SDL window focus after startup'
           git push origin HEAD:test/120fps
