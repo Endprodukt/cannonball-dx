@@ -596,18 +596,15 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
             if (zoom < 1) zoom = 1;
         }
 
-        // Determine every source row the renderer can actually address.
-        // The draw loop samples the current source row before advancing yacc,
-        // so floor(destination_rows * zoom / 0x200) can be one row too short
-        // when the final zoom step has a remainder. That leaves the last row of
-        // a flipped sprite reading stale scratch data from another sprite and
-        // shows up as a thin horizontal strip at animated sprite edges.
+        // Keep the source-row count intentionally rounded down. This matches
+        // the hi-res black-stripe fix: the hardware-style destination height
+        // can request one final rounding row, but that row must not advance
+        // into the next sprite ROM row.
         const uint32_t destination_rows = static_cast<uint32_t>(
             ytarget >= top ? ytarget - top : top - ytarget);
-        const uint32_t sprite_height = destination_rows == 0 ? 0 :
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(destination_rows - 1) *
-                 static_cast<uint64_t>(zoom)) >> 9) + 1;
+        const uint32_t sprite_height = static_cast<uint32_t>(
+            (static_cast<uint64_t>(destination_rows) *
+             static_cast<uint64_t>(zoom)) >> 9);
 
 //std::cout << "\rSprite height: " << height << ", Calculated Height: " << sprite_height << ", raw height: " << rawh << "\n";
 
@@ -723,6 +720,16 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                     spriterom_shadowinfo[shadowaddr] = shadow_found;
                 }
                 shadowaddr += pitch;
+            }
+
+            // The renderer can sample at most one extra source row because
+            // of fixed-point zoom rounding. Never let that guard row reuse
+            // data left by another flipped sprite context or read into the
+            // following ROM sprite. A transparent 0xF row terminates cleanly.
+            if (shadowaddr < 0x10000)
+            {
+                spriterom_flipped[shadowaddr] = 0xffffffff;
+                spriterom_shadowinfo[shadowaddr] = 0;
             }
         } else {
             // not flipped
