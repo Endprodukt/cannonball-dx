@@ -1,4 +1,4 @@
-name: Fix 120 FPS menu selection
+name: Fix 120 FPS frontend road timing
 
 on:
   push:
@@ -18,79 +18,56 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Apply explicit DX 30 60 120 selector
+      - name: Fix frontend road simulation timing
         shell: pwsh
         run: |
           @'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          path = Path('src/main/frontend/menu_base.cpp')
+          text = path.read_text(encoding='utf-8')
 
-          # Do not leave the final DX frontend dependent on MenuBase's historical
-          # binary 30/60 selector. LEFT/RIGHT owns the three-state value directly.
-          marker = '''    // Engine resolution is a four-step VIDEO value. Use the existing preserve-state\n'''
-          insert = '''    // Frame rate is a DX three-step value. Handle it here rather than in\n    // MenuBase so 120 FPS cannot be collapsed by the inherited binary toggle.\n    if (state == STATE_MENU &&\n        menu_selected == &menu_video &&\n        cursor >= 0 &&\n        cursor < static_cast<int>(menu_video.size()) &&\n        starts_with_label(menu_video[cursor], ENTRY_FRAME_RATE) &&\n        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))\n    {\n        int rate = config.fps;\n        if (input.has_pressed(Input::RIGHT))\n            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);\n        else\n            rate = rate == 30 ? 120 : (rate == 120 ? 60 : 30);\n\n        config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);\n        config.set_fps(config.video.fps);\n        menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                             std::to_string(rate) + " FPS";\n        config_save_pending = true;\n        osoundint.queue_sound(sound::BEEP1);\n    }\n\n''' + marker
-          replace_once('src/main/frontend/menu.cpp', marker, insert)
+          start_marker = '    // Shift horizon\n'
+          end_marker = '    // Do Animations at 30 fps\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
 
-          # ENTER also cycles explicitly and returns false so MenuBase never gets a
-          # chance to apply its legacy frame-rate toggle afterward.
-          old = '''        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))\n        {\n'''
-          new = '''        if (starts_with_label(option, ENTRY_FRAME_RATE))\n        {\n            int rate = config.fps;\n            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);\n            config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);\n            config.set_fps(config.video.fps);\n            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +\n                                 std::to_string(rate) + " FPS";\n            return false;\n        }\n\n        if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))\n        {\n'''
-          replace_once('src/main/frontend/menu.cpp', old, new)
+          replacement = '''    // The menu road has its own simulation loop, separate from gameplay.\n    // At 120 FPS keep that simulation on the established 60 Hz cadence so\n    // road speed, acceleration, horizon movement and granular scrolling keep\n    // exactly the same real-time behaviour as the existing 60 FPS mode.\n    const bool frontend_road_tick =\n        config.fps != 120 || ((frame & 1) == 0);\n\n    if (frontend_road_tick)\n    {\n        // Shift horizon\n        if (oroad.horizon_base > HORIZON_DEST)\n        {\n            oroad.horizon_base -= config.fps == 30 ? 2 : 1;\n            if (oroad.horizon_base < HORIZON_DEST)\n                oroad.horizon_base = HORIZON_DEST;\n        }\n        // Advance road\n        else\n        {\n            const uint32_t scroll_speed =\n                config.fps == 30 ? (config.menu.road_scroll_speed << 1) :\n                                   config.menu.road_scroll_speed;\n\n            if (oinitengine.car_increment < scroll_speed << 16)\n                oinitengine.car_increment += (1 << 14);\n            if (oinitengine.car_increment > scroll_speed << 16)\n                oinitengine.car_increment = scroll_speed << 16;\n\n            uint32_t result = 0x12F * (oinitengine.car_increment >> 16);\n            oroad.road_pos_change = result;\n            oroad.road_pos += result;\n            if (oroad.road_pos >> 16 > ROAD_END) // loop to beginning of track data\n                oroad.road_pos = 0;\n\n            oinitengine.update_road();\n            oinitengine.set_granular_position();\n            oroad.road_width_bak = oroad.road_width >> 16;\n            oroad.car_x_bak = -oroad.road_width_bak;\n            oinitengine.car_x_pos = oroad.car_x_bak;\n        }\n    }\n\n'''
 
-          # Keep the inherited label table safe for any remaining legacy user.
-          replace_once('src/main/frontend/menulabels.hpp',
-              'const static char* FPS_LABELS[3] = { "30 FPS", "ORIGINAL", "60 FPS" };',
-              'const static char* FPS_LABELS[4] = { "30 FPS", "ORIGINAL", "60 FPS", "120 FPS" };')
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding='utf-8')
 
-          # Frontend road/background timing also contained hard-coded 30/60 logic.
-          # Scale the 120 Hz path instead of treating it as 30 Hz.
-          replace_once('src/main/frontend/menu_base.cpp',
-              '        oroad.horizon_base -= 60 / config.fps;',
-              '        oroad.horizon_base -= config.fps == 120 ? ((frame & 1) == 0 ? 1 : 0) : 60 / config.fps;')
+          # Static guardrails: 120 Hz must no longer use half-speed values every frame.
+          updated = path.read_text(encoding='utf-8')
+          required = [
+              'const bool frontend_road_tick',
+              'config.fps != 120 || ((frame & 1) == 0)',
+              'config.fps == 30 ? (config.menu.road_scroll_speed << 1)',
+              'oinitengine.car_increment += (1 << 14)',
+              'config.fps == 120 && (frame & 3) == 0',
+          ]
+          for needle in required:
+              if needle not in updated:
+                  raise SystemExit(f'missing frontend timing guard: {needle}')
 
-          replace_once('src/main/frontend/menu_base.cpp',
-              '        uint32_t scroll_speed = (config.fps == 60) ? config.menu.road_scroll_speed : config.menu.road_scroll_speed << 1;',
-              '        uint32_t scroll_speed = config.fps == 30 ? (config.menu.road_scroll_speed << 1) :\n                                config.fps == 120 ? std::max(1, config.menu.road_scroll_speed >> 1) :\n                                config.menu.road_scroll_speed;')
-
-          replace_once('src/main/frontend/menu_base.cpp',
-              '            oinitengine.car_increment += (1 << 14);',
-              '            oinitengine.car_increment += config.fps == 120 ? (1 << 13) : (1 << 14);')
-
-          replace_once('src/main/frontend/menu_base.cpp',
-              '    if (config.fps != 60 || (frame & 1) == 0)',
-              '    if (config.fps == 30 ||\n        (config.fps == 60 && (frame & 1) == 0) ||\n        (config.fps == 120 && (frame & 3) == 0))')
-
-          # Make the persisted-value documentation match the new encoding.
-          replace_once('src/main/frontend/config_base.cpp',
-              'cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS',
-              'cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS, 3=120 FPS')
-
-          for path, needles in {
-              'src/main/frontend/menu.cpp': ['rate == 60 ? 120', 'starts_with_label(option, ENTRY_FRAME_RATE)'],
-              'src/main/frontend/menu_base.cpp': ['config.fps == 120 && (frame & 3) == 0'],
-              'src/main/frontend/menulabels.hpp': ['"120 FPS"'],
-          }.items():
-              text = Path(path).read_text(encoding='utf-8')
-              for needle in needles:
-                  if needle not in text:
-                      raise SystemExit(f'{path}: missing {needle}')
-          '@ | Set-Content -Encoding UTF8 fix_120_menu.py
-          python fix_120_menu.py
-          Remove-Item fix_120_menu.py
+          forbidden = [
+              'config.fps == 120 ? std::max(1, config.menu.road_scroll_speed >> 1)',
+              'config.fps == 120 ? (1 << 13) : (1 << 14)',
+          ]
+          for needle in forbidden:
+              if needle in updated:
+                  raise SystemExit(f'old 120 frontend scaling still present: {needle}')
+          '@ | Set-Content -Encoding UTF8 fix_frontend_road_120.py
+          python fix_frontend_road_120.py
+          Remove-Item fix_frontend_road_120.py
           git diff --check
+          git diff -- src/main/frontend/menu_base.cpp
 
       - name: Commit fix
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main
-          git commit -m 'Fix explicit 120 FPS menu selection'
+          git add src/main/frontend/menu_base.cpp
+          git commit -m 'Fix 120 FPS frontend road timing'
           git push origin HEAD:test/120fps
