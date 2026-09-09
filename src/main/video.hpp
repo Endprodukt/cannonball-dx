@@ -33,9 +33,9 @@ class Video
 public:
 	hwsprites* sprite_layer;
     hwtiles* tile_layer;
-    uint16_t* pixel_buffers[2];
+    uint16_t* pixel_buffers[2] = {nullptr, nullptr};
     uint16_t* pixels;
-    int current_pixel_buffer;
+    int current_pixel_buffer = 0;
 
     bool enabled;
 

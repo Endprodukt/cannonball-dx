@@ -53,6 +53,11 @@ bool RenderSurface::init(int source_width, int source_height,
                          int source_scale, int video_mode_requested, int scanlines_requested)
 {
     ntsc = (snes_ntsc_t*) malloc( sizeof(snes_ntsc_t) );
+    if (!ntsc)
+    {
+        std::cerr << "Unable to allocate the NTSC filter.\n";
+        return false;
+    }
     // Can only be called from the thread with the SDL context (usuablly the main thread)
     src_width  = source_width;
     src_height = source_height;
@@ -134,10 +139,12 @@ void RenderSurface::disable()
     // Free the CPU surfaces.
     if (GameSurface[0]) { SDL_FreeSurface(GameSurface[0]); GameSurface[0] = nullptr; }
     if (GameSurface[1]) { SDL_FreeSurface(GameSurface[1]); GameSurface[1] = nullptr; }
+    GameSurfacePixels = nullptr;
 
     // Release any additional buffers.
     destroy_buffers();
     free(ntsc);
+    ntsc = nullptr;
 
     initialised = false;
 }
@@ -174,21 +181,31 @@ void RenderSurface::init_blargg_filter()
     // also pre-calculates the pixel mapping (which is slow), so the shader then runs on a lookup basis
     // in the game (fast).
     if (blargg) {
+        // Blargg always sees the established 2x horizontal sampling grid for
+        // every engine resolution above original. The hires NTSC blitter is
+        // explicitly a 2x-input blitter (6 input pixels -> 7 outputs), so 3x
+        // and 4x are resampled horizontally before filtering rather than being
+        // passed to it as if they were native 2x inputs.
+        const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+        const int filter_input_width =
+            render_scale > 1 ? (src_width / render_scale) * 2 : src_width;
+
         // first calculate the resultant image size.
-        if (config.video.hires) {
+        if (render_scale > 1) {
             #if SNES_NTSC_HAVE_SIMD
-                // Only compiled when the fast function exists
-                snes_src_width = SNES_NTSC_OUT_WIDTH_SIMD(src_width); // for 640px input = 752;
+                // The supported S16 widths normalise to the same SIMD-safe 2x
+                // widths used by CannonBall-SE: 640, 808 and 1072 pixels.
+                snes_src_width = SNES_NTSC_OUT_WIDTH_SIMD(filter_input_width);
             #else
-                snes_src_width = SNES_NTSC_OUT_WIDTH((src_width>>1));
+                snes_src_width = SNES_NTSC_OUT_WIDTH((filter_input_width >> 1));
                 unsigned check_width = SNES_NTSC_IN_WIDTH(snes_src_width);
-                while (check_width < (src_width>>1))
+                while (check_width < (filter_input_width >> 1))
                     check_width = SNES_NTSC_IN_WIDTH(++snes_src_width);
             #endif
         } else {
-            snes_src_width = SNES_NTSC_OUT_WIDTH(src_width);
+            snes_src_width = SNES_NTSC_OUT_WIDTH(filter_input_width);
             unsigned check_width = SNES_NTSC_IN_WIDTH(snes_src_width);
-            while (check_width < src_width)
+            while (check_width < filter_input_width)
                 check_width = SNES_NTSC_IN_WIDTH(++snes_src_width);
         }
 
@@ -346,10 +363,6 @@ bool RenderSurface::init_sdl(int video_mode)
         }
     }
 
-    // Fix the GL viewport to the actual drawable size in both fullscreen and
-    // windowed modes.
-    glb::on_drawable_resized();
-
     // --- Tiny ES2 backend init (replaces SDL_gpu) ---
     auto loadTextFile = [](const char* path)->std::string {
         std::ifstream f(path, std::ios::binary);
@@ -369,7 +382,8 @@ bool RenderSurface::init_sdl(int video_mode)
             return false;
         }
     }
-    // Initialize GL backend
+    // glb::init binds the new window before querying its drawable size and
+    // setting the viewport. Do not query the previous window before that.
     if (blargg)
         glb::set_game_pixel_format(glb::State::PixFmt::RGBA);
     else
@@ -960,72 +974,98 @@ bool RenderSurface::finalize_frame()
 
 void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, int section)
 {
-    // Processes either half of the image:
-    //   top half when section = 0
-    //   bottom half when section = 1
-    //   entire image when section = -1
+    // Blargg is fundamentally a horizontal analogue-video filter. The SE
+    // hires blitter models exactly a 2x source: six high-resolution samples
+    // feed the same seven output samples that the original-res path produces
+    // from three. For 3x/4x engine rendering, preserve every vertical row but
+    // resample each horizontal row onto that proven 2x grid first.
+    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+    const int filter_input_width =
+        render_scale > 1 ? (src_width / render_scale) * 2 : src_width;
 
-    long src_pixel_count = src_width * src_height;
-    long dst_pixel_count = snes_src_width * src_height;
-    long block_height    = src_height;
+    const int block_height = section >= 0 ? (src_height >> 1) : src_height;
+    const int start_y = section == 1 ? (src_height >> 1) : 0;
 
-    int this_section = section;
-    if (this_section >= 0) {
-        src_pixel_count = src_pixel_count >> 1;
-        dst_pixel_count = dst_pixel_count >> 1;
-        block_height = block_height >> 1;
-    } else {
-        this_section = 0;
+    if (!blargg)
+        return;
+
+    for (int row = 0; row < block_height; ++row)
+    {
+        const int y = start_y + row;
+        const uint16_t* src_row = gamePixels +
+            static_cast<size_t>(y) * static_cast<size_t>(src_width);
+        uint16_t* dst_row = rgb_pixels +
+            static_cast<size_t>(y) * static_cast<size_t>(filter_input_width);
+
+        if (render_scale <= 2)
+        {
+            // Preserve the original CannonBall-SE 1x/2x conversion exactly.
+            for (int x = 0; x < filter_input_width; ++x)
+                dst_row[x] = rgb_blargg[src_row[x]];
+        }
+        else
+        {
+            // Sample at the centre of each destination subpixel. This converts
+            // 3x/4x to the same two samples per native System 16 pixel expected
+            // by the hires Blargg path while retaining the high-res geometry
+            // before the analogue filter is applied.
+            for (int x = 0; x < filter_input_width; ++x)
+            {
+                int source_x = ((2 * x + 1) * render_scale) >> 2;
+                if (source_x >= src_width)
+                    source_x = src_width - 1;
+                dst_row[x] = rgb_blargg[src_row[source_x]];
+            }
+        }
     }
 
-    uint16_t* spix = gamePixels + (this_section * src_pixel_count); // S16 Output
-    uint16_t* bpix = rgb_pixels + (this_section * src_pixel_count); // converted colour buffer
+    const long output_pitch = static_cast<long>(snes_src_width) << 2;
+    uint16_t* filter_input = rgb_pixels +
+        static_cast<size_t>(start_y) * static_cast<size_t>(filter_input_width);
+    uint32_t* filter_output = outputPixels +
+        static_cast<size_t>(start_y) * static_cast<size_t>(snes_src_width);
+    const uint32_t Ashifted = uint32_t(Alevel);
 
-    if (blargg) {
-        // convert pixel data to format used by Blarrg filtering code
-
-        // translate game image to lookup format that Blargg filter will use
-        long pixel_count = (src_pixel_count) >> 2; // unroll 4:1
-		while (pixel_count--) {
-            // translate game image to lookup format that Blargg filter will use to
-            // convert to RGB output levels in one step based on pre-defined S16-correct DAC output values
-            *(bpix+0) = rgb_blargg[*(spix+0)];
-            *(bpix+1) = rgb_blargg[*(spix+1)];
-            *(bpix+2) = rgb_blargg[*(spix+2)];
-            *(bpix+3) = rgb_blargg[*(spix+3)];
-            bpix += 4;
-            spix += 4;
-        }
-
-        long output_pitch = (snes_src_width << 2); // 4 bytes-per-pixel (8/8/8/8)
-
-        // Set pointers
-        bpix = rgb_pixels + (this_section * src_pixel_count);
-        uint32_t* tpix = outputPixels + (this_section * dst_pixel_count);
-
-        // Calculated alpha mask
-        uint32_t Ashifted = uint32_t(Alevel);// << Ashift;
-
-        // Now call the blargg code, to do the work of translating S16 output to RGB
-        if (config.video.hires) {
-            // hi-res
-            #if SNES_NTSC_HAVE_SIMD
-                // Only compiled when the fast function exists
-                snes_ntsc_blit_hires_fast(ntsc, bpix, long(src_width), phase, src_width,
-                                          block_height, tpix, output_pitch, Ashifted);
-            #else
-                snes_ntsc_blit_hires(ntsc, bpix, long(src_width), phase, src_width,
-                                     block_height, tpix, output_pitch, Ashifted);
-            #endif
-        }
-        else {
-            // standard res processing
-            snes_ntsc_blit(ntsc, bpix, long(src_width), phase,
-                src_width, block_height, tpix, output_pitch, Ashifted);
-        }
+    if (render_scale > 1)
+    {
+        #if SNES_NTSC_HAVE_SIMD
+            snes_ntsc_blit_hires_fast(
+                ntsc,
+                filter_input,
+                long(filter_input_width),
+                phase,
+                filter_input_width,
+                block_height,
+                filter_output,
+                output_pitch,
+                Ashifted);
+        #else
+            snes_ntsc_blit_hires(
+                ntsc,
+                filter_input,
+                long(filter_input_width),
+                phase,
+                filter_input_width,
+                block_height,
+                filter_output,
+                output_pitch,
+                Ashifted);
+        #endif
+    }
+    else
+    {
+        snes_ntsc_blit(
+            ntsc,
+            filter_input,
+            long(filter_input_width),
+            phase,
+            filter_input_width,
+            block_height,
+            filter_output,
+            output_pitch,
+            Ashifted);
     }
 }
-
 
 
 #include <stdint.h>
@@ -1079,50 +1119,79 @@ static inline void apply_scanlines_(uint32_t *pixels,
 // shift masks
 static const uint32_t masks[4] = { 0xFFFFFFFFu, 0xFEFEFEFEu, 0xFCFCFCFCu, 0xF8F8F8F8u };
 
+static inline uint8_t scanline_coverage_for_row(size_t y)
+{
+    const size_t render_scale =
+        static_cast<size_t>(std::clamp(config.video.hires + 1, 1, 4));
+
+    // Original resolution cannot represent half a source row, so retain the
+    // legacy every-other-row mask.
+    if (render_scale <= 1)
+        return (y & 1u) ? 255u : 0u;
+
+    const size_t subrow = y % render_scale;
+    const size_t full_rows = render_scale >> 1;
+    const size_t first_full_row = render_scale - full_rows;
+
+    if (subrow >= first_full_row)
+        return 255u;
+
+    // 3x needs 1.5 dark rows to match the 50% coverage of 2x. Give the row
+    // immediately above the full scanline half the normal attenuation.
+    if ((render_scale & 1u) && subrow + 1 == first_full_row)
+        return 128u;
+
+    return 0u;
+}
+
 static inline void apply_scanlines(uint32_t *pixels,
                                      size_t width, size_t height,
                                      uint8_t shift,
                                      uint8_t Rshift, uint8_t Gshift, uint8_t Bshift, uint8_t Ashift,
                                      int     section)
 {
-    uint32_t mask   = masks[shift & 3];
-    uint32_t AMask  = 0xFFu << Ashift;   // preserve alpha bits
-
     const size_t block_height = (section >= 0 ? (height >> 1) : height);
     const size_t starty = (section == 1 ? block_height : 0);
     const size_t endy   = starty + block_height;
 
-    for (size_t y = (starty+1); y < endy; y += 2) {
+    for (size_t y = starty; y < endy; ++y) {
+        const uint8_t coverage = scanline_coverage_for_row(y);
+        if (coverage == 0)
+            continue;
+
         uint32_t *row = pixels + y * width;
         for (size_t x = 0; x < width; x++, row++) {
             uint32_t p = *row;
 
-            // 1) unpack each channel using its shift
             uint8_t r = (p >> Rshift) & 0xFF;
             uint8_t g = (p >> Gshift) & 0xFF;
             uint8_t b = (p >> Bshift) & 0xFF;
             uint8_t a = (p >> Ashift) & 0xFF;
 
-            // 2) compute perceptual luminance (0–255)
-            uint8_t lum = ( ( 77 * r
-                            +150 * g
-                            + 29 * b ) >> 8 );
+            const uint8_t lum = ((77 * r + 150 * g + 29 * b) >> 8);
 
-            // 3) apply the scanline “dim” to each channel
-            uint8_t rd = r >> shift;
-            uint8_t gd = g >> shift;
-            uint8_t bd = b >> shift;
+            const uint8_t rd = r >> shift;
+            const uint8_t gd = g >> shift;
+            const uint8_t bd = b >> shift;
 
-            // 4) blend original+dimmed by (255−lum)/255
-            uint8_t out_r = ( rd * (255 - lum) + r * lum ) >> 8;
-            uint8_t out_g = ( gd * (255 - lum) + g * lum ) >> 8;
-            uint8_t out_b = ( bd * (255 - lum) + b * lum ) >> 8;
+            uint8_t out_r = (rd * (255 - lum) + r * lum) >> 8;
+            uint8_t out_g = (gd * (255 - lum) + g * lum) >> 8;
+            uint8_t out_b = (bd * (255 - lum) + b * lum) >> 8;
 
-            // 5) repack into the pixel
-            *row = (out_r << Rshift)
-                 | (out_g << Gshift)
-                 | (out_b << Bshift)
-                 | (a     << Ashift);
+            if (coverage != 255u)
+            {
+                out_r = static_cast<uint8_t>(
+                    (out_r * coverage + r * (255u - coverage) + 127u) / 255u);
+                out_g = static_cast<uint8_t>(
+                    (out_g * coverage + g * (255u - coverage) + 127u) / 255u);
+                out_b = static_cast<uint8_t>(
+                    (out_b * coverage + b * (255u - coverage) + 127u) / 255u);
+            }
+
+            *row = (uint32_t(out_r) << Rshift)
+                 | (uint32_t(out_g) << Gshift)
+                 | (uint32_t(out_b) << Bshift)
+                 | (uint32_t(a)     << Ashift);
         }
     }
 }
@@ -1135,55 +1204,61 @@ static inline void apply_scanlines(uint16_t *pixels,
                                    uint8_t Rshift, uint8_t Gshift, uint8_t Bshift, uint8_t Ashift,
                                    int     section)
 {
-    // Helper lambdas to scale between 5-bit and 8-bit without branches
-    auto expand5  = [](uint32_t v5) -> uint32_t { return (v5 << 3) | (v5 >> 2); };                 // 0..31 -> 0..255
-    auto quantize5 = [](uint32_t v8) -> uint32_t { return (v8 >> 3); };             // 0..255 -> 0..31
+    auto expand5 = [](uint32_t v5) -> uint32_t {
+        return (v5 << 3) | (v5 >> 2);
+    };
+    auto quantize5 = [](uint32_t v8) -> uint32_t {
+        return v8 >> 3;
+    };
 
     const size_t block_height = (section >= 0 ? (height >> 1) : height);
     const size_t starty = (section == 1 ? block_height : 0);
     const size_t endy   = starty + block_height;
+    const uint16_t Amask =
+        (Ashift < 16) ? (uint16_t(1u) << Ashift) : 0;
 
-    const uint16_t Amask = (Ashift < 16) ? (uint16_t(1u) << Ashift) : 0; // A is 1 bit in 1555; 0 if no alpha in format
+    for (size_t y = starty; y < endy; ++y) {
+        const uint8_t coverage = scanline_coverage_for_row(y);
+        if (coverage == 0)
+            continue;
 
-    for (size_t y = starty + 1; y < endy; y += 2) {
         uint16_t *row = pixels + y * width;
         for (size_t x = 0; x < width; ++x, ++row) {
-            uint16_t p = *row;
+            const uint16_t p = *row;
 
-            // Extract 5-bit channels
             const uint32_t r5 = (p >> Rshift) & 0x1Fu;
             const uint32_t g5 = (p >> Gshift) & 0x1Fu;
             const uint32_t b5 = (p >> Bshift) & 0x1Fu;
             const uint16_t a1 = (Ashift < 16) ? (p & Amask) : 0;
 
-            // Upscale to 0..255
             const uint32_t r8 = expand5(r5);
             const uint32_t g8 = expand5(g5);
             const uint32_t b8 = expand5(b5);
+            const uint32_t lum = (77u * r8 + 150u * g8 + 29u * b8) >> 8;
 
-            // Perceptual luminance (0..255)
-            const uint32_t lum = (77u*r8 + 150u*g8 + 29u*b8) >> 8;
-
-            // Dimmed versions (by 1 >> shift)
             const uint32_t rd8 = r8 >> shift;
             const uint32_t gd8 = g8 >> shift;
             const uint32_t bd8 = b8 >> shift;
 
-            // Blend: darker where lum is low; preserve hue in bright areas
-            const uint32_t out_r8 = ( rd8 * (255u - lum) + r8 * lum ) >> 8;
-            const uint32_t out_g8 = ( gd8 * (255u - lum) + g8 * lum ) >> 8;
-            const uint32_t out_b8 = ( bd8 * (255u - lum) + b8 * lum ) >> 8;
+            uint32_t out_r8 = (rd8 * (255u - lum) + r8 * lum) >> 8;
+            uint32_t out_g8 = (gd8 * (255u - lum) + g8 * lum) >> 8;
+            uint32_t out_b8 = (bd8 * (255u - lum) + b8 * lum) >> 8;
 
-            // Quantize back to 5 bits
-            const uint16_t out_r5 = (uint16_t)quantize5(out_r8);
-            const uint16_t out_g5 = (uint16_t)quantize5(out_g8);
-            const uint16_t out_b5 = (uint16_t)quantize5(out_b8);
+            if (coverage != 255u)
+            {
+                out_r8 =
+                    (out_r8 * coverage + r8 * (255u - coverage) + 127u) / 255u;
+                out_g8 =
+                    (out_g8 * coverage + g8 * (255u - coverage) + 127u) / 255u;
+                out_b8 =
+                    (out_b8 * coverage + b8 * (255u - coverage) + 127u) / 255u;
+            }
 
-            // Repack to ARGB1555 (R,G,B at their shifts; keep incoming A bit if present)
-            *row = uint16_t((out_r5 << Rshift)
-                          | (out_g5 << Gshift)
-                          | (out_b5 << Bshift)
-                          | a1);
+            *row = uint16_t(
+                  (quantize5(out_r8) << Rshift)
+                | (quantize5(out_g8) << Gshift)
+                | (quantize5(out_b8) << Bshift)
+                | a1);
         }
     }
 }

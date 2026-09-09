@@ -22,6 +22,7 @@
 #include <cstring>      // std::memset
 #include <iostream>
 #include <bit>          // std::byteswap (C++20/23)
+#include <algorithm>    // std::clamp
 #include <cstring>      // std::memcpy
 
 #include "video.hpp"
@@ -48,7 +49,7 @@ Video::Video(void)
 
 Video::~Video(void)
 {
-    video.disable(); // JJP
+    disable();
     delete sprite_layer;
     delete tile_layer;
     // JJP - moved to disable - if (pixels) delete[] pixels;
@@ -57,9 +58,18 @@ Video::~Video(void)
 }
 
 int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state)
+try
 {
-    if (!set_video_mode(settings))
+    if (!roms->tiles.rom || !roms->sprites.rom || !roms->road.rom) {
+        std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
         return false;
+    }
+
+    if (!set_video_mode(settings))
+    {
+        disable();
+        return false;
+    }
 
     // Internal pixel arrays.
     // JJP - add 128 bytes to each video buffer so that we can then avoid testing for x>0 in the sprite rendering loop
@@ -75,10 +85,6 @@ int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_s
     std::memset(pixel_buffers[1], 0, size);
 
     // Convert S16 tiles to a more useable format
-    if (!roms->tiles.rom || !roms->sprites.rom || !roms->road.rom) {
-        std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
-        return false;
-    }
     const bool hires = config.video.hires != 0;
 
     if (preserve_hardware_state)
@@ -106,6 +112,12 @@ int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_s
     enabled = true;
     return true;
 }
+catch (const std::bad_alloc&)
+{
+    std::cerr << "Unable to allocate video buffers.\n";
+    disable();
+    return false;
+}
 
 void Video::swap_buffers()
 {
@@ -118,12 +130,10 @@ void Video::swap_buffers()
 void Video::disable()
 {
     renderer->disable();
-    if (pixels)
-    {
-        if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
-        if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
-        pixels = nullptr;
-    }
+    // The second allocation may have failed before pixels was assigned.
+    if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
+    if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
+    pixels = nullptr;
     enabled = false;
 }
 
@@ -153,12 +163,11 @@ int Video::set_video_mode(video_settings_t* settings)
 
     config.s16_height = S16_HEIGHT;
 
-    // Internal video buffer is doubled in hi-res mode.
-    if (settings->hires)
-    {
-        config.s16_width  <<= 1;
-        config.s16_height <<= 1;
-    }
+    // DX: video.hires is a backward-compatible render-scale index.
+    // 0 = original 1x, 1 = existing 2x, 2 = 3x, 3 = 4x.
+    const int render_scale = std::clamp(settings->hires + 1, 1, 4);
+    config.s16_width  *= render_scale;
+    config.s16_height *= render_scale;
 
     if (settings->scanlines < 0) settings->scanlines = 0;
     else if (settings->scanlines > 100) settings->scanlines = 100;

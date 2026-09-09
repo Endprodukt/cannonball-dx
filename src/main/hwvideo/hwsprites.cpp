@@ -3,6 +3,7 @@
 #include "globals.hpp"
 #include "frontend/config.hpp"
 #include <chrono>
+#include <algorithm>
 
 /***************************************************************************
     Video Emulation: OutRun Sprite Rendering Hardware.
@@ -229,11 +230,9 @@ void hwsprites::set_x_clip(bool on)
         x1 = config.s16_x_off;
         x2 = x1 + S16_WIDTH;
 
-        if (config.video.hires)
-        {
-            x1 <<= 1;
-            x2 <<= 1;
-        }
+        const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+        x1 *= render_scale;
+        x2 *= render_scale;
     }
     // Allow full wide-screen.
     else
@@ -517,6 +516,8 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         ferrari_mirror_fix_cached_state = ferrari_mirror_fix_enabled;
     }
 
+    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+
     static uint32_t reps[6] = {0,0,0,0,0,0};
 
     static uint32_t freq[32];
@@ -584,12 +585,15 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         // Adjust for widescreen mode
         xpos += config.s16_x_off;
 
-        // Adjust for hi-res mode
-        if (config.video.hires) {
-            xpos <<= 1;
-            top <<= 1;
-            ytarget <<= 1;
-            zoom >>= 1;
+        // Scale coordinates in the actual internal render target. Dividing
+        // zoom by the same factor makes the fixed-point sprite sampler emit
+        // proportionally more destination pixels and gives 3x/4x finer motion.
+        if (render_scale > 1) {
+            xpos *= render_scale;
+            top *= render_scale;
+            ytarget *= render_scale;
+            zoom /= render_scale;
+            if (zoom < 1) zoom = 1;
         }
 
         // JJP - maintain converted sprites to aid writing them
@@ -614,7 +618,7 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
 
         if (xdelta == -1) {
             xdelta = 1;       // always draw left-to-right
-            xpos  -= (width << (config.video.hires ? 1 : 0));   // move draw position left by rendered width
+            xpos  -= width * render_scale;   // move draw position left by rendered width
             if (flip) {
                 flip = 0;
                 addr -= (pitch - 1);
@@ -729,8 +733,8 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
         }
 
         // adjust x-position with pre-determined offset for hi-res sprite rendering
-        if (config.video.hiresprites == 1)
-            xpos += offset;
+        if (config.video.hiresprites == 1 && render_scale > 1)
+            xpos += (offset * render_scale) / 2;
 
         // choose which ROM to read from - flipped or non-flipped
         const uint32_t* spritedata;
@@ -743,6 +747,111 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
 
         const uint16_t scrn_width = config.s16_width;
         const unsigned span = (unsigned)(x2 - x1);
+
+        // The original optimized renderer batches at most three identical
+        // destination rows. 3x/4x can require more, so render one row per pass.
+        if (render_scale > 2)
+        {
+            for (y = top; y != ytarget; y += ydelta)
+            {
+                if (y >= 0 && y < config.s16_height)
+                {
+                    uint16_t* pPix1 = pixels + (y * scrn_width) + xpos;
+                    uint32_t spriteaddr = addr;
+                    int32_t xacc = 0;
+                    const bool shadowfound =
+                        shadow && (spriterom_shadowinfo[addr] == 0x11);
+
+                    if (!shadowfound)
+                    {
+                        if (clip)
+                        {
+                            for (int32_t x = xpos;
+                                 (xdelta > 0 && x < scrn_width) ||
+                                 (xdelta < 0 && x >= 0); )
+                            {
+                                const uint32_t word = spritedata[spriteaddr++];
+                                uint32_t pix;
+                                pix = (word >> 28) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >> 24) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >> 20) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >> 16) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >> 12) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >>  8) & 0xf; draw_pixel_1row_ns();
+                                pix = (word >>  4) & 0xf; draw_pixel_1row_ns();
+                                pix =  word        & 0xf; draw_pixel_1row_ns();
+                                if ((word & 0x000000f0) == 0x000000f0)
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            uint32_t word;
+                            do
+                            {
+                                word = spritedata[spriteaddr++];
+                                uint32_t pix;
+                                pix = (word >> 28) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >> 24) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >> 20) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >> 16) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >> 12) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >>  8) & 0xf; draw_pixel_1row_nc_ns();
+                                pix = (word >>  4) & 0xf; draw_pixel_1row_nc_ns();
+                                pix =  word        & 0xf; draw_pixel_1row_nc_ns();
+                            }
+                            while ((word & 0x000000f0) != 0x000000f0);
+                        }
+                    }
+                    else
+                    {
+                        if (clip)
+                        {
+                            for (int32_t x = xpos;
+                                 (xdelta > 0 && x < scrn_width) ||
+                                 (xdelta < 0 && x >= 0); )
+                            {
+                                const uint32_t word = spritedata[spriteaddr++];
+                                uint32_t pix;
+                                pix = (word >> 28) & 0xf; draw_pixel_1row();
+                                pix = (word >> 24) & 0xf; draw_pixel_1row();
+                                pix = (word >> 20) & 0xf; draw_pixel_1row();
+                                pix = (word >> 16) & 0xf; draw_pixel_1row();
+                                pix = (word >> 12) & 0xf; draw_pixel_1row();
+                                pix = (word >>  8) & 0xf; draw_pixel_1row();
+                                pix = (word >>  4) & 0xf; draw_pixel_1row();
+                                pix =  word        & 0xf; draw_pixel_1row();
+                                if ((word & 0x000000f0) == 0x000000f0)
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            uint32_t word;
+                            do
+                            {
+                                word = spritedata[spriteaddr++];
+                                uint32_t pix;
+                                pix = (word >> 28) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >> 24) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >> 20) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >> 16) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >> 12) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >>  8) & 0xf; draw_pixel_1row_nc();
+                                pix = (word >>  4) & 0xf; draw_pixel_1row_nc();
+                                pix =  word        & 0xf; draw_pixel_1row_nc();
+                            }
+                            while ((word & 0x000000f0) != 0x000000f0);
+                        }
+                    }
+                }
+
+                yacc += zoom;
+                addr += pitch * (yacc >> 9);
+                yacc &= 0x1ff;
+            }
+            continue;
+        }
 
 //        setup += std::chrono::high_resolution_clock::now() - start;
 //        start = std::chrono::high_resolution_clock::now();

@@ -652,7 +652,8 @@ void pin_thread_to_core(std::thread& t, int core_id) {
 }
 
 
-static void main_loop() {
+static int main_loop() {
+    int exit_code = 0;
     // Frame rate is an explicit user setting. -30/-60 remain optional
     // command-line overrides, but there is no automatic performance switch.
     int configured_fps =
@@ -694,22 +695,63 @@ static void main_loop() {
     std::thread t0;
     std::thread t1;
     std::thread t2;
-    if (using_threading) {
-        // Create worker threads.
-        std::cout << "Using " << threads << " threads (" << render_threads << " renderer threads)" << std::endl;
-        if (prepare_threads) {
-            // prepare_thread produces the S16 output - road, sky, sprites etc
-            // Note - this thread also launches the sound callback, so don't pin this thread to one core.
+
+    // Resolution changes rebuild the complete SDL/GL renderer and its CPU
+    // surfaces. Keep that critical section completely free of worker threads:
+    // merely waiting for the current jobs is not enough, because otherwise the
+    // workers remain alive against renderer-owned state while it is destroyed.
+    auto start_video_workers = [&]()
+    {
+        if (!using_threading)
+            return;
+
+        running.store(true, std::memory_order_release);
+        if (prepare_threads)
             t0 = std::thread(prepare_thread);
-        }
-        // render_threads process with S16 output with Blargg filter, if enabled,
-        // or convert the S16 palette-based output to RGB otherwise
-        t1 = std::thread(render_thread,render_threads,0);
-        // pin_thread_to_core(t1,2);
-        if (render_threads == 2) {
-            t2 = std::thread(render_thread,render_threads,1);
-            // pin_thread_to_core(t2,3);
-        }
+
+        t1 = std::thread(render_thread, render_threads, 0);
+        if (render_threads == 2)
+            t2 = std::thread(render_thread, render_threads, 1);
+    };
+
+    auto stop_video_workers = [&]()
+    {
+        if (!using_threading)
+            return;
+
+        running.store(false, std::memory_order_release);
+
+        // All normal frame jobs have already completed before this is called.
+        // These releases only wake the now-idle workers so they can observe the
+        // stop flag and leave their loops.
+        if (prepare_threads && t0.joinable())
+            prepareReady.release();
+        if (t1.joinable())
+            renderReady0.release();
+        if (render_threads == 2 && t2.joinable())
+            renderReady1.release();
+
+        if (t0.joinable()) t0.join();
+        if (t1.joinable()) t1.join();
+        if (t2.joinable()) t2.join();
+
+        // A worker can observe running=false before consuming the wake-up
+        // release above. Drain every semaphore after join so a newly-created
+        // worker can never inherit a stale permit or completion token from the
+        // previous renderer generation.
+        while (prepareReady.try_acquire()) {}
+        while (renderReady0.try_acquire()) {}
+        while (renderReady1.try_acquire()) {}
+        while (prepareDone.try_acquire()) {}
+        while (renderDone0.try_acquire()) {}
+        while (renderDone1.try_acquire()) {}
+    };
+
+    if (using_threading)
+    {
+        std::cout << "Using " << threads << " threads ("
+                  << render_threads << " renderer threads)" << std::endl;
+        start_video_workers();
     }
 
     SDL_Delay(500); // let system stabalise
@@ -792,14 +834,43 @@ static void main_loop() {
         // Swap the buffers for the next frame.
         video.swap_buffers();
 
-        // Check to see if anything happened needing a video restart
+        // Check to see if anything happened needing a video restart.
         if (config.videoRestartRequired) {
+            const int previous_hires = config.video.hires;
+
+            // We are at a frame boundary and have already acquired every
+            // render/prepare completion semaphore above. Fully terminate the
+            // workers as well before freeing renderer-owned memory or GL state.
+            // This makes resolution switching a quiescent operation.
+            stop_video_workers();
+
             video.disable();
             config.video.hires = config.video.hires_next;
-            video.init(&roms, &config.video, true);
+            if (!video.init(&roms, &config.video, true))
+            {
+                std::cerr << "Video restart failed; restoring the previous engine resolution.\n";
+                config.video.hires = previous_hires;
+                config.video.hires_next = previous_hires;
+                if (!video.init(&roms, &config.video, true))
+                {
+                    // Workers are already stopped, so no thread can touch the
+                    // failed renderer while the main loop shuts down.
+                    std::cerr << "Unable to restore video; shutting down.\n";
+                    config.videoRestartRequired = false;
+                    cannonball::state = STATE_QUIT;
+                    exit_code = 1;
+                    break;
+                }
+            }
+
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
-            // reset timers as video restart can take a while
+
+            // Only expose the newly-created renderer to workers after every
+            // buffer, surface and GL object is fully initialised.
+            start_video_workers();
+
+            // Reset timers as video restart can take a while.
             nextFrameTime = std::chrono::steady_clock::now();
             vsync = refresh_vsync_state();
         }
@@ -839,18 +910,15 @@ static void main_loop() {
             vsync = refresh_vsync_state();
         }
     }
-    // Signal the worker threads to quit.
-    if (using_threading) {
-        running.store(false);
-        if (prepare_threads)   { prepareReady.release(); t0.join(); }
-                                 renderReady0.release(); t1.join();
-        if (render_threads==2) { renderReady1.release(); t2.join(); }
-    }
+    // Signal the worker threads to quit. The helper is also safe when a failed
+    // video restart already stopped and joined them.
+    stop_video_workers();
 
     // Stop audio
     audio.stop_audio();
 
     // we're done
+    return exit_code;
 }
 
 
@@ -1071,12 +1139,12 @@ int main(int argc, char* argv[]) {
 
     // Now start the main game loop, which includes SDL video and input
     audio.init();
-    main_loop();
+    const int exit_code = main_loop();
 
     // Wait for threads to finish
     //sound.join();
     stats.join();
-    quit_func(0);
+    quit_func(exit_code);
 
     // Never Reached
     return 0;

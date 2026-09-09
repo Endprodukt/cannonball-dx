@@ -26,7 +26,7 @@ public:
     ~RenderSurface();
 
     // our GLES context
-    SDL_GLContext glContext;
+    SDL_GLContext glContext = nullptr;
 
     bool init(int src_width, int src_height,
               int scale,
@@ -42,8 +42,8 @@ protected:
     // SDL2 window
     SDL_Window* window = 0;
 
-    SDL_Surface* overlaySurface;
-    SDL_Surface* GameSurface[2];
+    SDL_Surface* overlaySurface = nullptr;
+    SDL_Surface* GameSurface[2] = {nullptr, nullptr};
 
     int current_game_surface = 0;
     void* GameSurfacePixels = nullptr;

@@ -8,6 +8,7 @@
 
 #include <SDL.h>
 #include <string>
+#include <algorithm>
 
 #include "sdl2/input.hpp"
 
@@ -95,7 +96,7 @@ namespace
         // Clear only the margins; map sprites (especially the extended sea)
         // are rendered afterwards and remain completely untouched.
         constexpr uint16_t MAP_BACKGROUND_PIXEL = 0x261;
-        const int scale = config.video.hires ? 2 : 1;
+        const int scale = std::clamp(config.video.hires + 1, 1, 4);
         const int left_margin = config.s16_x_off * scale;
         const int centre_width = S16_WIDTH * scale;
         const int right_start = left_margin + centre_width;

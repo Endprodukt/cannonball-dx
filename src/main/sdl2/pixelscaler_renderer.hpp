@@ -31,7 +31,7 @@ public:
 
     ~PixelScalerRenderer() override
     {
-        if (base_renderer_initialized)
+        if (base_renderer_started)
             disable();
     }
 
@@ -44,7 +44,7 @@ public:
 
         active_mode = pixel_scaler::OFF;
         scaler_path = false;
-        base_renderer_initialized = false;
+        base_renderer_started = false;
         scaler_last_config = -1;
         scaler_ticks = 3;
 
@@ -63,6 +63,9 @@ public:
         // Always initialise the stock SE renderer first. It owns the one and
         // only SDL window / GLES context / shader program. The scaler is then
         // optionally attached to that live renderer without replacing it.
+        // Own partial initialization too, so disable() can release resources
+        // if SDL/GL initialization fails or an allocation throws.
+        base_renderer_started = true;
         if (!RenderSurface::init(
                 source_width,
                 source_height,
@@ -70,10 +73,9 @@ public:
                 requested_video_mode,
                 requested_scanlines))
         {
+            disable();
             return false;
         }
-
-        base_renderer_initialized = true;
 
         // Windowed mode is mouse-resizable. SDL2 has no portable
         // window-aspect constraint, so finalize_frame() keeps it locked
@@ -141,14 +143,14 @@ public:
 
     void disable() override
     {
-        if (!base_renderer_initialized)
+        if (!base_renderer_started)
             return;
 
         // RenderSurface::disable() waits on activity_counter. Custom scaler
         // work participates in that counter below, so this also safely waits
         // for xBRZ/HQx before deleting the GLES context and stock surfaces.
         RenderSurface::disable();
-        base_renderer_initialized = false;
+        base_renderer_started = false;
 
         std::lock_guard<std::mutex> processing_lock(scaler_processing_mutex);
         release_scaler_buffers_locked();
@@ -166,14 +168,20 @@ public:
         if (!pixels || config.videoRestartRequired)
             return;
 
-        if (fastpass != 1 && notification_visible())
-            draw_scaler_notification(pixels);
+        const bool show_scaler_notification =
+            fastpass != 1 && notification_visible();
 
         // Serialise only scaler state/buffers. The stock SE path retains its
         // own existing drawFrameMutex/double buffering when the scaler is OFF.
         std::unique_lock<std::mutex> processing_lock(scaler_processing_mutex);
         if (!scaler_path)
         {
+            // Stock rendering still draws the notification into the native S16
+            // frame. Only an active pixel scaler needs the independent overlay
+            // path below.
+            if (show_scaler_notification)
+                draw_scaler_notification(pixels);
+
             processing_lock.unlock();
             RenderSurface::draw_frame(pixels, fastpass);
             return;
@@ -244,6 +252,13 @@ public:
 
         apply_low_factor_detail_preserve();
         apply_se_scanlines_after_scaler();
+
+        // Draw the scaler notification last, in scaler-output space. This keeps
+        // the text independent of both engine resolution and the scaler itself:
+        // xBRZ/HQx never processes the glyphs and scanlines never darken them.
+        if (show_scaler_notification)
+            draw_scaler_notification_scaled();
+
         prepare_rgba_upload();
 
         activity_counter.fetch_sub(1, std::memory_order_acq_rel);
@@ -259,7 +274,7 @@ public:
         if (config.videoRestartRequired)
             return true;
 
-        if (!base_renderer_initialized || !window || !glContext)
+        if (!base_renderer_started || !window || !glContext)
             return false;
 
         if (shutting_down.load(std::memory_order_acquire))
@@ -464,14 +479,14 @@ private:
     bool enable_scaler_in_place(int requested_mode, bool initial)
     {
         if (!pixel_scaler::active(requested_mode) ||
-            !base_renderer_initialized || !window || !glContext)
+            !base_renderer_started || !window || !glContext)
         {
             return false;
         }
 
         std::lock_guard<std::mutex> processing_lock(scaler_processing_mutex);
 
-        input_step = config.video.hires ? 2 : 1;
+        input_step = std::clamp(config.video.hires + 1, 1, 4);
         scaler_input_width = std::max(1, src_width / input_step);
         scaler_input_height = std::max(1, src_height / input_step);
 
@@ -856,6 +871,101 @@ private:
         }
     }
 
+    uint32_t notification_argb(uint16_t palette_index) const
+    {
+        const uint16_t raw = rgb_blargg[palette_index];
+        const bool shadow = (raw & 0x8000u) != 0;
+        const uint32_t r5 = (raw >> 10) & 0x1Fu;
+        const uint32_t g5 = (raw >> 5) & 0x1Fu;
+        const uint32_t b5 = raw & 0x1Fu;
+        const auto& table = shadow ? SHADOW_DAC : STANDARD_DAC;
+
+        return 0xFF000000u |
+               (table[r5] << 16) |
+               (table[g5] << 8) |
+               table[b5];
+    }
+
+    void draw_scaler_notification_scaled()
+    {
+        if (scaled_pixels.empty() || scaled_width <= 0 || scaled_height <= 0)
+            return;
+
+        const std::string text =
+            std::string("PIXEL SCALER: ") +
+            pixel_scaler::name(notification_mode);
+
+        // One native UI pixel must occupy exactly one scaler block. Therefore
+        // the on-screen notification size is constant for 3x/4x/5x/6x scalers
+        // and is completely independent of the engine's 1x..4x resolution.
+        const int ui_scale = std::max(1, factor);
+        const int glyph_height = 7 * ui_scale;
+        const int advance = 6 * ui_scale;
+        const int padding = 2 * ui_scale;
+        const int text_width =
+            static_cast<int>(text.size()) * advance - ui_scale;
+        const int box_width = text_width + padding * 2;
+        const int box_height = glyph_height + padding * 2;
+        const int box_x = std::max(0, (scaled_width - box_width) / 2);
+        const int box_y = 4 * ui_scale;
+
+        const auto [background_index, foreground_index] =
+            notification_palette_indices();
+        const uint32_t background = notification_argb(background_index);
+        const uint32_t foreground = notification_argb(foreground_index);
+
+        for (int y = 0; y < box_height; ++y)
+        {
+            const int py = box_y + y;
+            if (py < 0 || py >= scaled_height)
+                continue;
+
+            uint32_t* row = scaled_pixels.data() +
+                static_cast<size_t>(py) * scaled_width;
+            for (int x = 0; x < box_width; ++x)
+            {
+                const int px = box_x + x;
+                if (px >= 0 && px < scaled_width)
+                    row[px] = background;
+            }
+        }
+
+        int cursor_x = box_x + padding;
+        const int text_y = box_y + padding;
+
+        for (char c : text)
+        {
+            const auto rows = glyph(c);
+            for (int row_index = 0; row_index < 7; ++row_index)
+            {
+                for (int col = 0; col < 5; ++col)
+                {
+                    if ((rows[row_index] & (1u << (4 - col))) == 0)
+                        continue;
+
+                    const int x0 = cursor_x + col * ui_scale;
+                    const int y0 = text_y + row_index * ui_scale;
+                    for (int sy = 0; sy < ui_scale; ++sy)
+                    {
+                        const int py = y0 + sy;
+                        if (py < 0 || py >= scaled_height)
+                            continue;
+
+                        uint32_t* row = scaled_pixels.data() +
+                            static_cast<size_t>(py) * scaled_width;
+                        for (int sx = 0; sx < ui_scale; ++sx)
+                        {
+                            const int px = x0 + sx;
+                            if (px >= 0 && px < scaled_width)
+                                row[px] = foreground;
+                        }
+                    }
+                }
+            }
+            cursor_x += advance;
+        }
+    }
+
     void apply_low_factor_detail_preserve()
     {
         const int nearest_weight = factor == 3 ? 25 : 0;
@@ -971,7 +1081,7 @@ private:
     }
 
     bool scaler_path = false;
-    bool base_renderer_initialized = false;
+    bool base_renderer_started = false;
     bool f6_was_down = false;
     int active_mode = pixel_scaler::OFF;
     int notification_mode = pixel_scaler::OFF;
