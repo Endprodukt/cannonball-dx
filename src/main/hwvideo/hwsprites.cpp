@@ -596,12 +596,18 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
             if (zoom < 1) zoom = 1;
         }
 
-        // JJP - maintain converted sprites to aid writing them
-        uint32_t sprite_height = 0;
-        // Determine underlying sprite height
-        int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.
-        // Use 64-bit multiply to avoid overflow
-        sprite_height = ((uint64_t)steps * zoom) >> 9;
+        // Determine every source row the renderer can actually address.
+        // The draw loop samples the current source row before advancing yacc,
+        // so floor(destination_rows * zoom / 0x200) can be one row too short
+        // when the final zoom step has a remainder. That leaves the last row of
+        // a flipped sprite reading stale scratch data from another sprite and
+        // shows up as a thin horizontal strip at animated sprite edges.
+        const uint32_t destination_rows = static_cast<uint32_t>(
+            ytarget >= top ? ytarget - top : top - ytarget);
+        const uint32_t sprite_height = destination_rows == 0 ? 0 :
+            static_cast<uint32_t>(
+                (static_cast<uint64_t>(destination_rows - 1) *
+                 static_cast<uint64_t>(zoom)) >> 9) + 1;
 
 //std::cout << "\rSprite height: " << height << ", Calculated Height: " << sprite_height << ", raw height: " << rawh << "\n";
 
