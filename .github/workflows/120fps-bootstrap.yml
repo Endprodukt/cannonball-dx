@@ -21,40 +21,37 @@ jobs:
       - name: Fix flipped sprite source-row coverage
         shell: pwsh
         run: |
-          @'
-          from pathlib import Path
+          $path = 'src/main/hwvideo/hwsprites.cpp'
+          $text = (Get-Content $path -Raw).Replace("`r`n", "`n")
 
-          path = Path('src/main/hwvideo/hwsprites.cpp')
-          text = path.read_text(encoding='utf-8')
+          $old = @(
+            '        // JJP - maintain converted sprites to aid writing them',
+            '        uint32_t sprite_height = 0;',
+            '        // Determine underlying sprite height',
+            '        int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.',
+            '        // Use 64-bit multiply to avoid overflow',
+            '        sprite_height = ((uint64_t)steps * zoom) >> 9;'
+          ) -join "`n"
 
-          old = '''        // JJP - maintain converted sprites to aid writing them
-        uint32_t sprite_height = 0;
-        // Determine underlying sprite height
-        int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.
-        // Use 64-bit multiply to avoid overflow
-        sprite_height = ((uint64_t)steps * zoom) >> 9;
-'''
+          $new = @(
+            '        // Determine every source row the renderer can actually address.',
+            '        // The draw loop samples the current source row before advancing yacc,',
+            '        // so floor(destination_rows * zoom / 0x200) can be one row too short',
+            '        // when the final zoom step has a remainder. That leaves the last row of',
+            '        // a flipped sprite reading stale scratch data from another sprite and',
+            '        // shows up as a thin horizontal strip at animated sprite edges.',
+            '        const uint32_t destination_rows = static_cast<uint32_t>(',
+            '            ytarget >= top ? ytarget - top : top - ytarget);',
+            '        const uint32_t sprite_height = destination_rows == 0 ? 0 :',
+            '            static_cast<uint32_t>(',
+            '                (static_cast<uint64_t>(destination_rows - 1) *',
+            '                 static_cast<uint64_t>(zoom)) >> 9) + 1;'
+          ) -join "`n"
 
-          new = '''        // Determine every source row the renderer can actually address.
-        // The draw loop samples the current source row before advancing yacc,
-        // so floor(destination_rows * zoom / 0x200) can be one row too short
-        // when the final zoom step has a remainder. That leaves the last row of
-        // a flipped sprite reading stale scratch data from another sprite and
-        // shows up as a thin horizontal strip at animated sprite edges.
-        const uint32_t destination_rows = static_cast<uint32_t>(
-            ytarget >= top ? ytarget - top : top - ytarget);
-        const uint32_t sprite_height = destination_rows == 0 ? 0 :
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(destination_rows - 1) *
-                 static_cast<uint64_t>(zoom)) >> 9) + 1;
-'''
-
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f'Expected one sprite-height block, found {count}')
-
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-          '@ | python -
+          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
+          if ($count -ne 1) { throw "Expected one sprite-height block, found $count" }
+          $text = $text.Replace($old, $new)
+          Set-Content $path $text -Encoding UTF8 -NoNewline
 
           git diff --check
           git diff -- src/main/hwvideo/hwsprites.cpp
