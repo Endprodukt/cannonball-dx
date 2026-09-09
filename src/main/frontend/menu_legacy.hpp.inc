@@ -223,7 +223,7 @@ public:
             menu_video.push_back(ENTRY_VSYNC);
             menu_video.push_back(ENTRY_FPS_COUNTER);
             menu_video.push_back("VIDEO ENHANCEMENTS");
-            menu_video.push_back("CRT / VIDEO EMULATION");
+            menu_video.push_back("CRT EMULATION...");
             menu_video.push_back(ENTRY_X_OFFSET);
             menu_video.push_back(ENTRY_Y_OFFSET);
             menu_video.push_back(ENTRY_BACK);
@@ -1695,7 +1695,7 @@ protected:
         {
             const std::string option = menu_video[cursor];
             if (option == "VIDEO ENHANCEMENTS" ||
-                option == "CRT / VIDEO EMULATION")
+                option == "CRT EMULATION...")
             {
                 if (!select_pressed())
                 {
@@ -1730,7 +1730,7 @@ protected:
             return;
         }
 
-        // CRT / VIDEO EMULATION is a directory for the existing CRT shader
+        // CRT EMULATION... is a directory for the existing CRT shader
         // and Blargg configuration pages. Their original pages stay untouched.
         if (!config.smartypi.enabled && menu_selected == &menu_video_emulation)
         {
