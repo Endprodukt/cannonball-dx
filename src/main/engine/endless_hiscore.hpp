@@ -147,9 +147,7 @@ public:
 
         update_letter_selection();
 
-        bool select_pressed =
-            input.has_pressed(Input::ACCEL) ||
-            input.has_pressed(Input::START);
+        bool select_pressed = input.has_pressed(Input::ACCEL);
 
         // Match the stock score-entry pedal hysteresis.
         if (oinputs.input_acc < 0x30)
@@ -178,6 +176,10 @@ public:
     }
 
 private:
+    static const int INITIAL_DOT = 26;
+    static const int INITIAL_DELETE = 27;
+    static const int INITIAL_END = 28;
+
     std::array<Entry, NO_SCORES> scores{};
     Entry pending{};
 
@@ -337,27 +339,28 @@ private:
 
     void draw_original_initials_editor()
     {
-        // Use the exact same two-row ROM alphabet used by Original/Continuous
-        // and the Time Trial record entry instead of the generic 8x8 font.
+        // Match the stock OutRun/Continuous and Time Trial editor exactly:
+        // A-Z followed by full stop, delete-arrow and ED (end).
         ohud.blit_text2(TEXT2_ALPHABET);
 
-        // Endless only needs A-Z plus the full stop. The full stop is the first
-        // special stock high-score tile immediately following the ROM alphabet.
-        const uint32_t dot_adr = 0x110BF0;
-        video.write_text16(dot_adr,        0x8D00);
-        video.write_text16(dot_adr + 0x80, 0x8D01);
+        uint32_t adr = 0x110BF0;
+        video.write_text16(&adr,       0x8D00); // Full stop, top
+        video.write_text16(adr + 0x7E, 0x8D01); // Full stop, bottom
+        video.write_text16(&adr,       0x8D04); // Delete arrow, top
+        video.write_text16(adr + 0x7E, 0x8D05); // Delete arrow, bottom
+        video.write_text16(&adr,       0x8D02); // ED, top
+        video.write_text16(adr + 0x7E, 0x8D03); // ED, bottom
 
         // Highlight the selected two-row glyph exactly like stock OutRun.
         const uint16_t RED = 0x80;
-        const uint32_t selected_adr =
-            0x110BBC + (static_cast<uint32_t>(letter_selected) << 1);
+        adr = 0x110BBC + (static_cast<uint32_t>(letter_selected) << 1);
 
         video.write_text8(
-            selected_adr,
-            (video.read_text8(selected_adr) & 1) | RED);
+            adr,
+            (video.read_text8(adr) & 1) | RED);
         video.write_text8(
-            selected_adr + 0x80,
-            (video.read_text8(selected_adr + 0x80) & 1) | RED);
+            adr + 0x80,
+            (video.read_text8(adr + 0x80) & 1) | RED);
 
         // Same large red countdown used by the normal Best OutRunners editor.
         const uint16_t BIG_RED_FONT = 0x8080;
@@ -504,23 +507,66 @@ private:
         if (!direction)
             return;
 
+        // Stock OutRun restricts the selector to DELETE/END once three
+        // initials have been entered so the final character can still be fixed.
+        const int first_option =
+            initial_selected >= 3 ? INITIAL_DELETE : 0;
+
         letter_selected += direction;
-        if (letter_selected < 0)
-            letter_selected = 26;
-        else if (letter_selected > 26)
-            letter_selected = 0;
+        if (letter_selected < first_option)
+            letter_selected = INITIAL_END;
+        else if (letter_selected > INITIAL_END)
+            letter_selected = first_option;
+    }
+
+    void finish_initials_entry()
+    {
+        initials_done = true;
+        save();
+        ostats.frame_counter = 0;
+        ostats.time_counter = 0;
     }
 
     void accept_letter()
     {
-        if (score_pos < 0 || initial_selected >= 3)
+        if (score_pos < 0)
+            return;
+
+        Entry& entry = scores[score_pos];
+
+        if (letter_selected == INITIAL_END)
+        {
+            finish_initials_entry();
+            return;
+        }
+
+        if (letter_selected == INITIAL_DELETE)
+        {
+            if (initial_selected > 0)
+            {
+                --initial_selected;
+
+                if (initial_selected == 0)
+                    entry.initial1 = ' ';
+                else if (initial_selected == 1)
+                    entry.initial2 = ' ';
+                else
+                    entry.initial3 = ' ';
+
+                save();
+            }
+            return;
+        }
+
+        if (initial_selected >= 3)
             return;
 
         const char letter =
-            static_cast<char>(letter_selected < 26 ?
-                ('A' + letter_selected) : '.');
+            static_cast<char>(
+                letter_selected < INITIAL_DOT
+                    ? ('A' + letter_selected)
+                    : '.');
 
-        Entry& entry = scores[score_pos];
         if (initial_selected == 0)
             entry.initial1 = letter;
         else if (initial_selected == 1)
@@ -531,11 +577,20 @@ private:
         ++initial_selected;
         save();
 
+        // With the default delete-last-entry option enabled, match the arcade
+        // editor: after the third initial jump to ED but leave DELETE available.
         if (initial_selected >= 3)
         {
-            initials_done = true;
-            ostats.frame_counter = ostats.frame_reset;
-            ostats.time_counter = 2;
+            if (config.engine.hiscore_delete)
+            {
+                letter_selected = INITIAL_END;
+            }
+            else
+            {
+                initials_done = true;
+                ostats.frame_counter = ostats.frame_reset;
+                ostats.time_counter = 2;
+            }
         }
     }
 };
