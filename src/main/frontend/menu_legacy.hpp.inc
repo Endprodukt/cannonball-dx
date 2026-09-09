@@ -219,20 +219,32 @@ public:
             menu_video.push_back(ENTRY_FULLSCREEN);
             menu_video.push_back(ENTRY_WIDESCREEN);
             menu_video.push_back(ENTRY_HIRES);
-            menu_video.push_back(ENTRY_SPRITERES);
-            menu_video.push_back(ENTRY_OBJECTS);
-            menu_video.push_back(
-                std::string("FERRARI LOGO FIX ") +
-                (config.ferrari_mirror_fix() ? "ON" : "OFF"));
             menu_video.push_back(ENTRY_FRAME_RATE);
             menu_video.push_back(ENTRY_VSYNC);
-            menu_video.push_back(scaler_entry);
             menu_video.push_back(ENTRY_FPS_COUNTER);
+            menu_video.push_back("VIDEO ENHANCEMENTS");
+            menu_video.push_back("CRT / VIDEO EMULATION");
             menu_video.push_back(ENTRY_X_OFFSET);
             menu_video.push_back(ENTRY_Y_OFFSET);
-            menu_video.push_back(ENTRY_CRT_SHADER1);
-            menu_video.push_back(ENTRY_BLARGG_FILTER);
             menu_video.push_back(ENTRY_BACK);
+
+            menu_video_enhancements.clear();
+            menu_video_enhancements.push_back(
+                std::string("SPRITE ENHANCEMENT ") +
+                (config.video.hiresprites ? "ON" : "OFF"));
+            menu_video_enhancements.push_back(
+                std::string("OBJECT ENHANCEMENT ") +
+                (config.engine.level_objects ? "ON" : "OFF"));
+            menu_video_enhancements.push_back(
+                std::string("FERRARI LOGO FIX ") +
+                (config.ferrari_mirror_fix() ? "ON" : "OFF"));
+            menu_video_enhancements.push_back(scaler_entry);
+            menu_video_enhancements.push_back(ENTRY_BACK);
+
+            menu_video_emulation.clear();
+            menu_video_emulation.push_back(ENTRY_CRT_SHADER1);
+            menu_video_emulation.push_back(ENTRY_BLARGG_FILTER);
+            menu_video_emulation.push_back(ENTRY_BACK);
 
             menu_engine.clear();
             menu_engine.push_back(ENTRY_TIME);
@@ -276,8 +288,10 @@ protected:
         const char* setting;
     };
 
-    // DX-only submenu for infrequently used administrative options.
+    // DX-only submenus.
     std::vector<std::string> menu_system;
+    std::vector<std::string> menu_video_enhancements;
+    std::vector<std::string> menu_video_emulation;
 
     // FFB tuning pages read their values directly from Config's XML tree.
     std::vector<std::string> menu_ffb_tuning;
@@ -614,7 +628,8 @@ protected:
         bool handled = false;
         bool changed = false;
 
-        if (menu_selected == &menu_video)
+        if (menu_selected == &menu_video ||
+            menu_selected == &menu_video_enhancements)
         {
             if (selected(ENTRY_FULLSCREEN))
             {
@@ -683,7 +698,7 @@ protected:
                     if (config.video.hiresprites != target)
                     {
                         config.video.hiresprites = target;
-                        menu_video[cursor] = std::string("SPRITE ENHANCEMENT ") +
+                        menu_selected->at(cursor) = std::string("SPRITE ENHANCEMENT ") +
                             (target ? "ON" : "OFF");
                         changed = true;
                     }
@@ -696,7 +711,7 @@ protected:
                 if (config.engine.level_objects != target)
                 {
                     config.engine.level_objects = target;
-                    menu_video[cursor] = std::string("OBJECT ENHANCEMENT ") +
+                    menu_selected->at(cursor) = std::string("OBJECT ENHANCEMENT ") +
                         (target ? "ON" : "OFF");
                     changed = true;
                 }
@@ -708,7 +723,7 @@ protected:
                 if (config.ferrari_mirror_fix() != target)
                 {
                     config.set_ferrari_mirror_fix(target);
-                    menu_video[cursor] = std::string("FERRARI LOGO FIX ") +
+                    menu_selected->at(cursor) = std::string("FERRARI LOGO FIX ") +
                         (target ? "ON" : "OFF");
                     changed = true;
                 }
@@ -775,7 +790,7 @@ protected:
                     pixel_scaler::request_transition_restart(current, next);
                 }
 
-                menu_video[cursor] =
+                menu_selected->at(cursor) =
                     std::string("PIXEL SCALER ") + pixel_scaler::name(next);
                 changed = next != current;
             }
@@ -1672,13 +1687,37 @@ protected:
             return;
         }
 
-        // Pixel Scaler now belongs to VIDEO. Intercept only this one entry;
-        // all other video settings continue through the original handler.
+        // VIDEO root: optional effects are grouped into two submenus.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_video &&
             cursor >= 0 &&
-            cursor < static_cast<int>(menu_video.size()) &&
-            menu_video[cursor].rfind("PIXEL SCALER ", 0) == 0)
+            cursor < static_cast<int>(menu_video.size()))
+        {
+            const std::string option = menu_video[cursor];
+            if (option == "VIDEO ENHANCEMENTS" ||
+                option == "CRT / VIDEO EMULATION")
+            {
+                if (!select_pressed())
+                {
+                    MenuBase::tick_menu();
+                    return;
+                }
+
+                set_menu(option == "VIDEO ENHANCEMENTS"
+                    ? &menu_video_enhancements
+                    : &menu_video_emulation);
+                refresh_menu();
+                return;
+            }
+        }
+
+        // VIDEO ENHANCEMENTS owns only value rows plus BACK. Value rows are
+        // handled by adjust_current_value()/Menu::select_pressed().
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_video_enhancements &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_video_enhancements.size()) &&
+            menu_video_enhancements[cursor].rfind(ENTRY_BACK, 0) == 0)
         {
             if (!select_pressed())
             {
@@ -1686,11 +1725,30 @@ protected:
                 return;
             }
 
-            pixel_scaler::cycle();
-            menu_video[cursor] =
-                std::string("PIXEL SCALER ") +
-                pixel_scaler::name(
-                    pixel_scaler::mode.load(std::memory_order_relaxed));
+            menu_back();
+            refresh_menu();
+            return;
+        }
+
+        // CRT / VIDEO EMULATION is a directory for the existing CRT shader
+        // and Blargg configuration pages. Their original pages stay untouched.
+        if (!config.smartypi.enabled && menu_selected == &menu_video_emulation)
+        {
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            const std::string option = menu_video_emulation[cursor];
+            if (option.rfind(ENTRY_CRT_SHADER1, 0) == 0)
+                set_menu(&menu_crt_shader1);
+            else if (option.rfind(ENTRY_BLARGG_FILTER, 0) == 0)
+                set_menu(&menu_blargg_filter);
+            else if (option.rfind(ENTRY_BACK, 0) == 0)
+                menu_back();
+
+            refresh_menu();
             return;
         }
 

@@ -462,8 +462,7 @@ void Menu::tick()
         }
     }
 
-    // Keep all visual/render enhancements together in VIDEO. Re-label the
-    // inherited entries so the setting names describe what DX actually does.
+    // Fundamental render scale stays on the VIDEO root.
     if (!menu_video.empty())
     {
         auto resolution_entry = std::find_if(
@@ -476,53 +475,24 @@ void Menu::tick()
             });
         if (resolution_entry != menu_video.end())
             *resolution_entry = engine_resolution_menu_text();
+    }
 
-        auto sprite_entry = std::find_if(
-            menu_video.begin(),
-            menu_video.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, ENTRY_SPRITERES) ||
-                       starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL);
-            });
-        if (sprite_entry != menu_video.end())
-            *sprite_entry = sprite_enhancement_menu_text();
-
-        auto object_entry = std::find_if(
-            menu_video.begin(),
-            menu_video.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, ENTRY_OBJECTS) ||
-                       starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL);
-            });
-        if (object_entry != menu_video.end())
-            *object_entry = object_enhancement_menu_text();
-
-        auto fix_entry = std::find_if(
-            menu_video.begin(),
-            menu_video.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);
-            });
-
-        if (fix_entry == menu_video.end())
+    // Optional visual additions live in VIDEO ENHANCEMENTS and stay synced
+    // with hotkeys or other paths that can change their underlying settings.
+    if (!menu_video_enhancements.empty())
+    {
+        for (std::string& entry : menu_video_enhancements)
         {
-            auto insert_before = object_entry != menu_video.end()
-                ? object_entry + 1
-                : std::find_if(
-                    menu_video.begin(),
-                    menu_video.end(),
-                    [](const std::string& entry)
-                    {
-                        return starts_with_label(entry, ENTRY_CRT_SHADER1);
-                    });
-            menu_video.insert(insert_before, ferrari_mirror_fix_menu_text());
-        }
-        else
-        {
-            *fix_entry = ferrari_mirror_fix_menu_text();
+            if (starts_with_label(entry, ENTRY_SPRITERES) ||
+                starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))
+                entry = sprite_enhancement_menu_text();
+            else if (starts_with_label(entry, ENTRY_OBJECTS) ||
+                     starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))
+                entry = object_enhancement_menu_text();
+            else if (starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL))
+                entry = ferrari_mirror_fix_menu_text();
+            else if (starts_with_label(entry, PIXEL_SCALER_LABEL))
+                entry = pixel_scaler_menu_text();
         }
     }
 
@@ -800,17 +770,22 @@ bool Menu::select_pressed()
             menu_video[cursor] = engine_resolution_menu_text(scale);
             return false;
         }
+    }
+
+    if (menu_selected == &menu_video_enhancements &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_video_enhancements.size()))
+    {
+        const std::string& option = menu_video_enhancements[cursor];
 
         if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))
         {
             if (config.video.hires == 0)
-            {
                 display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");
-            }
             else
             {
                 config.video.hiresprites ^= 1;
-                menu_video[cursor] = sprite_enhancement_menu_text();
+                menu_video_enhancements[cursor] = sprite_enhancement_menu_text();
             }
             return false;
         }
@@ -818,28 +793,21 @@ bool Menu::select_pressed()
         if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))
         {
             config.engine.level_objects ^= 1;
-            menu_video[cursor] = object_enhancement_menu_text();
+            menu_video_enhancements[cursor] = object_enhancement_menu_text();
             return false;
         }
 
         if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
         {
             config.toggle_ferrari_mirror_fix();
-            menu_video[cursor] = ferrari_mirror_fix_menu_text();
+            menu_video_enhancements[cursor] = ferrari_mirror_fix_menu_text();
             return false;
         }
-    }
-
-    if (menu_selected == &menu_enhancements &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_enhancements.size()))
-    {
-        const std::string& option = menu_enhancements[cursor];
 
         if (starts_with_label(option, PIXEL_SCALER_LABEL))
         {
             pixel_scaler::cycle();
-            menu_enhancements[cursor] = pixel_scaler_menu_text();
+            menu_video_enhancements[cursor] = pixel_scaler_menu_text();
             return false;
         }
     }
