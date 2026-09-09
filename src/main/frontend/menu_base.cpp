@@ -170,7 +170,7 @@ void Menu::populate_for_pc()
     menu_settings.push_back(ENTRY_MASTER_BREAK);
     menu_settings.push_back(ENTRY_SAVE);
 
-    // FPS not now needed - frame rate now automatically switches
+    menu_video.push_back(ENTRY_FRAME_RATE);
     menu_video.push_back(ENTRY_FPS_COUNTER);
     // always run fullscreen
     menu_video.push_back(ENTRY_WIDESCREEN);
@@ -772,7 +772,8 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_FRAME_RATE))
             {
-                config.video.fps = config.video.fps == 0 ? 2 : 0;
+                config.video.fps = config.video.fps == 0 ? 2 :
+                                   config.video.fps == 2 ? 3 : 0;
                 config.set_fps(config.video.fps);
             }
             else if (SELECTED(ENTRY_VSYNC))
@@ -1413,7 +1414,7 @@ void Menu::refresh_menu()
         else if (menu_selected == &menu_video)
         {
             if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");
-            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : "60 FPS");
+            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : (config.video.fps == 3 ? "120 FPS" : "60 FPS"));
             else if (SELECTED(ENTRY_VSYNC))         set_menu_text(ENTRY_VSYNC, config.video.vsync ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FULLSCREEN))    set_menu_text(ENTRY_FULLSCREEN, VIDEO_LABELS[config.video.mode]);
             else if (SELECTED(ENTRY_WIDESCREEN))    set_menu_text(ENTRY_WIDESCREEN, ASPECT_LABELS[config.video.widescreen]);

@@ -341,7 +341,7 @@ void OTraffic::move_spawned_sprite(oentry* sprite)
         if (((oinitengine.route_selected ^ sprite->control) & OSprites::TRAFFIC_RHS) == 0) {
             // JJP Ghost car fix.
             // Tag this as a potentially problematic sprite.
-            sprite->hidden = (config.fps == 60) ? 4 : 2;
+            sprite->hidden = config.fps == 120 ? 8 : (config.fps == 60 ? 4 : 2);
             return;
         }
     } else {

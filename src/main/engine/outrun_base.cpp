@@ -180,10 +180,16 @@ void Outrun::vint()
 {
     otiles.write_tilemap_hw();
     osprites.update_sprites();
-    otiles.update_tilemaps(cannonball_mode == MODE_ORIGINAL ? ostats.cur_stage : 0);
-    opalette.cycle_sky_palette();
-    opalette.fade_palette();
-    ostats.do_timers();
+
+    const bool tick_60hz = config.fps != 120 || ((cannonball::frame & 1) == 0);
+    if (tick_60hz)
+    {
+        otiles.update_tilemaps(cannonball_mode == MODE_ORIGINAL ? ostats.cur_stage : 0);
+        opalette.cycle_sky_palette();
+        opalette.fade_palette();
+        ostats.do_timers();
+    }
+
     if (cannonball_mode != MODE_TTRIAL) ohud.draw_timer1(ostats.time_counter);
     oinitengine.set_granular_position();
 }

@@ -208,8 +208,9 @@ void Config::load()
 
     video.mode          = cfg.get_int("video.mode",            1); // Video Mode: Default is Full Screen
     video.scale         = cfg.get_int("video.window.scale",    1); // Video Scale: Default is 1x
-    video.fps           = cfg.get_int("video.fps",             2); // 0 = 30 FPS, 2 = 60 FPS; default 60
-    video.fps           = video.fps == 0 ? 0 : 2;               // Normalize legacy ORIGINAL/other values to 60 FPS
+    video.fps           = cfg.get_int("video.fps",             2); // 0=30 FPS, 2=60 FPS, 3=120 FPS; default 60
+    if (video.fps != 0 && video.fps != 3)
+        video.fps = 2;
     video.fps_count     = cfg.get_int("video.fps_counter",     0); // FPS Counter
     video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode
     video.hires_next    =
@@ -746,12 +747,8 @@ bool Config::clear_scores()
 void Config::set_fps(int fps)
 {
     video.fps = fps;
-    // Set core FPS to 30fps or 60fps
-    this->fps = video.fps == 0 ? 30 : 60;
-
-    // Original game ticks sprites at 30fps but background scroll at 60fps
-    tick_fps  = video.fps < 2 ? 30 : 60;
-
+    this->fps = video.fps == 0 ? 30 : (video.fps == 3 ? 120 : 60);
+    tick_fps = this->fps;
     cannonball::frame_ms = 1000.0 / this->fps;
 
     /* JJP - Sound initialised in seperate thread so not required here */
