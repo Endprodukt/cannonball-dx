@@ -149,6 +149,24 @@ void RenderSurface::disable()
     initialised = false;
 }
 
+void RenderSurface::focus_window()
+{
+    if (!window)
+        return;
+
+    // Do this only when CannonBall explicitly asks for focus after startup or
+    // a renderer restart. SDL window creation/fullscreen transitions alone do
+    // not reliably leave the new window focused on Windows.
+    SDL_ShowWindow(window);
+    SDL_RaiseWindow(window);
+
+    if (SDL_SetWindowInputFocus(window) != 0)
+    {
+        std::cerr << "Unable to focus CannonBall window: "
+                  << SDL_GetError() << std::endl;
+    }
+}
+
 
 void RenderSurface::create_buffers() {
     uint32_t pixels;

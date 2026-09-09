@@ -865,6 +865,7 @@ static int main_loop() {
 
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
+            video.focus_window();
 
             // Only expose the newly-created renderer to workers after every
             // buffer, surface and GL object is fully initialised.
@@ -1141,8 +1142,13 @@ int main(int argc, char* argv[]) {
 #endif
     std::thread stats(play_stats_and_watchdog_updater); // Play stats file updater thread
 
-    // Now start the main game loop, which includes SDL video and input
+    // Now start the main game loop, which includes SDL video and input.
+    // Request focus only after video, controllers, haptics and audio are all
+    // initialized so no later startup subsystem can leave the SDL window in
+    // the background. This also makes direct EXE launches behave like launchers
+    // that explicitly activate the CannonBall window.
     audio.init();
+    video.focus_window();
     const int exit_code = main_loop();
 
     // Wait for threads to finish

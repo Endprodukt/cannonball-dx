@@ -137,6 +137,12 @@ void Video::disable()
     enabled = false;
 }
 
+void Video::focus_window()
+{
+    if (renderer)
+        renderer->focus_window();
+}
+
 // ------------------------------------------------------------------------------------------------
 // Configure video settings from config file
 // ------------------------------------------------------------------------------------------------
