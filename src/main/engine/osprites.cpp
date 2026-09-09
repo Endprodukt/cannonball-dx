@@ -797,6 +797,7 @@ std::exit(9);
     //int32_t sprite_width = (roms.rom0p->read8(src_offsets + 5)) * 8; // pitch, 8 pixels per 32-bit word
     int32_t calc_width   = ceil((0x200 * sprite_width)  / zoom);
     int32_t calc_height  = ceil((0x200 * sprite_height) / zoom);
+    const bool traffic_sprite = (input->control & TRAFFIC_SPRITE) != 0;
 
 /*
 {
@@ -808,9 +809,10 @@ if ((calc_width < width) || (calc_height < height)) {
     }
 }
 */
-    // loc 9582:
-//    input->width = width;
-    input->width = calc_width;
+    // Traffic keeps the original OutRun logical size for road geometry and
+    // collision bounds. The optimized renderer may calculate a slightly
+    // different sampled size, which is only a drawing concern.
+    input->width = traffic_sprite ? width : calc_width;
 
     // Bumper view: visually move the camera forward without altering gameplay Z or collision sizes.
     if (oroad.get_view_mode() == ORoad::VIEW_INCAR && input->road_priority > 0)
@@ -826,23 +828,22 @@ if ((calc_width < width) || (calc_height < height)) {
         output->set_hzoom(render_zoom);
     }
 
+    const int32_t geometry_width  = traffic_sprite ? width  : calc_width;
+    const int32_t geometry_height = traffic_sprite ? height : calc_height;
+
     // JJP - pass width through to sprite renderer
-//    output->set_width(width);
     output->set_width(calc_width);
 
     // -------------------------------------------------------------------------
     // Set Sprite X & Y Values
     // -------------------------------------------------------------------------
-//    set_sprite_xy(input, output, width, height);
-    set_sprite_xy(input, output, calc_width, calc_height);
+    set_sprite_xy(input, output, geometry_width, geometry_height);
 
     // Here we need the entire value set by above routine, not just top 0x1FF mask!
     int16_t sprite_x1 = output->get_x() + offset;
-//    int16_t sprite_x2 = sprite_x1 + width;
     int16_t sprite_x2 = sprite_x1 + calc_width + offset;
     int16_t sprite_y1 = output->get_y();
-//    int16_t sprite_y2 = sprite_y1 + height;
-    int16_t sprite_y2 = sprite_y1 + calc_height;
+    int16_t sprite_y2 = sprite_y1 + geometry_height;
 
     const uint16_t x1_bounds = 512 + config.s16_x_off; // right edge
     const uint16_t x2_bounds = 192 - config.s16_x_off; // left edge
@@ -882,8 +883,7 @@ if ((calc_width < width) || (calc_height < height)) {
     {
         int16_t y_adj = -(sprite_y1 - 256);
         y_adj *= roms.rom0p->read16(src_offsets + 2); // Width of line data (Unsigned multiply)
-//        y_adj /= height; // Unsigned divide
-        y_adj /= calc_height; // Unsigned divide
+        y_adj /= geometry_height; // Unsigned divide
         y_adj *= roms.rom0p->read16(src_offsets + 4); // Length of line data (Unsigned multiply)
         output->inc_offset(y_adj);
         output->data[0x0] = (output->data[0x0] & 0xFF00) | 0x100; // Mask on negative y index
@@ -891,8 +891,7 @@ if ((calc_width < width) || (calc_height < height)) {
     }
     else
     {
-//        output->set_height((uint8_t) height);
-        output->set_height((uint8_t) calc_height);
+        output->set_height((uint8_t) geometry_height);
     }
     
     // -------------------------------------------------------------------------
@@ -964,7 +963,7 @@ if ((calc_width < width) || (calc_height < height)) {
     }
 
     // cont2:
-    set_hrender(input, output, roms.rom0p->read16(src_offsets + 4), width);
+    set_hrender(input, output, roms.rom0p->read16(src_offsets + 4), traffic_sprite ? calc_width : width);
     
     // -------------------------------------------------------------------------
     // Set Sprite Pitch & Priority
