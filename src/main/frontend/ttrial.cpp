@@ -448,19 +448,23 @@ int TTrial::tick()
 
                 const int previous_level = level_selected;
 
-                // Keyboard and D-pad follow the visible 1/2/3/4/5 course-map
-                // layout. The analog wheel deliberately keeps the original DX
-                // linear 0..14 selector, including wrap-around.
+                // The course-map artwork is rotated relative to the logical
+                // 1/2/3/4/5 row layout used by move_course_digital(). Remap the
+                // digital directions so the Ferrari follows the direction the
+                // player actually presses on screen. The analog wheel retains
+                // the original linear 0..14 selector below.
                 if (input.has_pressed(Input::LEFT))
-                    level_selected = move_course_digital(level_selected, Input::LEFT);
-                else if (input.has_pressed(Input::RIGHT))
-                    level_selected = move_course_digital(level_selected, Input::RIGHT);
-                else if (input.has_pressed(Input::UP))
-                    level_selected = move_course_digital(level_selected, Input::UP);
-                else if (input.has_pressed(Input::DOWN))
                     level_selected = move_course_digital(level_selected, Input::DOWN);
+                else if (input.has_pressed(Input::RIGHT))
+                    level_selected = move_course_digital(level_selected, Input::UP);
+                else if (input.has_pressed(Input::UP))
+                    level_selected = move_course_digital(level_selected, Input::LEFT);
+                else if (input.has_pressed(Input::DOWN))
+                    level_selected = move_course_digital(level_selected, Input::RIGHT);
                 else if (!input.is_pressed(Input::LEFT) &&
-                         !input.is_pressed(Input::RIGHT))
+                         !input.is_pressed(Input::RIGHT) &&
+                         !input.is_pressed(Input::UP) &&
+                         !input.is_pressed(Input::DOWN))
                 {
                     if (oinputs.is_analog_l())
                     {
