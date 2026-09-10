@@ -648,12 +648,14 @@ void Input::handle_key(const int key, const bool is_pressed)
     if (key == key_config[10]) set_key_state(MENU, is_pressed);
     if (key == key_config[11]) set_key_state(VIEWPOINT, is_pressed);
 
-    // Permanent menu navigation fallback.
-// Arrow keys must always remain usable.
-    if (key == SDLK_UP)    set_key_state(UP, is_pressed);
-    if (key == SDLK_DOWN)  set_key_state(DOWN, is_pressed);
-    if (key == SDLK_LEFT)  set_key_state(LEFT, is_pressed);
-    if (key == SDLK_RIGHT) set_key_state(RIGHT, is_pressed);
+    // Permanent frontend keyboard fallbacks. These remain available even if
+    // the configurable Menu Accept / Menu Back bindings are changed or cleared.
+    if (key == SDLK_UP)     set_key_state(UP, is_pressed);
+    if (key == SDLK_DOWN)   set_key_state(DOWN, is_pressed);
+    if (key == SDLK_LEFT)   set_key_state(LEFT, is_pressed);
+    if (key == SDLK_RIGHT)  set_key_state(RIGHT, is_pressed);
+    if (key == SDLK_RETURN) set_key_state(ACCEPT, is_pressed);
+    if (key == SDLK_ESCAPE) set_key_state(BACK, is_pressed);
 
     // Function keys are not redefinable
     switch (key)
