@@ -208,14 +208,15 @@ void Config::load()
 
     video.mode          = cfg.get_int("video.mode",            1); // Video Mode: Default is Full Screen
     video.scale         = cfg.get_int("video.window.scale",    1); // Video Scale: Default is 1x
-    video.fps           = cfg.get_int("video.fps",             2); // 0 = 30 FPS, 2 = 60 FPS; default 60
-    video.fps           = video.fps == 0 ? 0 : 2;               // Normalize legacy ORIGINAL/other values to 60 FPS
+    video.fps           = cfg.get_int("video.fps",             2); // 0=30 FPS, 2=60 FPS, 3=120 FPS; default 60
+    if (video.fps != 0 && video.fps != 3)
+        video.fps = 2;
     video.fps_count     = cfg.get_int("video.fps_counter",     0); // FPS Counter
     video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode
     video.hires_next    =
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
-    video.hiresprites   = cfg.get_int("video.hiresprites",     0); // enable hires sprites with hires mode
-    video.vsync         = cfg.get_int("video.vsync",           1); // Use V-Sync where available (e.g. Open GL)
+    video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution
+    video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence
     video.x_offset      = cfg.get_int("video.x_offset",        0); // Offset from calculated image X position
     video.y_offset      = cfg.get_int("video.y_offset",        0); // Offset from calculated image Y position
     // JJP Additional configuration for CRT emulation
@@ -390,7 +391,7 @@ void Config::load()
     engine.randomgen       = cfg.get_int("engine.randomgen",     1);
     engine.fix_bugs_backup = 
     engine.fix_bugs        = cfg.get_int("engine.fix_bugs",      1) != 0;
-    engine.fix_timer       = cfg.get_int("engine.fix_timer",     0) != 0;
+    engine.fix_timer       = cfg.get_int("engine.fix_timer",     1) != 0;
     engine.layout_debug    = cfg.get_int("engine.layout_debug",   0) != 0;
     engine.hiscore_delete  = cfg.get_int("scores.delete_last_entry", 1);
     engine.hiscore_timer   = cfg.get_int("scores.hiscore_timer", 0);
@@ -435,7 +436,7 @@ bool Config::save()
     // JJP - CRT emulation settings
     cfg.put_int("video.mode",               video.mode);          // Video Mode: Full Screen (2)
     cfg.put_int("video.window.scale",       video.scale);         // Video Scale: 1x (1)
-    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS
+    cfg.put_int("video.fps",                video.fps);           // Frame Rate: 0=30 FPS, 2=60 FPS, 3=120 FPS
     cfg.put_int("video.fps_counter",        video.fps_count);     // FPS Counter (0)
     cfg.put_int("video.widescreen",         video.widescreen);    // Widescreen Mode (1)
     cfg.put_int("video.vsync",              video.vsync);         // V-Sync (1)
@@ -739,6 +740,11 @@ bool Config::clear_scores()
     try_remove(data.file_cont);
     try_remove(data.file_cont_jap);
 
+    // DX Endless owns dedicated score files rather than using the
+    // Continuous table. Clear both course-set variants as well.
+    try_remove(data.save_path + "hiscores_endless.xml");
+    try_remove(data.save_path + "hiscores_endless_jap.xml");
+
     // returns true if at least one file was deleted
     return (deleted > 0);
 }
@@ -746,12 +752,8 @@ bool Config::clear_scores()
 void Config::set_fps(int fps)
 {
     video.fps = fps;
-    // Set core FPS to 30fps or 60fps
-    this->fps = video.fps == 0 ? 30 : 60;
-
-    // Original game ticks sprites at 30fps but background scroll at 60fps
-    tick_fps  = video.fps < 2 ? 30 : 60;
-
+    this->fps = video.fps == 0 ? 30 : (video.fps == 3 ? 120 : 60);
+    tick_fps = this->fps;
     cannonball::frame_ms = 1000.0 / this->fps;
 
     /* JJP - Sound initialised in seperate thread so not required here */

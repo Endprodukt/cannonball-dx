@@ -172,7 +172,7 @@ double  cannonball::frame_ms            = 0;
 int     cannonball::frame               = 0;
 bool    cannonball::tick_frame          = true;
 int     cannonball::fps_counter         = 0;
-int     cannonball::fps_lock            = 0; // 0=use config, 30/60=command-line override
+int     cannonball::fps_lock            = 0; // 0=use config, 30/60/120=command-line override
 bool    cannonball::singlecore_detect   = true;
 bool    cannonball::singlecore_mode     = false;
 int     cannonball::game_threads        = omp_get_max_threads();
@@ -327,10 +327,9 @@ static void tick()
 {
     frame++;
 
-    // Determine whether to tick certain logic for the current frame.
-    tick_frame = (config.fps == 60) ?
-                 (((frame & 1) == 0) ? 1 : 0)
-                 : 1;
+    // Keep original 30 Hz core logic while allowing 60/120 Hz smooth rendering.
+    const int core_divisor = std::max(1, config.fps / 30);
+    tick_frame = (frame % core_divisor) == 0;
 
     process_events();
 
@@ -654,13 +653,14 @@ void pin_thread_to_core(std::thread& t, int core_id) {
 
 static int main_loop() {
     int exit_code = 0;
-    // Frame rate is an explicit user setting. -30/-60 remain optional
+    // Frame rate is an explicit user setting. -30/-60/-120 remain optional
     // command-line overrides, but there is no automatic performance switch.
     int configured_fps =
-        cannonball::fps_lock == 30 ? 30 :
-        cannonball::fps_lock == 60 ? 60 :
-        (config.video.fps == 0 ? 30 : 60);
-    config.video.fps = configured_fps == 30 ? 0 : 2;
+        cannonball::fps_lock == 30  ? 30  :
+        cannonball::fps_lock == 60  ? 60  :
+        cannonball::fps_lock == 120 ? 120 :
+        (config.video.fps == 0 ? 30 : (config.video.fps == 3 ? 120 : 60));
+    config.video.fps = configured_fps == 30 ? 0 : (configured_fps == 120 ? 3 : 2);
     config.set_fps(config.video.fps);
     double targetFPS = static_cast<double>(configured_fps);
 
@@ -865,6 +865,7 @@ static int main_loop() {
 
             video.sprite_layer->set_x_clip(false);
             config.videoRestartRequired = false;
+            video.focus_window();
 
             // Only expose the newly-created renderer to workers after every
             // buffer, surface and GL object is fully initialised.
@@ -945,6 +946,9 @@ static bool parse_command_line(int argc, char* argv[]) {
         else if (strcmp(argv[i], "-60") == 0) {
             cannonball::fps_lock = 60;
         }
+        else if (strcmp(argv[i], "-120") == 0) {
+            cannonball::fps_lock = 120;
+        }
         else if (strcmp(argv[i], "-t") == 0 && i+1 < argc) {
             std::string arg = argv[i + 1];
             if (arg.size() == 1 && arg[0] >= '1' && arg[0] <= '4') {
@@ -978,6 +982,7 @@ static bool parse_command_line(int argc, char* argv[]) {
                          "-list-audio-devices  : Lists available playback devices then quit\n" <<
                          "-30                  : Lock to 30fps\n" <<
                          "-60                  : Lock to 60fps\n" <<
+                         "-120                 : Lock to 120fps\n" <<
                          "-t x                 : Number of game threads (1-4)\n" <<
                          "-x                   : Disable single-core RaspberryPi board detection\n" <<
                          "-1                   : Use single-core mode\n" <<
@@ -1137,8 +1142,13 @@ int main(int argc, char* argv[]) {
 #endif
     std::thread stats(play_stats_and_watchdog_updater); // Play stats file updater thread
 
-    // Now start the main game loop, which includes SDL video and input
+    // Now start the main game loop, which includes SDL video and input.
+    // Request focus only after video, controllers, haptics and audio are all
+    // initialized so no later startup subsystem can leave the SDL window in
+    // the background. This also makes direct EXE launches behave like launchers
+    // that explicitly activate the CannonBall window.
     audio.init();
+    video.focus_window();
     const int exit_code = main_loop();
 
     // Wait for threads to finish

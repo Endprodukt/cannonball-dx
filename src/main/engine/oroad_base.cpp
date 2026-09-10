@@ -44,17 +44,18 @@ ORoad::~ORoad(void)
 void ORoad::tick()
 {
     // Enhancement: Adjust View
+    const int16_t horizon_step = config.tick_fps == 120 ? 8 : 16;
     if (horizon_target != horizon_offset)
     {
         if (horizon_offset > horizon_target)
         {
-            horizon_offset -= 16;
+            horizon_offset -= horizon_step;
             if (horizon_offset < horizon_target)
                 horizon_offset = horizon_target;
         }
         else if (horizon_offset < horizon_target)
         {
-            horizon_offset += 16;
+            horizon_offset += horizon_step;
             if (horizon_offset > horizon_target)
                 horizon_offset = horizon_target;
         }

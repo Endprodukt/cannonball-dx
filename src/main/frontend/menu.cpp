@@ -57,7 +57,9 @@ namespace
     const char* ENGINE_RESOLUTION_LABEL = "ENGINE RESOLUTION ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
-    const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI MIRROR FIX ";
+    const char* SPRITE_ENHANCEMENT_LABEL = "SPRITE ENHANCEMENT ";
+    const char* OBJECT_ENHANCEMENT_LABEL = "OBJECT ENHANCEMENT ";
+    const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI LOGO FIX ";
     // 0x10 is OutRun's copyright glyph, also used by the attract-mode copyright text.
     const char* DX_ABOUT_CREDIT = "DX AI SLOP BUILD \x10 2026 ENDPRODUKT";
     const char* SE_ABOUT_CREDIT = "SE BUILD COPYRIGHT 2025 JAMES PEARCE";
@@ -145,6 +147,18 @@ namespace
     {
         const int level = config.bumper_view_height_level();
         return std::string(BUMPER_HEIGHT_LABEL) + BUMPER_HEIGHT_NAMES[level];
+    }
+
+    std::string sprite_enhancement_menu_text()
+    {
+        return std::string(SPRITE_ENHANCEMENT_LABEL) +
+            (config.video.hiresprites ? "ON" : "OFF");
+    }
+
+    std::string object_enhancement_menu_text()
+    {
+        return std::string(OBJECT_ENHANCEMENT_LABEL) +
+            (config.engine.level_objects ? "ON" : "OFF");
     }
 
     std::string ferrari_mirror_fix_menu_text()
@@ -448,9 +462,7 @@ void Menu::tick()
         }
     }
 
-    // Replace the inherited binary ORIGINAL/HI-RES entry in VIDEO with the DX
-    // four-step render scale. A different prefix prevents MenuBase from applying
-    // its old XOR toggle when this row is activated.
+    // Fundamental render scale stays on the VIDEO root.
     if (!menu_video.empty())
     {
         auto resolution_entry = std::find_if(
@@ -461,80 +473,27 @@ void Menu::tick()
                 return starts_with_label(entry, ENTRY_HIRES) ||
                        starts_with_label(entry, ENGINE_RESOLUTION_LABEL);
             });
-
         if (resolution_entry != menu_video.end())
             *resolution_entry = engine_resolution_menu_text();
     }
 
-    // Keep the Ferrari detail correction visible in Enhancements. OFF is the
-    // untouched arcade/CannonBall behavior where the complete sprite, including
-    // the badge and number plate, is mirrored on left-facing Ferrari frames.
-    if (!menu_enhancements.empty())
+    // Optional visual additions live in VIDEO ENHANCEMENTS and stay synced
+    // with hotkeys or other paths that can change their underlying settings.
+    if (!menu_video_enhancements.empty())
     {
-        auto fix_entry = std::find_if(
-            menu_enhancements.begin(),
-            menu_enhancements.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL);
-            });
-
-        if (fix_entry == menu_enhancements.end())
+        for (std::string& entry : menu_video_enhancements)
         {
-            auto insert_before = std::find_if(
-                menu_enhancements.begin(),
-                menu_enhancements.end(),
-                [](const std::string& entry)
-                {
-                    return starts_with_label(entry, ENTRY_BACK);
-                });
-
-            menu_enhancements.insert(insert_before, ferrari_mirror_fix_menu_text());
+            if (starts_with_label(entry, ENTRY_SPRITERES) ||
+                starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))
+                entry = sprite_enhancement_menu_text();
+            else if (starts_with_label(entry, ENTRY_OBJECTS) ||
+                     starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))
+                entry = object_enhancement_menu_text();
+            else if (starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL))
+                entry = ferrari_mirror_fix_menu_text();
+            else if (starts_with_label(entry, PIXEL_SCALER_LABEL))
+                entry = pixel_scaler_menu_text();
         }
-        else
-        {
-            *fix_entry = ferrari_mirror_fix_menu_text();
-        }
-    }
-
-    // Engine resolution is a four-step VIDEO value. Use the existing preserve-state
-    // video restart so changing it in the menu does not reset the running S16 state.
-    if (state == STATE_MENU &&
-        menu_selected == &menu_video &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_video.size()) &&
-        starts_with_label(menu_video[cursor], ENGINE_RESOLUTION_LABEL) &&
-        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
-    {
-        int scale = engine_resolution_scale();
-        if (input.has_pressed(Input::RIGHT))
-            scale = scale == 4 ? 1 : scale + 1;
-        else
-            scale = scale == 1 ? 4 : scale - 1;
-
-        request_engine_resolution_scale(scale);
-        menu_video[cursor] = engine_resolution_menu_text(scale);
-        config_save_pending = true;
-        osoundint.queue_sound(sound::BEEP1);
-    }
-
-    // LEFT/RIGHT set this boolean directly like the other DX value options.
-    // Enter remains a toggle fallback in select_pressed().
-    if (state == STATE_MENU &&
-        menu_selected == &menu_enhancements &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_enhancements.size()) &&
-        starts_with_label(menu_enhancements[cursor], FERRARI_MIRROR_FIX_LABEL) &&
-        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
-    {
-        const bool target = input.has_pressed(Input::RIGHT);
-        if (config.ferrari_mirror_fix() != target)
-        {
-            config.set_ferrari_mirror_fix(target);
-            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();
-            config_save_pending = true;
-        }
-        osoundint.queue_sound(sound::BEEP1);
     }
 
     // The original frontend uses analog steering as a menu up/down control.
@@ -790,6 +749,17 @@ bool Menu::select_pressed()
     {
         const std::string& option = menu_video[cursor];
 
+        if (starts_with_label(option, ENTRY_FRAME_RATE))
+        {
+            int rate = config.fps;
+            rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);
+            config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);
+            config.set_fps(config.video.fps);
+            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +
+                                 std::to_string(rate) + " FPS";
+            return false;
+        }
+
         if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))
         {
             int scale = engine_resolution_scale() + 1;
@@ -802,23 +772,42 @@ bool Menu::select_pressed()
         }
     }
 
-    if (menu_selected == &menu_enhancements &&
+    if (menu_selected == &menu_video_enhancements &&
         cursor >= 0 &&
-        cursor < static_cast<int>(menu_enhancements.size()))
+        cursor < static_cast<int>(menu_video_enhancements.size()))
     {
-        const std::string& option = menu_enhancements[cursor];
+        const std::string& option = menu_video_enhancements[cursor];
+
+        if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))
+        {
+            if (config.video.hires == 0)
+                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");
+            else
+            {
+                config.video.hiresprites ^= 1;
+                menu_video_enhancements[cursor] = sprite_enhancement_menu_text();
+            }
+            return false;
+        }
+
+        if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))
+        {
+            config.engine.level_objects ^= 1;
+            menu_video_enhancements[cursor] = object_enhancement_menu_text();
+            return false;
+        }
 
         if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
         {
             config.toggle_ferrari_mirror_fix();
-            menu_enhancements[cursor] = ferrari_mirror_fix_menu_text();
+            menu_video_enhancements[cursor] = ferrari_mirror_fix_menu_text();
             return false;
         }
 
         if (starts_with_label(option, PIXEL_SCALER_LABEL))
         {
             pixel_scaler::cycle();
-            menu_enhancements[cursor] = pixel_scaler_menu_text();
+            menu_video_enhancements[cursor] = pixel_scaler_menu_text();
             return false;
         }
     }

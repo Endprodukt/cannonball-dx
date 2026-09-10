@@ -73,7 +73,7 @@ namespace
 
     void approach_bumper_height(int16_t target)
     {
-        const int16_t step = 0x10;
+        const int16_t step = config.tick_fps == 120 ? 0x08 : 0x10;
 
         if (bumper_height_offset < target)
         {

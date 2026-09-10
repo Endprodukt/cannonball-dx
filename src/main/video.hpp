@@ -45,6 +45,7 @@ public:
 	int init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state = false);
     void swap_buffers();
     void disable();
+    void focus_window();
     int set_video_mode(video_settings_t* settings);
     void set_shadow_intensity(float);
     void prepare_frame();

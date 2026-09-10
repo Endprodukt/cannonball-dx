@@ -170,8 +170,11 @@ void Menu::populate_for_pc()
     menu_settings.push_back(ENTRY_MASTER_BREAK);
     menu_settings.push_back(ENTRY_SAVE);
 
-    // FPS not now needed - frame rate now automatically switches
+    menu_video.push_back(ENTRY_FRAME_RATE);
     menu_video.push_back(ENTRY_FPS_COUNTER);
+    menu_video.push_back(ENTRY_HIRES);
+    menu_video.push_back(ENTRY_SPRITERES);
+    menu_video.push_back(ENTRY_OBJECTS);
     // always run fullscreen
     menu_video.push_back(ENTRY_WIDESCREEN);
     // scale not needed - image is expanded on GPU
@@ -236,11 +239,8 @@ void Menu::populate_for_pc()
     menu_engine.push_back(ENTRY_SUB_HANDLING);
     menu_engine.push_back(ENTRY_BACK);
 
-    menu_enhancements.push_back(ENTRY_HIRES);
-    menu_enhancements.push_back(ENTRY_SPRITERES);
     menu_enhancements.push_back(ENTRY_TIMER);
     menu_enhancements.push_back(ENTRY_ATTRACT);
-    menu_enhancements.push_back(ENTRY_OBJECTS);
     menu_enhancements.push_back(ENTRY_PROTOTYPE);
     menu_enhancements.push_back(ENTRY_BACK);
 }
@@ -454,36 +454,52 @@ void Menu::tick_ui()
         ohud.blit_text_new(0, 1, msg.c_str(), ohud.GREY);
     }
 
-    // Shift horizon
-    if (oroad.horizon_base > HORIZON_DEST)
-    {
-        oroad.horizon_base -= 60 / config.fps;
-        if (oroad.horizon_base < HORIZON_DEST)
-            oroad.horizon_base = HORIZON_DEST;
-    }
-    // Advance road
-    else
-    {
-        uint32_t scroll_speed = (config.fps == 60) ? config.menu.road_scroll_speed : config.menu.road_scroll_speed << 1;
+    // The menu road has its own simulation loop, separate from gameplay.
+    // At 120 FPS keep that simulation on the established 60 Hz cadence so
+    // road speed, acceleration, horizon movement and granular scrolling keep
+    // exactly the same real-time behaviour as the existing 60 FPS mode.
+    const bool frontend_road_tick =
+        config.fps != 120 || ((frame & 1) == 0);
 
-        if (oinitengine.car_increment < scroll_speed << 16)
-            oinitengine.car_increment += (1 << 14);
-        if (oinitengine.car_increment > scroll_speed << 16)
-            oinitengine.car_increment = scroll_speed << 16;
-        uint32_t result = 0x12F * (oinitengine.car_increment >> 16);
-        oroad.road_pos_change = result;
-        oroad.road_pos += result;
-        if (oroad.road_pos >> 16 > ROAD_END) // loop to beginning of track data
-            oroad.road_pos = 0;
-        oinitengine.update_road();
-        oinitengine.set_granular_position();
-        oroad.road_width_bak = oroad.road_width >> 16; 
-        oroad.car_x_bak = -oroad.road_width_bak; 
-        oinitengine.car_x_pos = oroad.car_x_bak;
+    if (frontend_road_tick)
+    {
+        // Shift horizon
+        if (oroad.horizon_base > HORIZON_DEST)
+        {
+            oroad.horizon_base -= config.fps == 30 ? 2 : 1;
+            if (oroad.horizon_base < HORIZON_DEST)
+                oroad.horizon_base = HORIZON_DEST;
+        }
+        // Advance road
+        else
+        {
+            const uint32_t scroll_speed =
+                config.fps == 30 ? (config.menu.road_scroll_speed << 1) :
+                                   config.menu.road_scroll_speed;
+
+            if (oinitengine.car_increment < scroll_speed << 16)
+                oinitengine.car_increment += (1 << 14);
+            if (oinitengine.car_increment > scroll_speed << 16)
+                oinitengine.car_increment = scroll_speed << 16;
+
+            uint32_t result = 0x12F * (oinitengine.car_increment >> 16);
+            oroad.road_pos_change = result;
+            oroad.road_pos += result;
+            if (oroad.road_pos >> 16 > ROAD_END) // loop to beginning of track data
+                oroad.road_pos = 0;
+
+            oinitengine.update_road();
+            oinitengine.set_granular_position();
+            oroad.road_width_bak = oroad.road_width >> 16;
+            oroad.car_x_bak = -oroad.road_width_bak;
+            oinitengine.car_x_pos = oroad.car_x_bak;
+        }
     }
 
     // Do Animations at 30 fps
-    if (config.fps != 60 || (frame & 1) == 0)
+    if (config.fps == 30 ||
+        (config.fps == 60 && (frame & 1) == 0) ||
+        (config.fps == 120 && (frame & 3) == 0))
     {
         ologo.tick();
         osprites.sprite_copy();
@@ -772,7 +788,8 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_FRAME_RATE))
             {
-                config.video.fps = config.video.fps == 0 ? 2 : 0;
+                config.video.fps = config.video.fps == 0 ? 2 :
+                                   config.video.fps == 2 ? 3 : 0;
                 config.set_fps(config.video.fps);
             }
             else if (SELECTED(ENTRY_VSYNC))
@@ -1413,7 +1430,7 @@ void Menu::refresh_menu()
         else if (menu_selected == &menu_video)
         {
             if (SELECTED(ENTRY_FPS_COUNTER))        set_menu_text(ENTRY_FPS_COUNTER, config.video.fps_count ? "ON" : "OFF");
-            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : "60 FPS");
+            else if (SELECTED(ENTRY_FRAME_RATE))    set_menu_text(ENTRY_FRAME_RATE, config.video.fps == 0 ? "30 FPS" : (config.video.fps == 3 ? "120 FPS" : "60 FPS"));
             else if (SELECTED(ENTRY_VSYNC))         set_menu_text(ENTRY_VSYNC, config.video.vsync ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FULLSCREEN))    set_menu_text(ENTRY_FULLSCREEN, VIDEO_LABELS[config.video.mode]);
             else if (SELECTED(ENTRY_WIDESCREEN))    set_menu_text(ENTRY_WIDESCREEN, ASPECT_LABELS[config.video.widescreen]);

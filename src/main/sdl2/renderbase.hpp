@@ -32,6 +32,7 @@ public:
     void init_palette(int red_curve, int green_curve, int blue_curve);
     virtual bool supports_window() { return true; }
     virtual bool supports_vsync() { return false; }
+    virtual void focus_window() {}
 
     // S16 video hardware ladder DAC values
     alignas(ALIGNMENT) uint32_t rgb_lookup[LOOKUP_SIZE];
