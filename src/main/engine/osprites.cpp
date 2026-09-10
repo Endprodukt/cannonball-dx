@@ -15,7 +15,6 @@
 #include "engine/olevelobjs.hpp"
 #include "engine/osprites.hpp"
 #include "engine/otraffic.hpp"
-#include "engine/data/ozoom_lookup.hpp"
 
 #define fix_bugs fix_bugs && false || true
 #include "osprites_bugfix_base.cpp"
