@@ -1,0 +1,149 @@
+name: Update control documentation
+
+on:
+  push:
+    branches:
+      - readme-controls-current
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: contains(github.event.head_commit.message, '[readme-controls]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update README control sections
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          txt = Path('README.txt')
+          s = txt.read_text()
+          start = s.index('-------------------------------------\n4. Controls & Fixed Keyboard Hotkeys\n-------------------------------------\n')
+          end = s.index('-------------------------------------\n5. Bugs & Development\n-------------------------------------\n', start)
+          new_txt = '''-------------------------------------
+4. Controls & Fixed Keyboard Hotkeys
+-------------------------------------
+
+Controls are configured through:
+
+Menu -> Settings -> Controls
+
+The binding editor provides separate Keyboard, Gamepad and Wheel columns.
+
+Default keyboard controls:
+
+- Steer: Left / Right arrows
+- Accelerate: Left Ctrl
+- Brake: Left Alt
+- Low / High Gear: Space / Left Shift
+- Start: 1
+- Coin: 5
+- Change View: Z
+- Radio: X
+- Menu Access: Tab
+- Pause: P
+- Menu Accept: Enter
+- Menu Back: Esc
+- Direct View 1 / 2 / 3: Unassigned
+
+Default gamepad controls:
+
+- Steer: Left Stick
+- Accelerate: Right Trigger / R2
+- Brake: Left Trigger / L2
+- Low Gear: A / Cross
+- High Gear: X / Square
+- Start: Start / Options
+- Coin: Back / Select / Create
+- Change View: Y / Triangle
+- Radio: L3
+- Menu Access: Guide / Xbox / PS button
+- Pause: R3
+- Menu Accept: A / Cross
+- Menu Back: B / Circle
+- Menu Navigation: D-Pad
+
+Fixed keyboard controls:
+
+- Arrow Keys  Menu navigation
+- Enter       Menu Accept
+- Esc         Menu Back / Quit during gameplay
+- F2          Frame step
+- F3          Freeze timer
+- F5          Menu Access
+- F6          Pixel-scaler quick cycle
+- F7          Hi-res sprites
+- F8          Video-processing toggle
+- F9          Shadow-mask toggle
+- F10         Default Ferrari color
+- F11         Windowed / Fullscreen
+- Alt+Enter   Windowed / Fullscreen
+
+'''
+          txt.write_text(s[:start] + new_txt + s[end:])
+
+          md = Path('README.md')
+          s = md.read_text()
+          start = s.index('### Default Keyboard Controls\n')
+          end = s.index('### Force Feedback settings\n', start)
+          new_md = '''### Default Keyboard Controls
+
+- **Steer:** Left / Right arrows
+- **Accelerate:** `Left Ctrl`
+- **Brake:** `Left Alt`
+- **Low / High Gear:** `Space` / `Left Shift`
+- **Start:** `1`
+- **Coin:** `5`
+- **Change View:** `Z`
+- **Radio:** `X`
+- **Menu Access:** `Tab`
+- **Pause:** `P`
+- **Menu Accept:** `Enter`
+- **Menu Back:** `Esc`
+- **Direct View 1 / 2 / 3:** Unassigned
+
+### Default Gamepad Controls
+
+- **Steer:** Left Stick
+- **Accelerate:** Right Trigger / R2
+- **Brake:** Left Trigger / L2
+- **Low Gear:** A / Cross
+- **High Gear:** X / Square
+- **Start:** Start / Options
+- **Coin:** Back / Select / Create
+- **Change View:** Y / Triangle
+- **Radio:** L3
+- **Menu Access:** Guide / Xbox / PS button
+- **Pause:** R3
+- **Menu Accept:** A / Cross
+- **Menu Back:** B / Circle
+- **Menu Navigation:** D-Pad
+
+### Fixed Keyboard Controls
+
+- **Arrow Keys** Menu navigation
+- **Enter** Menu Accept
+- **Esc** Menu Back / Quit during gameplay
+- **F2** Frame step
+- **F3** Freeze timer
+- **F5** Menu Access
+- **F6** Pixel-scaler quick cycle
+- **F7** Hi-res sprites
+- **F8** Video-processing toggle
+- **F9** Shadow-mask toggle
+- **F10** Default Ferrari color
+- **F11** Windowed / Fullscreen
+- **Alt+Enter** Windowed / Fullscreen
+
+'''
+          md.write_text(s[:start] + new_md + s[end:])
+          PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md README.txt
+          git commit -m "Update README control defaults and hotkeys"
+          git push origin HEAD:readme-controls-current
