@@ -269,3 +269,5 @@ private:
     void reset_axis_config_base();
     void set_rumble_base(bool, float, int);
 };
+
+extern Input input;
