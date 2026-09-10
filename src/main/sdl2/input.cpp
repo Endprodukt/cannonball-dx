@@ -1,47 +1,21 @@
 /***************************************************************************
     SDL Based Input Handling - CannonBall-SE extensions.
 
-    The existing multi-device implementation is retained in input_base.cpp.
-    This wrapper adds optional direct buttons for the three enhanced views and
-    persistent logical GAMEPAD/WHEEL binding groups used by the binding matrix.
+    Adds direct-view controls and persistent GAMEPAD/WHEEL binding groups on
+    top of the SDL device mechanics isolated in input_core.cpp.
 ***************************************************************************/
 
-#include "sdl2/input.hpp"
-#include "sdl2/gamepad_rumble_state.hpp"
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <utility>
 
-#define scan_joysticks        scan_joysticks_base
-#define add_joystick          add_joystick_base
-#define remove_joystick       remove_joystick_base
-#define close_joy             close_joy_base
-#define set_button_binding     set_button_binding_base
-#define handle_key_down        handle_key_down_base
-#define handle_key_up          handle_key_up_base
-#define handle_joy_axis        handle_joy_axis_base
-#define handle_joy_down        handle_joy_down_base
-#define handle_joy_up          handle_joy_up_base
-#define handle_joy_hat         handle_joy_hat_base
-#define handle_controller_axis handle_controller_axis_base
-#define handle_controller_down handle_controller_down_base
-#define handle_controller_up   handle_controller_up_base
-#define reset_axis_config      reset_axis_config_base
-#define set_rumble             set_rumble_base
-#include "sdl2/input_base.cpp"
-#undef scan_joysticks
-#undef add_joystick
-#undef remove_joystick
-#undef close_joy
-#undef set_button_binding
-#undef handle_key_down
-#undef handle_key_up
-#undef handle_joy_axis
-#undef handle_joy_down
-#undef handle_joy_up
-#undef handle_joy_hat
-#undef handle_controller_axis
-#undef handle_controller_down
-#undef handle_controller_up
-#undef reset_axis_config
-#undef set_rumble
+#include "main.hpp"
+#include "frontend/config.hpp"
+#include "directx/ffeedback.hpp"
+#include "sdl2/gamepad_rumble_state.hpp"
+#include "sdl2/input.hpp"
+
 
 namespace
 {
@@ -491,7 +465,7 @@ void Input::remove_joystick(SDL_JoystickID instance_id)
         }
     }
 
-    remove_joystick_base(instance_id);
+    remove_joystick_core(instance_id);
     ensure_gamecontroller_open();
     normalize_device_bindings();
 }
@@ -505,7 +479,7 @@ void Input::close_joy()
     }
     secondary_controllers.clear();
 
-    close_joy_base();
+    close_joy_core();
 }
 
 const std::vector<InputDevice>& Input::get_devices() const
@@ -1028,7 +1002,7 @@ void Input::apply_device_axis(
 
 void Input::reset_axis_config()
 {
-    reset_axis_config_base();
+    reset_axis_config_core();
 
     // Snapshot every raw axis at the moment a new cell starts listening. Axis
     // detection is then based on movement away from that position instead of
@@ -1153,7 +1127,7 @@ void Input::handle_key_down(SDL_Keysym* keysym)
         return;
     }
 
-    handle_key_down_base(keysym);
+    handle_key_down_core(keysym);
 
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
@@ -1182,7 +1156,7 @@ void Input::handle_key_up(SDL_Keysym* keysym)
         return;
     }
 
-    handle_key_up_base(keysym);
+    handle_key_up_core(keysym);
 
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, false);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, false);
@@ -1446,7 +1420,7 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
     if (!controller_side && wheel_runtime)
     {
-        handle_joy_hat_base(evt);
+        handle_joy_hat_core(evt);
     }
     else if (capture_group == BINDING_WHEEL)
     {
@@ -1505,7 +1479,7 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
     const SDL_JoystickID saved_button_device = joy_button_device;
 
     if (gamepad_runtime || gamepad_capture)
-        handle_controller_down_base(evt);
+        handle_controller_down_core(evt);
 
     // When WHEEL is being captured the raw joystick button number must survive
     // the duplicate standardized controller event.
@@ -1588,7 +1562,7 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
     const SDL_JoystickID saved_button_device = joy_button_device;
 
     if (gamepad_runtime || gamepad_capture)
-        handle_controller_up_base(evt);
+        handle_controller_up_core(evt);
 
     if (capture_group == BINDING_WHEEL)
     {
@@ -1699,7 +1673,7 @@ void Input::set_rumble(bool enable, float strength, int mode)
         // Preserve the legacy Linux-specific hidraw/evdev fallback. Windows is
         // intentionally excluded: its DirectInput backend is wheel FFB, not
         // gamepad rumble.
-        set_rumble_base(enable, strength, mode);
+        set_rumble_core(enable, strength, mode);
 #endif
         return;
     }

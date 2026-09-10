@@ -197,6 +197,7 @@ set(src_sdl
     "${main_cpp_base}/sdl2/wav123.cpp"
     "${main_cpp_base}/sdl2/timer.cpp"
     "${main_cpp_base}/sdl2/input.cpp"
+    "${main_cpp_base}/sdl2/input_core.cpp"
     "${main_cpp_base}/sdl2/renderbase.cpp"
     "${main_cpp_base}/sdl2/snes_ntsc.cpp"
     )
@@ -239,6 +240,7 @@ set(src_engine
     "${main_cpp_base}/engine/obonus.cpp"
     "${main_cpp_base}/engine/ocrash.cpp"
     "${main_cpp_base}/engine/oferrari.cpp"
+    "${main_cpp_base}/engine/oferrari_core.cpp"
     "${main_cpp_base}/engine/ohiscore.cpp"
     "${main_cpp_base}/engine/ohud.cpp"
     "${main_cpp_base}/engine/oinitengine.cpp"
@@ -248,6 +250,7 @@ set(src_engine
     "${main_cpp_base}/engine/omap.cpp"
     "${main_cpp_base}/engine/omusic.cpp"
     "${main_cpp_base}/engine/ooutputs.cpp"
+    "${main_cpp_base}/engine/ooutputs_core.cpp"
     "${main_cpp_base}/engine/opalette.cpp"
     "${main_cpp_base}/engine/oroad.cpp"
     "${main_cpp_base}/engine/oroad_core.cpp"

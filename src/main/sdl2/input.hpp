@@ -250,24 +250,25 @@ private:
     void set_key_state(int p, bool is_pressed);
     void ensure_gamecontroller_open();
 
-    // The current multi-device implementations are retained under these names
-    // and wrapped by input.cpp to add optional direct-view/per-device bindings.
-    void scan_joysticks_base();
-    void add_joystick_base(int);
-    void remove_joystick_base(SDL_JoystickID);
-    void close_joy_base();
-    void set_button_binding_base(int, int, SDL_JoystickID);
-    void handle_key_down_base(SDL_Keysym*);
-    void handle_key_up_base(SDL_Keysym*);
-    void handle_joy_axis_base(SDL_JoyAxisEvent*);
-    void handle_joy_down_base(SDL_JoyButtonEvent*);
-    void handle_joy_up_base(SDL_JoyButtonEvent*);
-    void handle_joy_hat_base(SDL_JoyHatEvent*);
-    void handle_controller_axis_base(SDL_ControllerAxisEvent*);
-    void handle_controller_down_base(SDL_ControllerButtonEvent*);
-    void handle_controller_up_base(SDL_ControllerButtonEvent*);
-    void reset_axis_config_base();
-    void set_rumble_base(bool, float, int);
+    static std::string make_device_signature(const InputDevice& device);
+
+    // SDL device mechanics used by the binding-aware public entry points.
+    void scan_joysticks_core();
+    void add_joystick_core(int);
+    void remove_joystick_core(SDL_JoystickID);
+    void close_joy_core();
+    void set_button_binding_core(int, int, SDL_JoystickID);
+    void handle_key_down_core(SDL_Keysym*);
+    void handle_key_up_core(SDL_Keysym*);
+    void handle_joy_axis_core(SDL_JoyAxisEvent*);
+    void handle_joy_down_core(SDL_JoyButtonEvent*);
+    void handle_joy_up_core(SDL_JoyButtonEvent*);
+    void handle_joy_hat_core(SDL_JoyHatEvent*);
+    void handle_controller_axis_core(SDL_ControllerAxisEvent*);
+    void handle_controller_down_core(SDL_ControllerButtonEvent*);
+    void handle_controller_up_core(SDL_ControllerButtonEvent*);
+    void reset_axis_config_core();
+    void set_rumble_core(bool, float, int);
 };
 
 extern Input input;

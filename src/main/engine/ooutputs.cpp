@@ -1,20 +1,13 @@
 /***************************************************************************
     Process Outputs - CannonBall-SE external output extensions.
 
-    The existing output implementation, including SmartyPi console output,
-    is retained verbatim in ooutputs_base.cpp. This wrapper adds MAME-
-    compatible network and Windows outputs in parallel.
+    Adds MAME-compatible network and Windows outputs in parallel with the
+    cabinet and SmartyPi implementation in ooutputs_core.cpp.
 ***************************************************************************/
 
 #include "engine/ooutputs.hpp"
 #include "engine/external_outputs.hpp"
 #include "engine/external_output_settings.hpp"
-
-// Keep the existing SmartyPi output implementation unchanged, but retain it
-// under a private name so the public method can add the external transports.
-#define writeDigitalToConsole writeDigitalToConsole_base
-#include "engine/ooutputs_base.cpp"
-#undef writeDigitalToConsole
 
 #include "main.hpp"
 #include "engine/oferrari.hpp"
@@ -307,7 +300,7 @@ void OOutputs::writeDigitalToConsole()
     draw_music_color_preview(music_selection);
 
     // Preserve the original SmartyPi console output path exactly as before.
-    writeDigitalToConsole_base();
+    writeDigitalToConsoleCore();
 
     // OOutputs::tick() runs earlier in the frame. Keep Music Select on the same
     // low-speed centering spring used by menus, Attract Mode and a stationary

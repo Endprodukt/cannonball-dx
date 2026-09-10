@@ -233,6 +233,18 @@ public:
     void cycle_car_palette();
     
 private:
+    static constexpr uint16_t PALETTES[] =
+    {
+        PAL_RED,
+        PAL_BLUE,
+        PAL_YELLOW,
+        PAL_GREEN,
+        PAL_CYAN,
+        PAL_BLACK,
+        PAL_WHITE,
+        PAL_SILVER,
+    };
+
     // Max speed of car
     const static uint32_t MAX_SPEED = 0x1260000;
 
@@ -291,7 +303,7 @@ private:
     static uint16_t torque_lookup[];
     static const uint8_t rev_inc_lookup[];
 
-    void tick_base();
+    void tick_core();
     void logic();
     void ferrari_normal();
     void setup_ferrari_sprite();

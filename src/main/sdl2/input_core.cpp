@@ -39,7 +39,7 @@
 
 Input input;
 
-static std::string make_device_signature(
+std::string Input::make_device_signature(
     const InputDevice& device)
 {
     return
@@ -83,7 +83,7 @@ Input::~Input(void)
 
 void Input::init(int pad_id, int* key_config, int* pad_config, int analog, int* axis, bool* invert, int* analog_settings)
 {
-//    std::cout << "Setting up key mappings." << std::endl; 
+//    std::cout << "Setting up key mappings." << std::endl;
     this->pad_id      = pad_id;
     this->key_config  = key_config;
     this->pad_config  = pad_config;
@@ -95,7 +95,7 @@ void Input::init(int pad_id, int* key_config, int* pad_config, int analog, int* 
     motor_limits[0] = motor_limits[1] = motor_limits[2] = 0;
 }
 
-void Input::scan_joysticks()
+void Input::scan_joysticks_core()
 {
     const int count = SDL_NumJoysticks();
 
@@ -104,13 +104,13 @@ void Input::scan_joysticks()
 
     for (int i = 0; i < count; i++)
     {
-        add_joystick(i);
+        add_joystick_core(i);
     }
 
     std::cout << "=========================\n" << std::endl;
 }
 
-void Input::add_joystick(int device_index)
+void Input::add_joystick_core(int device_index)
 {
     SDL_JoystickID prospective_id =
         SDL_JoystickGetDeviceInstanceID(device_index);
@@ -169,7 +169,7 @@ void Input::add_joystick(int device_index)
     gamepad = !devices.empty();
 }
 
-void Input::remove_joystick(SDL_JoystickID instance_id)
+void Input::remove_joystick_core(SDL_JoystickID instance_id)
 {
     auto it = std::find_if(
         devices.begin(),
@@ -451,7 +451,7 @@ void Input::open_joy()
 //    if (SDL_JoystickNumButtons(controller)) {
 //      std::cout << "Joystick buttons detected: " << SDL_JoystickNumButtons() << std::endl;
 //    }
-    reset_axis_config();
+    reset_axis_config_core();
 
     wheel = a_wheel = CENTRE;
 
@@ -540,7 +540,7 @@ void Input::set_hat_binding(
     }
 }
 
-void Input::set_button_binding(int slot, int button, SDL_JoystickID device)
+void Input::set_button_binding_core(int slot, int button, SDL_JoystickID device)
 {
     if (slot < 0 || slot >= 15)
         return;
@@ -549,7 +549,7 @@ void Input::set_button_binding(int slot, int button, SDL_JoystickID device)
     button_device[slot] = device;
 }
 
-void Input::close_joy()
+void Input::close_joy_core()
 {
     if (controller != NULL)
     {
@@ -619,13 +619,13 @@ void Input::set_key_state(int p, bool is_pressed)
     keys[p] = is_pressed;
 }
 
-void Input::handle_key_down(SDL_Keysym* keysym)
+void Input::handle_key_down_core(SDL_Keysym* keysym)
 {
     key_press = keysym->sym;
     handle_key(key_press, true);
 }
 
-void Input::handle_key_up(SDL_Keysym* keysym)
+void Input::handle_key_up_core(SDL_Keysym* keysym)
 {
     if (key_press == keysym->sym)
         key_press = -1;
@@ -759,7 +759,7 @@ void Input::handle_key(const int key, const bool is_pressed)
     }
 }
 
-void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
+void Input::handle_joy_axis_core(SDL_JoyAxisEvent* evt)
 {
     if (controller != NULL)
         return;
@@ -767,7 +767,7 @@ void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
     handle_axis(evt->which, evt->axis, evt->value);
 }
 
-void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
+void Input::handle_controller_axis_core(SDL_ControllerAxisEvent* evt)
 {
     handle_axis(evt->which, evt->axis, evt->value);
 }
@@ -839,7 +839,7 @@ void Input::handle_axis(SDL_JoystickID device, const uint8_t ax, const int16_t v
 
 // ------------------------------------------------------------------------------------------------
 // Scale the trigger value to be between 0 and 0xFF
-// 
+//
 // This is based on whether this is an SDL Controller or Joystick.
 // Controllers: Trigger axis values range from 0 to SDL_JOYSTICK_AXIS_MAX (32767)
 // Joysticks:   Undefined, but usually between -32768 to 32767
@@ -905,7 +905,7 @@ int Input::get_axis_config(SDL_JoystickID* device)
         if (device)
             *device = axis_config_device;
 
-        reset_axis_config();
+        reset_axis_config_core();
 
         return value;
     }
@@ -913,7 +913,7 @@ int Input::get_axis_config(SDL_JoystickID* device)
     return -1;
 }
 
-void Input::reset_axis_config()
+void Input::reset_axis_config_core()
 {
     axis_config = -1;
     axis_last = -1;
@@ -922,7 +922,7 @@ void Input::reset_axis_config()
     axis_last_device = -1;
 }
 
-void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
+void Input::handle_joy_down_core(SDL_JoyButtonEvent* evt)
 {
     if (controller != NULL)
         return;
@@ -933,7 +933,7 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
     handle_joy(evt->which, evt->button, true);
 }
 
-void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
+void Input::handle_joy_up_core(SDL_JoyButtonEvent* evt)
 {
     if (controller != NULL)
         return;
@@ -948,7 +948,7 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
     handle_joy(evt->which, evt->button, false);
 }
 
-void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
+void Input::handle_controller_down_core(SDL_ControllerButtonEvent* evt)
 {
     joy_button = evt->button;
     joy_button_device = evt->which;
@@ -956,7 +956,7 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
     handle_joy(evt->which, evt->button, true);
 }
 
-void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
+void Input::handle_controller_up_core(SDL_ControllerButtonEvent* evt)
 {
     if (joy_button == evt->button &&
         joy_button_device == evt->which)
@@ -996,7 +996,7 @@ void Input::handle_joy(SDL_JoystickID device,
     if (matches(14)) motor_limits[SW_RIGHT] = is_pressed;
 }
 
-void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
+void Input::handle_joy_hat_core(SDL_JoyHatEvent* evt)
 {
     const Uint8 value = evt->value;
 
@@ -1072,7 +1072,7 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
     }
 }
 
-void Input::set_rumble(bool enable, float strength, int mode)
+void Input::set_rumble_core(bool enable, float strength, int mode)
 {
 #ifndef WIN32
     if (hidraw_device >= 0) {
