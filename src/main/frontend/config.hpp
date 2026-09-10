@@ -148,6 +148,89 @@
     { \
         set_ferrari_mirror_fix(!ferrari_mirror_fix()); \
     } \
+    bool bugfix_read_setting(const char* name, bool fallback) \
+    { \
+        const std::string path = std::string("engine.bugfixes.") + name; \
+        return cfg.get_int(path, fallback ? 1 : 0) != 0; \
+    } \
+    void bugfix_write_setting(const char* name, bool enabled) \
+    { \
+        cfg.put_int(std::string("engine.bugfixes.") + name, enabled ? 1 : 0); \
+    } \
+    bool bugfix_steering_input() \
+    { \
+        return bugfix_read_setting("steering_input", true); \
+    } \
+    bool bugfix_checkpoint_lap_time() \
+    { \
+        return bugfix_read_setting("checkpoint_lap_time", true); \
+    } \
+    bool bugfix_ending_palette() \
+    { \
+        return bugfix_read_setting("ending_palette", true); \
+    } \
+    bool bugfix_music_select_tile() \
+    { \
+        return bugfix_read_setting("music_select_tile", true); \
+    } \
+    bool bugfix_menu_map_road_line() \
+    { \
+        return bugfix_read_setting("menu_map_road_line", true); \
+    } \
+    bool bugfix_crash_engine_sound() \
+    { \
+        return bugfix_read_setting("crash_engine_sound", true); \
+    } \
+    bool bugfix_wheel_slip_se() \
+    { \
+        /* false keeps the original arcade/MAME slip detection by default. */ \
+        return bugfix_read_setting("wheel_slip_se", false); \
+    } \
+    void set_bugfix_steering_input(bool enabled) \
+    { \
+        bugfix_write_setting("steering_input", enabled); \
+    } \
+    void set_bugfix_checkpoint_lap_time(bool enabled) \
+    { \
+        bugfix_write_setting("checkpoint_lap_time", enabled); \
+    } \
+    void set_bugfix_ending_palette(bool enabled) \
+    { \
+        bugfix_write_setting("ending_palette", enabled); \
+    } \
+    void set_bugfix_music_select_tile(bool enabled) \
+    { \
+        bugfix_write_setting("music_select_tile", enabled); \
+    } \
+    void set_bugfix_menu_map_road_line(bool enabled) \
+    { \
+        bugfix_write_setting("menu_map_road_line", enabled); \
+    } \
+    void set_bugfix_crash_engine_sound(bool enabled) \
+    { \
+        bugfix_write_setting("crash_engine_sound", enabled); \
+    } \
+    void set_bugfix_wheel_slip_se(bool enabled) \
+    { \
+        bugfix_write_setting("wheel_slip_se", enabled); \
+        /* The preserved Ferrari code still branches on this legacy runtime bit. */ \
+        engine.fix_bugs = enabled; \
+    } \
+    void sync_bugfix_runtime() \
+    { \
+        /* Only Ferrari slip detection still consumes the legacy aggregate flag. */ \
+        engine.fix_bugs = bugfix_wheel_slip_se(); \
+    } \
+    void reset_bugfix_settings() \
+    { \
+        set_bugfix_steering_input(true); \
+        set_bugfix_checkpoint_lap_time(true); \
+        set_bugfix_ending_palette(true); \
+        set_bugfix_music_select_tile(true); \
+        set_bugfix_menu_map_road_line(true); \
+        set_bugfix_crash_engine_sound(true); \
+        set_bugfix_wheel_slip_se(false); \
+    } \
     int endless_read_setting(const char* name, int fallback, int minimum, int maximum) \
     { \
         const std::string path = std::string("endless.") + name; \
