@@ -14,116 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Fix system-action release semantics
+      - name: Apply release fix
+        run: echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpwID0gUGF0aCgic3JjL21haW4vc2RsMi9pbnB1dC5jcHAiKQpzID0gcC5yZWFkX3RleHQoKQpzdGFydCA9IHMuaW5kZXgoIiAgICBpbnQgc3lzdGVtX2FjdGlvbl9zdGF0ZV9mb3JfZXZlbnQoIikKZW5kID0gcy5pbmRleCgiXG4gICAgYm9vbCBncm91cF9oYXNfYXhpc190YXJnZXQoIiwgc3RhcnQpCm5ldyA9ICcnJyAgICBpbnQgc3lzdGVtX2FjdGlvbl9zdGF0ZV9mb3JfZXZlbnQoCiAgICAgICAgaW50IGFjdGlvbiwKICAgICAgICBjb25zdCBzdGQ6OnN0cmluZyYgc2lnbmF0dXJlLAogICAgICAgIGludCB0eXBlLAogICAgICAgIGludCBpbmRleCwKICAgICAgICBpbnQgdmFsdWUsCiAgICAgICAgYm9vbCBidXR0b25fcHJlc3NlZCwKICAgICAgICBpbnQgZ3JvdXApCiAgICB7CiAgICAgICAgaWYgKHNpZ25hdHVyZS5lbXB0eSgpKQogICAgICAgICAgICByZXR1cm4gLTE7CgogICAgICAgIC8vIFByZXNzZXMgYXJlIGNvbnRleHQtc2Vuc2l0aXZlLCBidXQgdGhlIG1hdGNoaW5nIHJlbGVhc2UgbXVzdCBhbHdheXMKICAgICAgICAvLyBjbGVhciB0aGUgbG9naWNhbCBzdGF0ZSBldmVuIGlmIHRoZSBwcmVzcyBjaGFuZ2VkIGZyb250ZW5kL2dhbWUgc3RhdGUuCiAgICAgICAgY29uc3QgYm9vbCBwcmVzc19hbGxvd2VkID0KICAgICAgICAgICAgYWN0aW9uID09IENvbmZpZzo6U1lTVEVNX0FDVElPTl9QQVVTRQogICAgICAgICAgICAgICAgPyBjYW5ub25iYWxsOjpzdGF0ZSA9PSBjYW5ub25iYWxsOjpTVEFURV9HQU1FICYmCiAgICAgICAgICAgICAgICAgIGdyb3VwID09IGNvbmZpZy5pbnB1dF9tb2RlKCkKICAgICAgICAgICAgICAgIDogY2Fubm9uYmFsbDo6c3RhdGUgPT0gY2Fubm9uYmFsbDo6U1RBVEVfTUVOVTsKCiAgICAgICAgY29uc3QgaW50IHN0b3JlZF90eXBlID0KICAgICAgICAgICAgY29uZmlnLnN5c3RlbV9hY3Rpb25fYmluZGluZ190eXBlKGFjdGlvbiwgZ3JvdXApOwogICAgICAgIGNvbnN0IGludCBzdG9yZWRfaW5kZXggPQogICAgICAgICAgICBjb25maWcuc3lzdGVtX2FjdGlvbl9iaW5kaW5nX2luZGV4KGFjdGlvbiwgZ3JvdXApOwogICAgICAgIGNvbnN0IHN0ZDo6c3RyaW5nIHN0b3JlZF9kZXZpY2UgPQogICAgICAgICAgICBjb25maWcuc3lzdGVtX2FjdGlvbl9iaW5kaW5nX2RldmljZShhY3Rpb24sIGdyb3VwKTsKCiAgICAgICAgaWYgKHN0b3JlZF9kZXZpY2UgPT0gIiEiKQogICAgICAgICAgICByZXR1cm4gLTE7CgogICAgICAgIGNvbnN0IGJvb2wgaGFzX2N1c3RvbV9iaW5kaW5nID0KICAgICAgICAgICAgc3RvcmVkX3R5cGUgPj0gZGV2aWNlX2JpbmRpbmdfdDo6VFlQRV9CVVRUT04gJiYKICAgICAgICAgICAgc3RvcmVkX3R5cGUgPD0gZGV2aWNlX2JpbmRpbmdfdDo6VFlQRV9IQVQgJiYKICAgICAgICAgICAgc3RvcmVkX2luZGV4ID49IDAgJiYKICAgICAgICAgICAgIXN0b3JlZF9kZXZpY2UuZW1wdHkoKTsKCiAgICAgICAgaWYgKGhhc19jdXN0b21fYmluZGluZykKICAgICAgICB7CiAgICAgICAgICAgIGlmIChzdG9yZWRfZGV2aWNlICE9IHNpZ25hdHVyZSB8fAogICAgICAgICAgICAgICAgc3RvcmVkX3R5cGUgIT0gdHlwZSB8fAogICAgICAgICAgICAgICAgc3RvcmVkX2luZGV4ICE9IGluZGV4KQogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICByZXR1cm4gLTE7CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGJvb2wgYWN0aXZlID0gYnV0dG9uX3ByZXNzZWQ7CiAgICAgICAgICAgIGlmICh0eXBlID09IGRldmljZV9iaW5kaW5nX3Q6OlRZUEVfSEFUKQogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICBjb25zdCBpbnQgZGlyZWN0aW9uID0KICAgICAgICAgICAgICAgICAgICBjb25maWcuc3lzdGVtX2FjdGlvbl9iaW5kaW5nX3ZhbHVlKGFjdGlvbiwgZ3JvdXApOwogICAgICAgICAgICAgICAgYWN0aXZlID0gZGlyZWN0aW9uICE9IFNETF9IQVRfQ0VOVEVSRUQgJiYKICAgICAgICAgICAgICAgICAgICAodmFsdWUgJiBkaXJlY3Rpb24pICE9IDA7CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGlmIChhY3RpdmUgJiYgIXByZXNzX2FsbG93ZWQpCiAgICAgICAgICAgICAgICByZXR1cm4gLTE7CgogICAgICAgICAgICByZXR1cm4gYWN0aXZlID8gMSA6IDA7CiAgICAgICAgfQoKICAgICAgICBpZiAoZ3JvdXAgPT0gSW5wdXQ6OkJJTkRJTkdfR0FNRVBBRCAmJgogICAgICAgICAgICB0eXBlID09IGRldmljZV9iaW5kaW5nX3Q6OlRZUEVfQlVUVE9OICYmCiAgICAgICAgICAgIGluZGV4ID09IGRlZmF1bHRfc3lzdGVtX2dhbWVwYWRfYnV0dG9uKGFjdGlvbikpCiAgICAgICAgewogICAgICAgICAgICBpZiAoYnV0dG9uX3ByZXNzZWQgJiYgIXByZXNzX2FsbG93ZWQpCiAgICAgICAgICAgICAgICByZXR1cm4gLTE7CgogICAgICAgICAgICByZXR1cm4gYnV0dG9uX3ByZXNzZWQgPyAxIDogMDsKICAgICAgICB9CgogICAgICAgIHJldHVybiAtMTsKICAgIH0KJycnCnAud3JpdGVfdGV4dChzWzpzdGFydF0gKyBuZXcgKyBzW2VuZDpdKQo=' | base64 -d | python3
+      - name: Check and commit
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('src/main/sdl2/input.cpp')
-          s = p.read_text()
-          start = s.index('    int system_action_state_for_event(')
-          end = s.index('\n    bool group_has_axis_target(', start)
-          old = s[start:end]
-          new = '''    int system_action_state_for_event(
-        int action,
-        const std::string& signature,
-        int type,
-        int index,
-        int value,
-        bool button_pressed,
-        int group)
-    {
-        if (signature.empty())
-            return -1;
-
-        // A press is context-sensitive, but its matching release must always be
-        // allowed through. Menu Accept can launch gameplay before SDL delivers
-        // Button-Up; rejecting that release outside STATE_MENU leaves ACCEPT
-        // logically held and makes the next menu visit swallow its first press.
-        const bool press_allowed =
-            action == Config::SYSTEM_ACTION_PAUSE
-                ? cannonball::state == cannonball::STATE_GAME &&
-                  group == config.input_mode()
-                : cannonball::state == cannonball::STATE_MENU;
-
-        const int stored_type =
-            config.system_action_binding_type(action, group);
-        const int stored_index =
-            config.system_action_binding_index(action, group);
-        const std::string stored_device =
-            config.system_action_binding_device(action, group);
-
-        // "!" is an explicit unbound marker. Empty means no custom binding and
-        // therefore allows the standard GAMEPAD fallback below.
-        if (stored_device == "!")
-            return -1;
-
-        const bool has_custom_binding =
-            stored_type >= device_binding_t::TYPE_BUTTON &&
-            stored_type <= device_binding_t::TYPE_HAT &&
-            stored_index >= 0 &&
-            !stored_device.empty();
-
-        if (has_custom_binding)
-        {
-            if (stored_device != signature ||
-                stored_type != type ||
-                stored_index != index)
-            {
-                return -1;
-            }
-
-            bool active = button_pressed;
-            if (type == device_binding_t::TYPE_HAT)
-            {
-                const int direction =
-                    config.system_action_binding_value(action, group);
-                active = direction != SDL_HAT_CENTERED &&
-                    (value & direction) != 0;
-            }
-
-            if (active && !press_allowed)
-                return -1;
-
-            return active ? 1 : 0;
-        }
-
-        // Standard SDL controller defaults are fallbacks, not aliases to the
-        // gameplay actions. Once a custom binding exists it replaces only this
-        // system action. Wheel/raw-device bindings intentionally have no default.
-        if (group == Input::BINDING_GAMEPAD &&
-            type == device_binding_t::TYPE_BUTTON &&
-            index == default_system_gamepad_button(action))
-        {
-            if (button_pressed && !press_allowed)
-                return -1;
-
-            return button_pressed ? 1 : 0;
-        }
-
-        return -1;
-    }
-'''
-          if old == new:
-              raise SystemExit('input.cpp already patched')
-          p.write_text(s[:start] + new + s[end:])
-          PY
-
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/main/sdl2/input.cpp
           git commit -m "Clear system actions on release across state changes"
           git push origin HEAD:menu-actions-decoupled
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev libmpg123-dev
-
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev libmpg123-dev
       - name: Configure
         run: cmake -S . -B build -G Ninja -DWITH_MARCH_NATIVE=OFF -DWITH_MP3=OFF -DQUIET_BUILD=ON
-
       - name: Build
         run: cmake --build build --parallel 2
