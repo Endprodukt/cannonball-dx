@@ -798,6 +798,7 @@ std::exit(9);
     int32_t calc_width   = ceil((0x200 * sprite_width)  / zoom);
     int32_t calc_height  = ceil((0x200 * sprite_height) / zoom);
     const bool traffic_sprite = (input->control & TRAFFIC_SPRITE) != 0;
+    const bool hardware_shadow_sprite = input->shadow != 0;
 
 /*
 {
@@ -829,7 +830,7 @@ if ((calc_width < width) || (calc_height < height)) {
     }
 
     const int32_t geometry_width  = traffic_sprite ? width  : calc_width;
-    const int32_t geometry_height = traffic_sprite ? height : calc_height;
+    const int32_t geometry_height = (traffic_sprite || hardware_shadow_sprite) ? height : calc_height;
 
     // JJP - pass width through to sprite renderer
     output->set_width(calc_width);
