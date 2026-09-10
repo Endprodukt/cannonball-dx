@@ -1,76 +1,76 @@
-name: Apply hi-res shadow renderer fix
+name: Fix hi-res shadow cache warmup
 
 on:
   push:
-    branches:
-      - test/graphics-regression-clean
+    branches: [test/graphics-regression-clean]
     paths:
-      - '.github/workflows/graphics-shadow-fix.yml'
+      - .github/workflows/graphics-shadow-fix.yml
 
 permissions:
   contents: write
 
 jobs:
-  patch:
-    runs-on: ubuntu-latest
+  apply:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: test/graphics-regression-clean
           fetch-depth: 0
 
-      - name: Patch hi-res shadow handling
+      - name: Force shadow-aware pixel path in hi-res
+        shell: pwsh
         run: |
-          python3 <<'PY'
-          from pathlib import Path
+          $path = 'src/main/hwvideo/hwsprites.cpp'
+          $text = (Get-Content $path -Raw).Replace("`r`n", "`n")
 
-          path = Path('src/main/hwvideo/hwsprites.cpp')
-          text = path.read_text(encoding='utf-8')
+          $trim = @(
+            '        // Hi-res shadow sprites expose one invalid trailing source row as a',
+            '        // dark horizontal stripe. The original 1x hardware path is correct;',
+            '        // trim one logical destination row only for actual shadow sprites.',
+            '        if (shadow && render_scale > 1 && height > 1)',
+            '            height--;',
+            ''
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($trim))).Count
+          if ($count -ne 1) { throw "Expected one temporary shadow trim block, found $count" }
+          $text = $text.Replace($trim, '')
 
-          old_trim = """        // Hi-res shadow sprites expose one invalid trailing source row as a
-        // dark horizontal stripe. The original 1x hardware path is correct;
-        // trim one logical destination row only for actual shadow sprites.
-        if (shadow && render_scale > 1 && height > 1)
-            height--;
-"""
-          if old_trim not in text:
-              raise SystemExit('Expected temporary shadow-height trim not found')
-          text = text.replace(old_trim, '', 1)
+          $oldHi = @(
+            '                    const bool shadowfound =',
+            '                        shadow && (spriterom_shadowinfo[addr] == 0x11);'
+          ) -join "`n"
+          $newHi = @(
+            '                    // Hi-res must always interpret 0xA through the hardware',
+            '                    // shadow path. Relying on lazily populated row metadata',
+            '                    // can render an unprimed shadow row as a dark colour.',
+            '                    const bool shadowfound = shadow;'
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($oldHi))).Count
+          if ($count -ne 1) { throw "Expected one 3x/4x shadowfound block, found $count" }
+          $text = $text.Replace($oldHi, $newHi)
 
-          old_hi = """                    const bool shadowfound =
-                        shadow && (spriterom_shadowinfo[addr] == 0x11);
-"""
-          new_hi = """                    // In hi-res modes every sprite with the hardware shadow bit
-                    // must use the shadow-aware pixel path. A row whose metadata
-                    // has not been populated yet would otherwise interpret pixel
-                    // value 0xA as an ordinary palette colour, producing a hard
-                    // black stripe until another shadow sprite warms the cache.
-                    const bool shadowfound = shadow;
-"""
-          if old_hi not in text:
-              raise SystemExit('Expected 3x/4x shadowfound block not found')
-          text = text.replace(old_hi, new_hi, 1)
+          $oldStd = '                bool shadowfound = shadow && (spriterom_shadowinfo[addr] == 0x11);'
+          $newStd = @(
+            '                // Keep the metadata optimisation at native resolution only.',
+            '                // In hi-res every hardware-shadow row uses shadow semantics.',
+            '                bool shadowfound = shadow &&',
+            '                    (render_scale > 1 || spriterom_shadowinfo[addr] == 0x11);'
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($oldStd))).Count
+          if ($count -ne 1) { throw "Expected one 1x/2x shadowfound line, found $count" }
+          $text = $text.Replace($oldStd, $newStd)
 
-          old_std = """                bool shadowfound = shadow && (spriterom_shadowinfo[addr] == 0x11);
-"""
-          new_std = """                // Preserve the original metadata optimisation at 1x. In hi-res,
-                // force the shadow-aware path for every hardware-shadow row so
-                // 0xA can never be rendered as a normal dark palette pixel.
-                bool shadowfound = shadow &&
-                    (render_scale > 1 || spriterom_shadowinfo[addr] == 0x11);
-"""
-          if old_std not in text:
-              raise SystemExit('Expected 1x/2x shadowfound line not found')
-          text = text.replace(old_std, new_std, 1)
+          Set-Content $path $text -Encoding UTF8 -NoNewline
 
-          path.write_text(text, encoding='utf-8')
-          PY
+          git diff --check
+          git diff -- src/main/hwvideo/hwsprites.cpp
 
-      - name: Commit source fix and remove temporary workflow
+      - name: Commit changes
+        shell: pwsh
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/main/hwvideo/hwsprites.cpp
-          git rm .github/workflows/graphics-shadow-fix.yml
-          git commit -m "Fix hi-res shadow pixels before cache warmup"
+          git commit -m 'Fix hi-res shadow cache warmup artifacts'
           git push origin HEAD:test/graphics-regression-clean
