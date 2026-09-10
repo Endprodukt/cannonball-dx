@@ -197,24 +197,16 @@ namespace
         bool button_pressed,
         int group)
     {
-        // Accept and Back exist only in the frontend. Pause exists only while
-        // the game is running, so a gameplay button can safely share the same
-        // physical control without the two logical actions becoming coupled.
-        if (action == Config::SYSTEM_ACTION_PAUSE)
-        {
-            if (cannonball::state != cannonball::STATE_GAME ||
-                group != config.input_mode())
-            {
-                return -1;
-            }
-        }
-        else if (cannonball::state != cannonball::STATE_MENU)
-        {
-            return -1;
-        }
-
         if (signature.empty())
             return -1;
+
+        // Presses are context-sensitive, but the matching release must always
+        // clear the logical state even if the press changed frontend/game state.
+        const bool press_allowed =
+            action == Config::SYSTEM_ACTION_PAUSE
+                ? cannonball::state == cannonball::STATE_GAME &&
+                  group == config.input_mode()
+                : cannonball::state == cannonball::STATE_MENU;
 
         const int stored_type =
             config.system_action_binding_type(action, group);
@@ -223,8 +215,6 @@ namespace
         const std::string stored_device =
             config.system_action_binding_device(action, group);
 
-        // "!" is an explicit unbound marker. Empty means no custom binding and
-        // therefore allows the standard GAMEPAD fallback below.
         if (stored_device == "!")
             return -1;
 
@@ -243,24 +233,28 @@ namespace
                 return -1;
             }
 
+            bool active = button_pressed;
             if (type == device_binding_t::TYPE_HAT)
             {
                 const int direction =
                     config.system_action_binding_value(action, group);
-                return direction != SDL_HAT_CENTERED &&
-                    (value & direction) != 0 ? 1 : 0;
+                active = direction != SDL_HAT_CENTERED &&
+                    (value & direction) != 0;
             }
 
-            return button_pressed ? 1 : 0;
+            if (active && !press_allowed)
+                return -1;
+
+            return active ? 1 : 0;
         }
 
-        // Standard SDL controller defaults are fallbacks, not aliases to the
-        // gameplay actions. Once a custom binding exists it replaces only this
-        // system action. Wheel/raw-device bindings intentionally have no default.
         if (group == Input::BINDING_GAMEPAD &&
             type == device_binding_t::TYPE_BUTTON &&
             index == default_system_gamepad_button(action))
         {
+            if (button_pressed && !press_allowed)
+                return -1;
+
             return button_pressed ? 1 : 0;
         }
 
