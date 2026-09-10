@@ -20,50 +20,51 @@ jobs:
           fetch-depth: 0
 
       - name: Patch hi-res shadow handling
-        shell: python
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
           path = Path('src/main/hwvideo/hwsprites.cpp')
           text = path.read_text(encoding='utf-8')
 
-          old_trim = '''        // Hi-res shadow sprites expose one invalid trailing source row as a
+          old_trim = """        // Hi-res shadow sprites expose one invalid trailing source row as a
         // dark horizontal stripe. The original 1x hardware path is correct;
         // trim one logical destination row only for actual shadow sprites.
         if (shadow && render_scale > 1 && height > 1)
             height--;
-'''
+"""
           if old_trim not in text:
               raise SystemExit('Expected temporary shadow-height trim not found')
           text = text.replace(old_trim, '', 1)
 
-          old_hi = '''                    const bool shadowfound =
+          old_hi = """                    const bool shadowfound =
                         shadow && (spriterom_shadowinfo[addr] == 0x11);
-'''
-          new_hi = '''                    // In hi-res modes every sprite with the hardware shadow bit
+"""
+          new_hi = """                    // In hi-res modes every sprite with the hardware shadow bit
                     // must use the shadow-aware pixel path. A row whose metadata
                     // has not been populated yet would otherwise interpret pixel
                     // value 0xA as an ordinary palette colour, producing a hard
                     // black stripe until another shadow sprite warms the cache.
                     const bool shadowfound = shadow;
-'''
+"""
           if old_hi not in text:
               raise SystemExit('Expected 3x/4x shadowfound block not found')
           text = text.replace(old_hi, new_hi, 1)
 
-          old_std = '''                bool shadowfound = shadow && (spriterom_shadowinfo[addr] == 0x11);
-'''
-          new_std = '''                // Preserve the original metadata optimisation at 1x. In hi-res,
+          old_std = """                bool shadowfound = shadow && (spriterom_shadowinfo[addr] == 0x11);
+"""
+          new_std = """                // Preserve the original metadata optimisation at 1x. In hi-res,
                 // force the shadow-aware path for every hardware-shadow row so
                 // 0xA can never be rendered as a normal dark palette pixel.
                 bool shadowfound = shadow &&
                     (render_scale > 1 || spriterom_shadowinfo[addr] == 0x11);
-'''
+"""
           if old_std not in text:
               raise SystemExit('Expected 1x/2x shadowfound line not found')
           text = text.replace(old_std, new_std, 1)
 
           path.write_text(text, encoding='utf-8')
+          PY
 
       - name: Commit source fix and remove temporary workflow
         run: |
