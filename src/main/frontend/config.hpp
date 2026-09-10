@@ -82,7 +82,7 @@
     } \
     void clear_system_action_binding(int action, int group) \
     { \
-        set_system_action_binding(action, group, -1, -1, 0, ""); \
+        set_system_action_binding(action, group, -1, -1, 0, "!"); \
     } \
     int radio_key() \
     { \
@@ -129,7 +129,7 @@
     } \
     void clear_radio_binding(int group) \
     { \
-        set_radio_binding(group, -1, -1, 0, ""); \
+        set_radio_binding(group, -1, -1, 0, "!"); \
     } \
     int engine_vibration_strength() \
     { \

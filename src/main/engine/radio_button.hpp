@@ -153,7 +153,20 @@ namespace radio_button
             return true;
 
         if (config.input_mode_is_gamepad())
-            return physical_binding_pressed(BINDING_GAMEPAD);
+        {
+            const std::string device = config.radio_binding_device(BINDING_GAMEPAD);
+            const int index = config.radio_binding_index(BINDING_GAMEPAD);
+
+            if (device == "!")
+                return false;
+
+            if (index >= 0 && !device.empty())
+                return physical_binding_pressed(BINDING_GAMEPAD);
+
+            // Standard SDL layout: L3 / left-stick click is Radio.
+            return input.joy_button == SDL_CONTROLLER_BUTTON_LEFTSTICK &&
+                input.is_gamepad_device(input.joy_button_device);
+        }
 
         return physical_binding_pressed(BINDING_WHEEL);
     }

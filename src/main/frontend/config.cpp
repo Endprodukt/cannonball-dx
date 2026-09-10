@@ -177,8 +177,8 @@ namespace
         controls.padconfig[2] = SDL_CONTROLLER_BUTTON_A;      // Low / downshift
         controls.padconfig[3] = SDL_CONTROLLER_BUTTON_X;      // High / upshift
         controls.padconfig[4] = SDL_CONTROLLER_BUTTON_START;
-        controls.padconfig[5] = SDL_CONTROLLER_BUTTON_B;      // Coin
-        controls.padconfig[6] = SDL_CONTROLLER_BUTTON_BACK;   // Menu
+        controls.padconfig[5] = SDL_CONTROLLER_BUTTON_BACK;   // Coin / Select
+        controls.padconfig[6] = SDL_CONTROLLER_BUTTON_GUIDE;  // Menu Access / Home / PS
         controls.padconfig[7] = SDL_CONTROLLER_BUTTON_Y;      // View
 
         // D-pad is also handled permanently by Input, but keep the legacy
@@ -308,13 +308,13 @@ namespace
             controls,
             device_binding_t::TARGET_COIN,
             device_binding_t::TYPE_BUTTON,
-            SDL_CONTROLLER_BUTTON_B,
+            SDL_CONTROLLER_BUTTON_BACK,
             device);
         add_default_gamepad_binding(
             controls,
             device_binding_t::TARGET_MENU,
             device_binding_t::TYPE_BUTTON,
-            SDL_CONTROLLER_BUTTON_BACK,
+            SDL_CONTROLLER_BUTTON_GUIDE,
             device);
         add_default_gamepad_binding(
             controls,
@@ -547,11 +547,50 @@ void Config::load()
 
     load_base();
 
-    // CannonBall's original keyboard default for opening the menu is F5.
-    // CannonBall-SE changed this to M. Keep existing user mappings untouched,
-    // but restore F5 for new configs and configs where the menu key is absent.
-    if (first_run || cfg.get_int("controls.keyconfig.menu", -1) == -1)
-        controls.keyconfig[10] = SDLK_F5;
+    // Fresh CannonBall DX installs use a MAME-compatible keyboard layout.
+    // Existing stored mappings always win; only genuinely absent settings are
+    // filled so upgrading never rewrites a user's controls.
+    const int KEY_SETTING_MISSING = -0x3fffffff;
+    auto apply_keyboard_default = [&](const char* path, int slot, SDL_Keycode key)
+    {
+        if (first_run || cfg.get_int(path, KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+            controls.keyconfig[slot] = key;
+    };
+
+    apply_keyboard_default("controls.keyconfig.up",    0, SDLK_UP);
+    apply_keyboard_default("controls.keyconfig.down",  1, SDLK_DOWN);
+    apply_keyboard_default("controls.keyconfig.left",  2, SDLK_LEFT);
+    apply_keyboard_default("controls.keyconfig.right", 3, SDLK_RIGHT);
+    apply_keyboard_default("controls.keyconfig.acc",   4, SDLK_LCTRL);  // MAME Button 1
+    apply_keyboard_default("controls.keyconfig.brake", 5, SDLK_LALT);   // MAME Button 2
+    apply_keyboard_default("controls.keyconfig.gear1", 6, SDLK_SPACE);  // MAME Button 3
+    apply_keyboard_default("controls.keyconfig.gear2", 7, SDLK_LSHIFT); // MAME Button 4
+    apply_keyboard_default("controls.keyconfig.start", 8, SDLK_1);      // P1 Start
+    apply_keyboard_default("controls.keyconfig.coin",  9, SDLK_5);      // Coin 1
+    apply_keyboard_default("controls.keyconfig.menu", 10, SDLK_TAB);    // MAME UI menu
+    apply_keyboard_default("controls.keyconfig.view", 11, SDLK_z);      // MAME Button 5
+
+    if (first_run ||
+        cfg.get_int("controls.radio.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+    {
+        set_radio_key(SDLK_x); // MAME Button 6
+    }
+
+    if (first_run ||
+        cfg.get_int("controls.system.pause.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+    {
+        set_system_action_key(SYSTEM_ACTION_PAUSE, SDLK_p); // MAME Pause
+    }
+    if (first_run ||
+        cfg.get_int("controls.system.accept.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+    {
+        set_system_action_key(SYSTEM_ACTION_ACCEPT, SDLK_RETURN);
+    }
+    if (first_run ||
+        cfg.get_int("controls.system.back.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+    {
+        set_system_action_key(SYSTEM_ACTION_BACK, SDLK_ESCAPE);
+    }
 
     // CannonBall DX stores every score table in one physical file. Keep the
     // old mode-specific paths as logical selectors, but make Original World

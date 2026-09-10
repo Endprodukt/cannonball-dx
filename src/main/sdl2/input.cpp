@@ -185,7 +185,7 @@ namespace
             return SDL_CONTROLLER_BUTTON_A;
         if (action == Config::SYSTEM_ACTION_BACK)
             return SDL_CONTROLLER_BUTTON_B;
-        return SDL_CONTROLLER_BUTTON_START;
+        return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
     }
 
     int system_action_state_for_event(
@@ -222,6 +222,11 @@ namespace
             config.system_action_binding_index(action, group);
         const std::string stored_device =
             config.system_action_binding_device(action, group);
+
+        // "!" is an explicit unbound marker. Empty means no custom binding and
+        // therefore allows the standard GAMEPAD fallback below.
+        if (stored_device == "!")
+            return -1;
 
         const bool has_custom_binding =
             stored_type >= device_binding_t::TYPE_BUTTON &&
@@ -1160,12 +1165,18 @@ void Input::handle_key_down(SDL_Keysym* keysym)
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
     if (keysym->sym == key_config[14]) set_key_state(VIEW3, true);
 
-    // Permanent frontend confirm keys remain available independently from all
-    // gameplay mappings. Escape remains handled by Menu::handle_escape().
-    if (cannonball::state == cannonball::STATE_MENU &&
-        (keysym->sym == SDLK_RETURN || keysym->sym == SDLK_KP_ENTER))
+    if (cannonball::state == cannonball::STATE_GAME &&
+        keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_PAUSE))
     {
-        set_key_state(ACCEPT, true);
+        set_key_state(PAUSE, true);
+    }
+
+    if (cannonball::state == cannonball::STATE_MENU)
+    {
+        if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_ACCEPT))
+            set_key_state(ACCEPT, true);
+        if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_BACK))
+            set_key_state(BACK, true);
     }
 }
 
@@ -1183,8 +1194,12 @@ void Input::handle_key_up(SDL_Keysym* keysym)
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, false);
     if (keysym->sym == key_config[14]) set_key_state(VIEW3, false);
 
-    if (keysym->sym == SDLK_RETURN || keysym->sym == SDLK_KP_ENTER)
+    if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_PAUSE))
+        set_key_state(PAUSE, false);
+    if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_ACCEPT))
         set_key_state(ACCEPT, false);
+    if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_BACK))
+        set_key_state(BACK, false);
 }
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)

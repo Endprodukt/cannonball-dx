@@ -658,9 +658,7 @@ void Input::handle_key(const int key, const bool is_pressed)
     // Function keys are not redefinable
     switch (key)
     {
-        case SDLK_F1:
-            set_key_state(PAUSE, is_pressed);
-            break;
+        // Pause is a normal, configurable DX system action.
 
         case SDLK_F2:
             set_key_state(STEP, is_pressed);
@@ -670,9 +668,7 @@ void Input::handle_key(const int key, const bool is_pressed)
             set_key_state(TIMER, is_pressed);
             break;
 
-        case SDLK_F5:
-            set_key_state(MENU, is_pressed);
-            break;
+        // Menu Access is a normal, configurable DX input action.
 
         case SDLK_F7:
             // JJP - switches between sprite rendering (original/hi-res)

@@ -261,7 +261,7 @@ namespace
     };
 
     // Steering is a two-key cell and therefore uses -1 here. System actions
-    // have fixed keyboard fallbacks and Radio owns a separate persistent key.
+    // and Radio use their own persistent keyboard settings rather than slots.
     const int ROW_KEY_SLOT[BINDING_ROWS] =
     {
         -1,
@@ -306,7 +306,10 @@ namespace
             case SDLK_DELETE:    return "DEL";
             case SDLK_SPACE:     return "SPACE";
             case SDLK_ESCAPE:    return "ESC";
-            case SDLK_F1:        return "F1";
+            case SDLK_TAB:       return "TAB";
+            case SDLK_LCTRL:     return "LCTRL";
+            case SDLK_LALT:      return "LALT";
+            case SDLK_LSHIFT:    return "LSHIFT";
             default:
                 break;
         }
@@ -324,12 +327,10 @@ namespace
             return clip_text(left + "/" + right, 8);
         }
 
-        if (row == PAUSE_ROW)
-            return "F1";
-        if (row == ACCEPT_ROW)
-            return "ENTER";
-        if (row == MENU_BACK_ROW)
-            return "ESC";
+        if (is_system_action_row(row))
+            return clip_text(
+                compact_key_name(config.system_action_key(system_action_for_row(row))),
+                8);
 
         if (row == RADIO_ROW)
             return clip_text(compact_key_name(config.radio_key()), 8);
@@ -420,6 +421,9 @@ namespace
         const int index = config.system_action_binding_index(action, group);
         const std::string device = config.system_action_binding_device(action, group);
 
+        if (device == "!")
+            return "-";
+
         if (index >= 0 && !device.empty())
         {
             device_binding_t binding;
@@ -440,7 +444,7 @@ namespace
                 return "A";
             if (action == Config::SYSTEM_ACTION_BACK)
                 return "B";
-            return "START";
+            return "R3";
         }
 
         return "-";
@@ -451,8 +455,13 @@ namespace
         const int index = config.radio_binding_index(group);
         const std::string device = config.radio_binding_device(group);
 
-        if (index < 0 || device.empty())
+        if (device == "!")
             return "-";
+
+        // L3 is the standard GAMEPAD radio button until the user explicitly
+        // replaces or clears it. WHEEL deliberately has no implicit default.
+        if (index < 0 || device.empty())
+            return group == Input::BINDING_GAMEPAD ? "L3" : "-";
 
         device_binding_t binding;
         binding.type = config.radio_binding_type(group);
@@ -1135,8 +1144,8 @@ void Menu::redefine_joystick()
         else
         {
             ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 2, "F1/ENTER/ESC KEYBOARD FIXED", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - BACK", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 2, "ALL ACTIONS CAN BE REBOUND", ohud.GREY);
         }
     };
 
@@ -1201,14 +1210,8 @@ void Menu::redefine_joystick()
         {
             input.set_capture_group(-1);
 
-            // Pause/Accept/Back deliberately keep fixed keyboard fallbacks.
-            // Their KEYBOARD cells therefore never enter capture mode.
-            if (is_system_action_row(selected_row))
-            {
-                capturing = false;
-                draw_editor();
-                return;
-            }
+            // System actions are regular editable keyboard cells. Raw editor
+            // navigation fallbacks are handled only while browsing, below.
 
             if (input.key_press != -1)
             {
@@ -1228,6 +1231,12 @@ void Menu::redefine_joystick()
                 else if (selected_row == RADIO_ROW)
                 {
                     config.set_radio_key(captured_key);
+                    capture_after_release = false;
+                }
+                else if (is_system_action_row(selected_row))
+                {
+                    config.set_system_action_key(
+                        system_action_for_row(selected_row), captured_key);
                     capture_after_release = false;
                 }
                 else
@@ -1419,7 +1428,7 @@ void Menu::redefine_joystick()
 
     // Menu Back is independent from Menu Access and works as the editor's
     // normal back action while not actively capturing a new control.
-    if (input.has_pressed(Input::BACK))
+    if (input.has_pressed(Input::BACK) || input.key_press == SDLK_ESCAPE)
     {
         leave_editor();
         return;
@@ -1476,8 +1485,8 @@ void Menu::redefine_joystick()
         {
             if (is_system_action_row(selected_row))
             {
-                // F1 / Enter / Escape are permanent keyboard fallbacks.
-                changed = false;
+                config.set_system_action_key(
+                    system_action_for_row(selected_row), -1);
             }
             else if (selected_row == 0)
             {
@@ -1523,7 +1532,13 @@ void Menu::redefine_joystick()
         osoundint.queue_sound(sound::BEEP1);
     }
 
-    const bool activate = select_pressed();
+    // Raw Enter is an editor-only safety fallback. It remains usable even if
+    // the user clears or remaps Menu Accept, and it can still be captured once
+    // the editor is actively listening to a KEYBOARD cell.
+    const bool activate =
+        select_pressed() ||
+        input.key_press == SDLK_RETURN ||
+        input.key_press == SDLK_KP_ENTER;
 
     if (activate)
     {
@@ -1534,15 +1549,8 @@ void Menu::redefine_joystick()
             return;
         }
 
-        // The keyboard side of Pause/Accept/Back is intentionally fixed. The
-        // GAMEPAD and WHEEL cells beside it remain freely rebindable.
-        if (selected_col == COL_KEYBOARD && is_system_action_row(selected_row))
-        {
-            osoundint.queue_sound(sound::BEEP1);
-            input.key_press = -1;
-            draw_editor();
-            return;
-        }
+        // Every KEYBOARD / GAMEPAD / WHEEL cell is editable. Enter remains
+        // only an editor-navigation fallback while this screen is in browse mode.
 
         capturing = false;
         steering_key_step = 0;
