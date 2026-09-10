@@ -66,6 +66,11 @@ namespace
     bool selector_active = false;
     bool traffic_enabled = true;
 
+    // Digital navigation follows the actual branching course tree. Remember
+    // the route taken through each depth so LEFT can reverse the exact RIGHT
+    // movement even at stages shared by two possible parents.
+    int digital_route[COURSE_ROWS] = {-1, -1, -1, -1, -1};
+
     int traffic_class()
     {
         return traffic_enabled ? TRAFFIC_ON : TRAFFIC_OFF;
@@ -86,54 +91,134 @@ namespace
         return 0;
     }
 
-    int move_course_digital(int current, Input::presses direction)
+    int move_course_lane(int current, int direction)
     {
         const int row = course_row(current);
         const int row_start = COURSE_ROW_START[row];
         const int row_end = row_start + COURSE_ROW_COUNT[row] - 1;
+        const int next = current + direction;
 
-        if (direction == Input::LEFT)
-            return current > row_start ? current - 1 : current;
+        return next >= row_start && next <= row_end ? next : current;
+    }
 
-        if (direction == Input::RIGHT)
-            return current < row_end ? current + 1 : current;
+    int course_x_distance(int first, int second)
+    {
+        int distance =
+            osprites.jump_table[FERRARI_POS[first]].x -
+            osprites.jump_table[FERRARI_POS[second]].x;
+        return distance < 0 ? -distance : distance;
+    }
 
-        int target_row = row;
-        if (direction == Input::UP)
-            --target_row;
-        else if (direction == Input::DOWN)
-            ++target_row;
-        else
+    bool course_is_child(int parent, int child)
+    {
+        if (parent < 0 || parent >= 15 || child < 0 || child >= 15)
+            return false;
+
+        const int parent_row = course_row(parent);
+        const int child_row = course_row(child);
+        if (child_row != parent_row + 1)
+            return false;
+
+        const int parent_column = parent - COURSE_ROW_START[parent_row];
+        const int child_column = child - COURSE_ROW_START[child_row];
+        return child_column == parent_column ||
+               child_column == parent_column + 1;
+    }
+
+    int nearest_child(int current)
+    {
+        const int row = course_row(current);
+        if (row >= COURSE_ROWS - 1)
             return current;
 
-        if (target_row < 0 || target_row >= COURSE_ROWS)
+        const int column = current - COURSE_ROW_START[row];
+        const int first = COURSE_ROW_START[row + 1] + column;
+        const int second = first + 1;
+
+        return course_x_distance(current, first) <=
+               course_x_distance(current, second) ? first : second;
+    }
+
+    int nearest_parent(int current)
+    {
+        const int row = course_row(current);
+        if (row <= 0)
             return current;
 
-        // Rows on the OutRun course map are staggered. For vertical movement,
-        // select the course in the adjacent row whose real map X position is
-        // closest to the current Ferrari marker instead of relying on indices.
-        const int current_x = osprites.jump_table[FERRARI_POS[current]].x;
-        const int target_start = COURSE_ROW_START[target_row];
-        const int target_end = target_start + COURSE_ROW_COUNT[target_row];
+        const int column = current - COURSE_ROW_START[row];
+        const int previous_start = COURSE_ROW_START[row - 1];
+        const int previous_count = COURSE_ROW_COUNT[row - 1];
 
-        int best = target_start;
-        int best_distance = 0x7FFFFFFF;
+        if (column == 0)
+            return previous_start;
+        if (column == previous_count)
+            return previous_start + previous_count - 1;
 
-        for (int candidate = target_start; candidate < target_end; ++candidate)
+        const int first = previous_start + column - 1;
+        const int second = previous_start + column;
+        return course_x_distance(current, first) <=
+               course_x_distance(current, second) ? first : second;
+    }
+
+    void forget_digital_route_after(int row)
+    {
+        for (int i = row + 1; i < COURSE_ROWS; ++i)
+            digital_route[i] = -1;
+    }
+
+    void reset_digital_route(int current)
+    {
+        std::fill(
+            digital_route,
+            digital_route + COURSE_ROWS,
+            -1);
+        digital_route[course_row(current)] = current;
+    }
+
+    void remember_digital_lane(int current)
+    {
+        const int row = course_row(current);
+        digital_route[row] = current;
+        forget_digital_route_after(row);
+    }
+
+    int move_course_forward(int current)
+    {
+        const int row = course_row(current);
+        if (row >= COURSE_ROWS - 1)
+            return current;
+
+        const int remembered = digital_route[row + 1];
+        if (digital_route[row] == current &&
+            course_is_child(current, remembered))
         {
-            int distance =
-                osprites.jump_table[FERRARI_POS[candidate]].x - current_x;
-            if (distance < 0)
-                distance = -distance;
-
-            if (distance < best_distance)
-            {
-                best = candidate;
-                best_distance = distance;
-            }
+            return remembered;
         }
 
-        return best;
+        const int next = nearest_child(current);
+        digital_route[row] = current;
+        digital_route[row + 1] = next;
+        forget_digital_route_after(row + 1);
+        return next;
+    }
+
+    int move_course_back(int current)
+    {
+        const int row = course_row(current);
+        if (row <= 0)
+            return current;
+
+        const int remembered = digital_route[row - 1];
+        if (digital_route[row] == current &&
+            course_is_child(remembered, current))
+        {
+            return remembered;
+        }
+
+        const int previous = nearest_parent(current);
+        digital_route[row] = current;
+        digital_route[row - 1] = previous;
+        return previous;
     }
 
     Uint32 selection_timeout_ms()
@@ -370,6 +455,7 @@ int TTrial::tick()
             omap.init();
             omap.load_sprites();
             omap.position_ferrari(FERRARI_POS[level_selected = 0]);
+            reset_digital_route(level_selected);
 
             ohud.blit_text_new(0, 21, "                                        ", OHud::GREY);
             ohud.blit_text_new(0, 23, "                                        ", OHud::GREY);
@@ -448,19 +534,29 @@ int TTrial::tick()
 
                 const int previous_level = level_selected;
 
-                // The course-map artwork is rotated relative to the logical
-                // 1/2/3/4/5 row layout used by move_course_digital(). Remap the
-                // digital directions so the Ferrari follows the direction the
-                // player actually presses on screen. The analog wheel retains
-                // the original linear 0..14 selector below.
-                if (input.has_pressed(Input::LEFT))
-                    level_selected = move_course_digital(level_selected, Input::DOWN);
-                else if (input.has_pressed(Input::RIGHT))
-                    level_selected = move_course_digital(level_selected, Input::UP);
+                // The course map is a branching tree, not a rectangular grid.
+                // RIGHT follows one real outgoing branch. LEFT walks back along
+                // the exact branch previously taken, while UP/DOWN move between
+                // neighbouring courses at the same depth. A real analog wheel
+                // deliberately keeps the original linear 0..14 selector.
+                if (input.has_pressed(Input::RIGHT))
+                {
+                    level_selected = move_course_forward(level_selected);
+                }
+                else if (input.has_pressed(Input::LEFT))
+                {
+                    level_selected = move_course_back(level_selected);
+                }
                 else if (input.has_pressed(Input::UP))
-                    level_selected = move_course_digital(level_selected, Input::LEFT);
+                {
+                    level_selected = move_course_lane(level_selected, -1);
+                    remember_digital_lane(level_selected);
+                }
                 else if (input.has_pressed(Input::DOWN))
-                    level_selected = move_course_digital(level_selected, Input::RIGHT);
+                {
+                    level_selected = move_course_lane(level_selected, 1);
+                    remember_digital_lane(level_selected);
+                }
                 else if (!input.is_pressed(Input::LEFT) &&
                          !input.is_pressed(Input::RIGHT) &&
                          !input.is_pressed(Input::UP) &&
@@ -470,11 +566,13 @@ int TTrial::tick()
                     {
                         if (--level_selected < 0)
                             level_selected = sizeof(FERRARI_POS) - 1;
+                        reset_digital_route(level_selected);
                     }
                     else if (oinputs.is_analog_r())
                     {
                         if (++level_selected > sizeof(FERRARI_POS) - 1)
                             level_selected = 0;
+                        reset_digital_route(level_selected);
                     }
                 }
 
