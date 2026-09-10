@@ -179,6 +179,89 @@ namespace
         return stored_signature == signature;
     }
 
+    int default_system_gamepad_button(int action)
+    {
+        if (action == Config::SYSTEM_ACTION_ACCEPT)
+            return SDL_CONTROLLER_BUTTON_A;
+        if (action == Config::SYSTEM_ACTION_BACK)
+            return SDL_CONTROLLER_BUTTON_B;
+        return SDL_CONTROLLER_BUTTON_START;
+    }
+
+    int system_action_state_for_event(
+        int action,
+        const std::string& signature,
+        int type,
+        int index,
+        int value,
+        bool button_pressed,
+        int group)
+    {
+        // Accept and Back exist only in the frontend. Pause exists only while
+        // the game is running, so a gameplay button can safely share the same
+        // physical control without the two logical actions becoming coupled.
+        if (action == Config::SYSTEM_ACTION_PAUSE)
+        {
+            if (cannonball::state != cannonball::STATE_GAME ||
+                group != config.input_mode())
+            {
+                return -1;
+            }
+        }
+        else if (cannonball::state != cannonball::STATE_MENU)
+        {
+            return -1;
+        }
+
+        if (signature.empty())
+            return -1;
+
+        const int stored_type =
+            config.system_action_binding_type(action, group);
+        const int stored_index =
+            config.system_action_binding_index(action, group);
+        const std::string stored_device =
+            config.system_action_binding_device(action, group);
+
+        const bool has_custom_binding =
+            stored_type >= device_binding_t::TYPE_BUTTON &&
+            stored_type <= device_binding_t::TYPE_HAT &&
+            stored_index >= 0 &&
+            !stored_device.empty();
+
+        if (has_custom_binding)
+        {
+            if (stored_device != signature ||
+                stored_type != type ||
+                stored_index != index)
+            {
+                return -1;
+            }
+
+            if (type == device_binding_t::TYPE_HAT)
+            {
+                const int direction =
+                    config.system_action_binding_value(action, group);
+                return direction != SDL_HAT_CENTERED &&
+                    (value & direction) != 0 ? 1 : 0;
+            }
+
+            return button_pressed ? 1 : 0;
+        }
+
+        // Standard SDL controller defaults are fallbacks, not aliases to the
+        // gameplay actions. Once a custom binding exists it replaces only this
+        // system action. Wheel/raw-device bindings intentionally have no default.
+        if (group == Input::BINDING_GAMEPAD &&
+            type == device_binding_t::TYPE_BUTTON &&
+            index == default_system_gamepad_button(action))
+        {
+            return button_pressed ? 1 : 0;
+        }
+
+        return -1;
+    }
+
     bool group_has_axis_target(int target, int group)
     {
         for (const auto& binding : config.controls.device_bindings)
@@ -1076,6 +1159,14 @@ void Input::handle_key_down(SDL_Keysym* keysym)
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
     if (keysym->sym == key_config[14]) set_key_state(VIEW3, true);
+
+    // Permanent frontend confirm keys remain available independently from all
+    // gameplay mappings. Escape remains handled by Menu::handle_escape().
+    if (cannonball::state == cannonball::STATE_MENU &&
+        (keysym->sym == SDLK_RETURN || keysym->sym == SDLK_KP_ENTER))
+    {
+        set_key_state(ACCEPT, true);
+    }
 }
 
 void Input::handle_key_up(SDL_Keysym* keysym)
@@ -1091,6 +1182,9 @@ void Input::handle_key_up(SDL_Keysym* keysym)
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, false);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, false);
     if (keysym->sym == key_config[14]) set_key_state(VIEW3, false);
+
+    if (keysym->sym == SDLK_RETURN || keysym->sym == SDLK_KP_ENTER)
+        set_key_state(ACCEPT, false);
 }
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)
@@ -1239,6 +1333,27 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
         true,
         BINDING_WHEEL);
 
+    if (capture_group == -1)
+    {
+        const std::string signature = get_device_signature(evt->which);
+        const int pause_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_PAUSE, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_WHEEL);
+        const int accept_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_ACCEPT, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_WHEEL);
+        const int back_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_BACK, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_WHEEL);
+
+        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);
+        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);
+        if (back_state >= 0) set_key_state(BACK, back_state != 0);
+    }
+
     if (!controller_side && wheel_runtime)
     {
         auto matches = [&](int slot)
@@ -1277,6 +1392,27 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
         evt->button,
         false,
         BINDING_WHEEL);
+
+    if (capture_group == -1)
+    {
+        const std::string signature = get_device_signature(evt->which);
+        const int pause_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_PAUSE, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_WHEEL);
+        const int accept_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_ACCEPT, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_WHEEL);
+        const int back_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_BACK, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_WHEEL);
+
+        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);
+        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);
+        if (back_state >= 0) set_key_state(BACK, back_state != 0);
+    }
 
     if (!controller_side && wheel_runtime)
     {
@@ -1328,6 +1464,27 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
         evt->hat,
         evt->value,
         BINDING_WHEEL);
+
+    if (capture_group == -1)
+    {
+        const std::string signature = get_device_signature(evt->which);
+        const int pause_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_PAUSE, signature,
+            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,
+            BINDING_WHEEL);
+        const int accept_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_ACCEPT, signature,
+            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,
+            BINDING_WHEEL);
+        const int back_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_BACK, signature,
+            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,
+            BINDING_WHEEL);
+
+        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);
+        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);
+        if (back_state >= 0) set_key_state(BACK, back_state != 0);
+    }
 }
 
 void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
@@ -1377,6 +1534,27 @@ void Input::handle_controller_down(SDL_ControllerButtonEvent* evt)
         evt->button,
         true,
         BINDING_GAMEPAD);
+
+    if (capture_group == -1)
+    {
+        const std::string signature = get_device_signature(evt->which);
+        const int pause_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_PAUSE, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_GAMEPAD);
+        const int accept_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_ACCEPT, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_GAMEPAD);
+        const int back_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_BACK, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, true,
+            BINDING_GAMEPAD);
+
+        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);
+        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);
+        if (back_state >= 0) set_key_state(BACK, back_state != 0);
+    }
 
     if (gamepad_runtime)
     {
@@ -1435,6 +1613,27 @@ void Input::handle_controller_up(SDL_ControllerButtonEvent* evt)
         evt->button,
         false,
         BINDING_GAMEPAD);
+
+    if (capture_group == -1)
+    {
+        const std::string signature = get_device_signature(evt->which);
+        const int pause_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_PAUSE, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_GAMEPAD);
+        const int accept_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_ACCEPT, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_GAMEPAD);
+        const int back_state = system_action_state_for_event(
+            Config::SYSTEM_ACTION_BACK, signature,
+            device_binding_t::TYPE_BUTTON, evt->button, 0, false,
+            BINDING_GAMEPAD);
+
+        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);
+        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);
+        if (back_state >= 0) set_key_state(BACK, back_state != 0);
+    }
 
     if (gamepad_runtime)
     {
