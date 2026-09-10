@@ -142,35 +142,55 @@ Controls are configured through:
 Menu -> Settings -> Controls
 
 The binding editor provides separate Keyboard, Gamepad and Wheel columns.
-Steering, accelerator, brake, shifter and buttons can be assigned independently,
-including controls from separate USB devices.
 
 Default keyboard controls:
 
-- Start: S
-- Coin: C
-- Accelerate: A
-- Brake: Z
-- Low / High Gear: G / H
 - Steer: Left / Right arrows
-- Change View: V
-- Menu: M
-- Quit: Esc
+- Accelerate: Left Ctrl
+- Brake: Left Alt
+- Low / High Gear: Space / Left Shift
+- Start: 1
+- Coin: 5
+- Change View: Z
+- Radio: X
+- Menu Access: Tab
+- Pause: P
+- Menu Accept: Enter
+- Menu Back: Esc
+- Direct View 1 / 2 / 3: Unassigned
 
-The following function keys are fixed and cannot be redefined:
+Default gamepad controls:
 
-- F1  Pause
-- F2  Frame step
-- F3  Freeze timer
-- F5  Menu
-- F6  Pixel-scaler quick cycle
-- F7  Hi-res sprites
-- F8  Video-processing toggle
-- F9  Shadow-mask toggle
-- F10 Ferrari colour
+- Steer: Left Stick
+- Accelerate: Right Trigger / R2
+- Brake: Left Trigger / L2
+- Low Gear: A / Cross
+- High Gear: X / Square
+- Start: Start / Options
+- Coin: Back / Select / Create
+- Change View: Y / Triangle
+- Radio: L3
+- Menu Access: Guide / Xbox / PS button
+- Pause: R3
+- Menu Accept: A / Cross
+- Menu Back: B / Circle
+- Menu Navigation: D-Pad
 
-While the car is driving in Attract Mode, F10 cycles the Ferrari colour. The
-selected colour is saved as the default and restored on future starts.
+Fixed keyboard controls:
+
+- Arrow Keys  Menu navigation
+- Enter       Menu Accept
+- Esc         Menu Back / Quit during gameplay
+- F2          Frame step
+- F3          Freeze timer
+- F5          Menu Access
+- F6          Pixel-scaler quick cycle
+- F7          Hi-res sprites
+- F8          Video-processing toggle
+- F9          Shadow-mask toggle
+- F10         Default Ferrari color
+- F11         Windowed / Fullscreen
+- Alt+Enter   Windowed / Fullscreen
 
 -------------------------------------
 5. Bugs & Development
