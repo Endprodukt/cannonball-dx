@@ -666,6 +666,16 @@ std::exit(9);
     uint32_t multiplier = 512;
     int16_t  offset = 0;
     uint32_t zoom = 0;
+
+    // The dedicated Ferrari/crash shadow graphic is a fixed shadow asset, not
+    // a normal multi-size scenery sprite. Sprite Enhancement must not switch it
+    // to the next-size source frame; doing so reads an invalid bottom row and
+    // produces the thin black line seen beneath the Ferrari and during crashes.
+    // Internal engine scaling still happens later in the hardware renderer.
+    const bool dedicated_shadow = input->addr == outrun.adr.shadow_data;
+    const bool use_hires_source =
+        config.video.hiresprites == 1 && !dedicated_shadow;
+
     switch (ZOOM_LOOKUP[index+2]) {
         case SIZE1: input_index = 127; break;  //  1:1 zoom for largest size
         case SIZE2: input_index =  62; multiplier = 516; offset =  3; break;  // 1.008:1 (closest we have)
@@ -684,7 +694,7 @@ std::exit(9);
 
     // now adjust for which type we actually have
     if (input_index != 127) {
-        if (config.video.hiresprites == 1) {
+        if (use_hires_source) {
             // now adjust for difference in sprite type being used
             uint32_t original_size = ZOOM_LOOKUP_HIRES[(index*4)+2];
             sprite_height <<= 1;
@@ -696,7 +706,7 @@ std::exit(9);
     output->set_offset(offset);
 
     // determine output size (game logic)
-    if (config.video.hiresprites == 0) {
+    if (!use_hires_source) {
         // original game resolution. Use (patched) original game sprite sizes.
 
         zoom = ZOOM_LOOKUP[index];
