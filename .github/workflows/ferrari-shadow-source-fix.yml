@@ -1,0 +1,85 @@
+name: Fix Ferrari shadow source selection
+
+on:
+  push:
+    branches:
+      - test/graphics-regression-clean
+    paths:
+      - .github/workflows/ferrari-shadow-source-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/graphics-regression-clean
+          fetch-depth: 0
+
+      - name: Patch dedicated Ferrari and crash shadow source selection
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path('src/main/engine/osprites.cpp')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    uint32_t zoom = 0;
+    switch (ZOOM_LOOKUP[index+2]) {
+'''
+          new = '''    uint32_t zoom = 0;
+
+    // The dedicated Ferrari/crash shadow graphic is a fixed shadow asset, not
+    // a normal multi-size scenery sprite. Sprite Enhancement must not switch it
+    // to the next-size source frame; doing so reads an invalid bottom row and
+    // produces the thin black line seen beneath the Ferrari and during crashes.
+    // Internal engine scaling still happens later in the hardware renderer.
+    const bool dedicated_shadow = input->addr == outrun.adr.shadow_data;
+    const bool use_hires_source =
+        config.video.hiresprites == 1 && !dedicated_shadow;
+
+    switch (ZOOM_LOOKUP[index+2]) {
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'insert anchor count: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    if (input_index != 127) {
+        if (config.video.hiresprites == 1) {
+'''
+          new = '''    if (input_index != 127) {
+        if (use_hires_source) {
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'precalc hires anchor count: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    if (config.video.hiresprites == 0) {
+        // original game resolution. Use (patched) original game sprite sizes.
+'''
+          new = '''    if (!use_hires_source) {
+        // original game resolution. Use (patched) original game sprite sizes.
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'source path anchor count: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          '@ | python -
+
+          git diff --check
+          git diff -- src/main/engine/osprites.cpp
+
+      - name: Commit source fix
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/engine/osprites.cpp
+          git commit -m 'Keep dedicated Ferrari shadows on original source frame'
+          git push origin HEAD:test/graphics-regression-clean
