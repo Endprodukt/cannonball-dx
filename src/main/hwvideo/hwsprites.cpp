@@ -546,11 +546,6 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
 //        int32_t  zoom     =   ramBuff[data+3] & 0x7ff;
         int32_t  zoom     =   ramBuff[data+3] & 0x0fff;
 
-        // Hi-res shadow sprites expose one invalid trailing source row as a
-        // dark horizontal stripe. The original 1x hardware path is correct;
-        // trim one logical destination row only for actual shadow sprites.
-        if (shadow && render_scale > 1 && height > 1)
-            height--;
         int32_t ydelta    = ((ramBuff[data+4] & 0x8000) != 0) ? 1 : -1;
         int32_t flip      = (~ramBuff[data+4] >> 14) & 1;
         int32_t xdelta    = ((ramBuff[data+4] & 0x2000) != 0) ? 1 : -1;
@@ -773,8 +768,10 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                     uint16_t* pPix1 = pixels + (y * scrn_width) + xpos;
                     uint32_t spriteaddr = addr;
                     int32_t xacc = 0;
-                    const bool shadowfound =
-                        shadow && (spriterom_shadowinfo[addr] == 0x11);
+                    // Hi-res must always interpret 0xA through the hardware
+                    // shadow path. Relying on lazily populated row metadata
+                    // can render an unprimed shadow row as a dark colour.
+                    const bool shadowfound = shadow;
 
                     if (!shadowfound)
                     {
@@ -893,7 +890,10 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                 // we can also use (count-1) as the *minimum* number of pixels that will be written out
                 // but each x-pass, since hzoom=vzoom.
 
-                bool shadowfound = shadow && (spriterom_shadowinfo[addr] == 0x11);
+                // Keep the metadata optimisation at native resolution only.
+                // In hi-res every hardware-shadow row uses shadow semantics.
+                bool shadowfound = shadow &&
+                    (render_scale > 1 || spriterom_shadowinfo[addr] == 0x11);
 
                 // the following should compile to a jump table, making it much quicker to get to the
                 // optimised drawing path we need without wading through layers of if/else etc
