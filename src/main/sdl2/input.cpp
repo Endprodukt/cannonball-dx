@@ -105,7 +105,7 @@ namespace
                 last_fullscreen_mode = video_settings_t::MODE_FULL;
             }
 
-            config.video.mode = video_settings_t::MODE_WINDOW;
+            config.video.mode = last_fullscreen_mode;
         }
 
         config.videoRestartRequired = true;
@@ -202,11 +202,16 @@ namespace
 
         // Presses are context-sensitive, but the matching release must always
         // clear the logical state even if the press changed frontend/game state.
+        // ACCEPT is also exposed during gameplay so score-entry screens can use
+        // the user's configured Menu Accept binding without duplicating bindings.
+        const bool in_menu = cannonball::state == cannonball::STATE_MENU;
+        const bool in_game = cannonball::state == cannonball::STATE_GAME;
         const bool press_allowed =
             action == Config::SYSTEM_ACTION_PAUSE
-                ? cannonball::state == cannonball::STATE_GAME &&
-                  group == config.input_mode()
-                : cannonball::state == cannonball::STATE_MENU;
+                ? in_game && group == config.input_mode()
+                : action == Config::SYSTEM_ACTION_ACCEPT
+                    ? in_menu || in_game
+                    : in_menu;
 
         const int stored_type =
             config.system_action_binding_type(action, group);
@@ -1165,12 +1170,17 @@ void Input::handle_key_down(SDL_Keysym* keysym)
         set_key_state(PAUSE, true);
     }
 
-    if (cannonball::state == cannonball::STATE_MENU)
+    if ((cannonball::state == cannonball::STATE_MENU ||
+         cannonball::state == cannonball::STATE_GAME) &&
+        keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_ACCEPT))
     {
-        if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_ACCEPT))
-            set_key_state(ACCEPT, true);
-        if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_BACK))
-            set_key_state(BACK, true);
+        set_key_state(ACCEPT, true);
+    }
+
+    if (cannonball::state == cannonball::STATE_MENU &&
+        keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_BACK))
+    {
+        set_key_state(BACK, true);
     }
 }
 
