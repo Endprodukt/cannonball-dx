@@ -147,7 +147,10 @@ public:
 
         update_letter_selection();
 
-        bool select_pressed = input.has_pressed(Input::ACCEL);
+        bool select_pressed =
+            input.has_pressed(Input::ACCEL) ||
+            input.has_pressed(Input::START) ||
+            input.has_pressed(Input::ACCEPT);
 
         // Match the stock score-entry pedal hysteresis.
         if (oinputs.input_acc < 0x30)
