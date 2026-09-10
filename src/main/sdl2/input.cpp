@@ -105,7 +105,7 @@ namespace
                 last_fullscreen_mode = video_settings_t::MODE_FULL;
             }
 
-            config.video.mode = last_fullscreen_mode;
+            config.video.mode = video_settings_t::MODE_WINDOW;
         }
 
         config.videoRestartRequired = true;
