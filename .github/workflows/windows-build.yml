@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     name: Windows x64 Release
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     env:
       VCPKG_ROOT: C:\vcpkg
