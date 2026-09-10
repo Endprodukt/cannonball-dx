@@ -39,13 +39,16 @@
 
 namespace
 {
-    const int BINDING_ROWS = 13;
+    const int BINDING_ROWS = 16;
+    const int PAUSE_ROW = 8;
+    const int ACCEPT_ROW = 9;
+    const int MENU_BACK_ROW = 10;
     const int RADIO_ROW = BINDING_ROWS - 1;
     const int BACK_ROW = BINDING_ROWS;
     const int EDITOR_ROWS = BINDING_ROWS + 1;
     const int EDITOR_COLUMNS = 3;
-    const int BACK_Y = 20;
-    const int STATUS_Y = 22;
+    const int BACK_Y = 23;
+    const int STATUS_Y = 25;
 
     const int COL_KEYBOARD = 0;
     const int COL_GAMEPAD = 1;
@@ -82,6 +85,20 @@ namespace
     bool starts_with_label(const std::string& value, const char* label)
     {
         return value.rfind(label, 0) == 0;
+    }
+
+    bool is_system_action_row(int row)
+    {
+        return row == PAUSE_ROW || row == ACCEPT_ROW || row == MENU_BACK_ROW;
+    }
+
+    int system_action_for_row(int row)
+    {
+        if (row == ACCEPT_ROW)
+            return Config::SYSTEM_ACTION_ACCEPT;
+        if (row == MENU_BACK_ROW)
+            return Config::SYSTEM_ACTION_BACK;
+        return Config::SYSTEM_ACTION_PAUSE;
     }
 
     int low_speed_spring_strength()
@@ -212,7 +229,10 @@ namespace
         "GEAR HIGH",
         "START",
         "COIN",
-        "MENU",
+        "MENU ACCESS",
+        "PAUSE",
+        "MENU ACCEPT",
+        "MENU BACK",
         "VIEW CHANGE",
         "VIEW 1",
         "VIEW 2",
@@ -230,6 +250,9 @@ namespace
         device_binding_t::TARGET_START,
         device_binding_t::TARGET_COIN,
         device_binding_t::TARGET_MENU,
+        -1, // Pause uses the independent system-action binding store.
+        -1, // Menu Accept uses the independent system-action binding store.
+        -1, // Menu Back uses the independent system-action binding store.
         device_binding_t::TARGET_VIEW,
         device_binding_t::TARGET_VIEW1,
         device_binding_t::TARGET_VIEW2,
@@ -237,8 +260,8 @@ namespace
         -1, // Radio uses its own persistent button/HAT binding per input group.
     };
 
-    // Steering is a two-key cell and therefore uses -1 here. Radio also owns a
-    // separate persistent key so the legacy fixed keyconfig array stays intact.
+    // Steering is a two-key cell and therefore uses -1 here. System actions
+    // have fixed keyboard fallbacks and Radio owns a separate persistent key.
     const int ROW_KEY_SLOT[BINDING_ROWS] =
     {
         -1,
@@ -249,6 +272,9 @@ namespace
         8,
         9,
         10,
+        -1,
+        -1,
+        -1,
         11,
         12,
         13,
@@ -280,6 +306,7 @@ namespace
             case SDLK_DELETE:    return "DEL";
             case SDLK_SPACE:     return "SPACE";
             case SDLK_ESCAPE:    return "ESC";
+            case SDLK_F1:        return "F1";
             default:
                 break;
         }
@@ -296,6 +323,13 @@ namespace
             const std::string right = compact_key_name(config.controls.keyconfig[3]);
             return clip_text(left + "/" + right, 8);
         }
+
+        if (row == PAUSE_ROW)
+            return "F1";
+        if (row == ACCEPT_ROW)
+            return "ENTER";
+        if (row == MENU_BACK_ROW)
+            return "ESC";
 
         if (row == RADIO_ROW)
             return clip_text(compact_key_name(config.radio_key()), 8);
@@ -381,6 +415,37 @@ namespace
         return format_physical_binding(*first);
     }
 
+    std::string system_group_binding_text(int action, int group)
+    {
+        const int index = config.system_action_binding_index(action, group);
+        const std::string device = config.system_action_binding_device(action, group);
+
+        if (index >= 0 && !device.empty())
+        {
+            device_binding_t binding;
+            binding.type = config.system_action_binding_type(action, group);
+            binding.index = index;
+            binding.value = config.system_action_binding_value(action, group);
+            binding.device =
+                std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
+            return format_physical_binding(binding);
+        }
+
+        // Standardized SDL face/menu buttons are fixed fallbacks. They are not
+        // aliases to Gear/Start and disappear only when this system action gets
+        // an explicit custom GAMEPAD binding.
+        if (group == Input::BINDING_GAMEPAD)
+        {
+            if (action == Config::SYSTEM_ACTION_ACCEPT)
+                return "A";
+            if (action == Config::SYSTEM_ACTION_BACK)
+                return "B";
+            return "START";
+        }
+
+        return "-";
+    }
+
     std::string radio_group_binding_text(int group)
     {
         const int index = config.radio_binding_index(group);
@@ -402,6 +467,21 @@ namespace
 
 void Menu::tick()
 {
+    // Menu Access opens the frontend from gameplay. Once the frontend is open,
+    // it is deliberately inert: Menu Back is the only logical back action.
+    input.keys[Input::MENU] = false;
+    input.keys_old[Input::MENU] = false;
+    input.keys_pressed[Input::MENU] = false;
+
+    // Apply the logical Back action before the inherited frontend tick. The
+    // binding editor handles Back itself so the button remains bindable there.
+    if (state != STATE_REDEFINE_KEYS &&
+        state != STATE_REDEFINE_JOY &&
+        input.has_pressed(Input::BACK))
+    {
+        handle_escape();
+    }
+
     // The DX wrapper inserts its own credit directly above the inherited SE
     // credit. Change only that DX entry; never match the generic BUILD text,
     // because the SE credit uses it too.
@@ -562,8 +642,9 @@ void Menu::tick()
 
 void Menu::handle_escape()
 {
-    // Normal menu hierarchy: Escape is BACK. At the root it is deliberately a
-    // no-op, because EXIT is the only frontend action that may close CannonBall.
+    // Normal menu hierarchy: Escape/Menu Back is BACK. At the root it is
+    // deliberately a no-op, because EXIT is the only frontend action that may
+    // close CannonBall.
     if (state == STATE_MENU)
     {
         if (menu_selected != &menu_main)
@@ -576,7 +657,7 @@ void Menu::handle_escape()
     }
 
     // Escape must also get out of the binding editor even while it is waiting
-    // for a new key/axis/button, where the normal MENU action is not polled.
+    // for a new key/axis/button, where the normal logical actions are not polled.
     if (state == STATE_REDEFINE_KEYS || state == STATE_REDEFINE_JOY)
     {
         input.set_capture_group(-1);
@@ -596,10 +677,12 @@ void Menu::handle_escape()
     }
 
     // Time Trial and hardware-test screens already have their own cleanup and
-    // BACK handling on the logical MENU action. Generate a one-frame edge so
-    // those screens retain their existing teardown behaviour.
+    // BACK handling on the historical MENU action. Generate an internal one-
+    // frame MENU edge from the new independent Back action so their teardown
+    // behaviour is retained without making Menu Access itself a Back button.
     input.keys_old[Input::MENU] = false;
     input.keys[Input::MENU] = true;
+    input.keys_pressed[Input::MENU] = true;
 }
 
 void Menu::populate_controls()
@@ -700,20 +783,14 @@ bool Menu::select_pressed()
         return false;
     }
 
-    // RETURN is a permanent frontend confirm key. Use an edge rather than
-    // key_press so holding the key cannot confirm several nested menus at once.
-    static bool return_was_down = false;
+    // PC/controller frontend confirmation is now a dedicated logical action.
+    // Never infer it from Gear, Accelerate or gameplay Start. Genuine cabinets
+    // retain their historical Start/accelerator select path.
+    const bool pressed =
+        input.has_pressed(Input::ACCEPT) ||
+        (config.smartypi.enabled &&
+         (input.has_pressed(Input::START) || oinputs.is_analog_select()));
 
-    const Uint8* keyboard_state = SDL_GetKeyboardState(nullptr);
-    const bool return_down =
-        keyboard_state && keyboard_state[SDL_SCANCODE_RETURN] != 0;
-    const bool alt_down = (SDL_GetModState() & KMOD_ALT) != 0;
-    const bool return_pressed =
-        return_down && !return_was_down && !alt_down;
-
-    return_was_down = return_down;
-
-    const bool pressed = return_pressed || MenuBase::select_pressed();
     if (!pressed)
         return false;
 
@@ -976,14 +1053,25 @@ void Menu::redefine_joystick()
                 row == selected_row ? ohud.PINK : ohud.GREEN);
 
             const std::string key_text = keyboard_binding_text(row);
-            const std::string gamepad_text =
-                row == RADIO_ROW
-                    ? radio_group_binding_text(Input::BINDING_GAMEPAD)
-                    : group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
-            const std::string wheel_text =
-                row == RADIO_ROW
-                    ? radio_group_binding_text(Input::BINDING_WHEEL)
-                    : group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
+            std::string gamepad_text;
+            std::string wheel_text;
+
+            if (row == RADIO_ROW)
+            {
+                gamepad_text = radio_group_binding_text(Input::BINDING_GAMEPAD);
+                wheel_text = radio_group_binding_text(Input::BINDING_WHEEL);
+            }
+            else if (is_system_action_row(row))
+            {
+                const int action = system_action_for_row(row);
+                gamepad_text = system_group_binding_text(action, Input::BINDING_GAMEPAD);
+                wheel_text = system_group_binding_text(action, Input::BINDING_WHEEL);
+            }
+            else
+            {
+                gamepad_text = group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
+                wheel_text = group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
+            }
 
             ohud.blit_text_new(
                 14,
@@ -1048,7 +1136,7 @@ void Menu::redefine_joystick()
         {
             ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
             ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 2, "WHEEL - ALL RAW INPUT DEVICES", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 2, "F1/ENTER/ESC KEYBOARD FIXED", ohud.GREY);
         }
     };
 
@@ -1112,6 +1200,15 @@ void Menu::redefine_joystick()
         if (selected_col == COL_KEYBOARD)
         {
             input.set_capture_group(-1);
+
+            // Pause/Accept/Back deliberately keep fixed keyboard fallbacks.
+            // Their KEYBOARD cells therefore never enter capture mode.
+            if (is_system_action_row(selected_row))
+            {
+                capturing = false;
+                draw_editor();
+                return;
+            }
 
             if (input.key_press != -1)
             {
@@ -1211,6 +1308,7 @@ void Menu::redefine_joystick()
             const SDL_JoystickID captured_device = input.joy_hat_device;
             const int captured_hat = input.joy_hat;
             const int captured_value = input.joy_hat_value;
+            const std::string signature = input.get_device_signature(captured_device);
 
             if (selected_row == RADIO_ROW)
             {
@@ -1219,7 +1317,17 @@ void Menu::redefine_joystick()
                     device_binding_t::TYPE_HAT,
                     captured_hat,
                     captured_value,
-                    input.get_device_signature(captured_device));
+                    signature);
+            }
+            else if (is_system_action_row(selected_row))
+            {
+                config.set_system_action_binding(
+                    system_action_for_row(selected_row),
+                    group,
+                    device_binding_t::TYPE_HAT,
+                    captured_hat,
+                    captured_value,
+                    signature);
             }
             else
             {
@@ -1255,6 +1363,7 @@ void Menu::redefine_joystick()
         {
             const SDL_JoystickID captured_device = input.joy_button_device;
             const int captured_button = input.joy_button;
+            const std::string signature = input.get_device_signature(captured_device);
 
             if (selected_row == RADIO_ROW)
             {
@@ -1263,7 +1372,17 @@ void Menu::redefine_joystick()
                     device_binding_t::TYPE_BUTTON,
                     captured_button,
                     0,
-                    input.get_device_signature(captured_device));
+                    signature);
+            }
+            else if (is_system_action_row(selected_row))
+            {
+                config.set_system_action_binding(
+                    system_action_for_row(selected_row),
+                    group,
+                    device_binding_t::TYPE_BUTTON,
+                    captured_button,
+                    0,
+                    signature);
             }
             else
             {
@@ -1298,9 +1417,9 @@ void Menu::redefine_joystick()
     // Browse mode never owns either device event stream.
     input.set_capture_group(-1);
 
-    // Browse mode: move through the fixed KEYBOARD / GAMEPAD / WHEEL matrix
-    // and the final BACK entry.
-    if (input.has_pressed(Input::MENU))
+    // Menu Back is independent from Menu Access and works as the editor's
+    // normal back action while not actively capturing a new control.
+    if (input.has_pressed(Input::BACK))
     {
         leave_editor();
         return;
@@ -1351,9 +1470,16 @@ void Menu::redefine_joystick()
 
     if (clear_pressed && selected_row != BACK_ROW)
     {
+        bool changed = true;
+
         if (selected_col == COL_KEYBOARD)
         {
-            if (selected_row == 0)
+            if (is_system_action_row(selected_row))
+            {
+                // F1 / Enter / Escape are permanent keyboard fallbacks.
+                changed = false;
+            }
+            else if (selected_row == 0)
             {
                 config.controls.keyconfig[2] = -1;
                 config.controls.keyconfig[3] = -1;
@@ -1375,22 +1501,29 @@ void Menu::redefine_joystick()
                     : Input::BINDING_WHEEL;
 
             if (selected_row == RADIO_ROW)
+            {
                 config.clear_radio_binding(group);
+            }
+            else if (is_system_action_row(selected_row))
+            {
+                config.clear_system_action_binding(
+                    system_action_for_row(selected_row),
+                    group);
+            }
             else
+            {
                 input.clear_device_bindings(ROW_TARGETS[selected_row], group);
+            }
         }
 
-        config_save_pending = true;
+        if (changed)
+            config_save_pending = true;
+
         input.key_press = -1;
         osoundint.queue_sound(sound::BEEP1);
     }
 
-    // Call select_pressed first so its RETURN edge state is updated even when
-    // input.key_press also contains RETURN. Otherwise BACK can immediately
-    // re-open CONFIG INPUTS on the following menu frame while Return is held.
-    const bool activate =
-        select_pressed() ||
-        input.key_press == SDLK_RETURN;
+    const bool activate = select_pressed();
 
     if (activate)
     {
@@ -1398,6 +1531,16 @@ void Menu::redefine_joystick()
         {
             osoundint.queue_sound(sound::BEEP1);
             leave_editor();
+            return;
+        }
+
+        // The keyboard side of Pause/Accept/Back is intentionally fixed. The
+        // GAMEPAD and WHEEL cells beside it remain freely rebindable.
+        if (selected_col == COL_KEYBOARD && is_system_action_row(selected_row))
+        {
+            osoundint.queue_sound(sound::BEEP1);
+            input.key_press = -1;
+            draw_editor();
             return;
         }
 
