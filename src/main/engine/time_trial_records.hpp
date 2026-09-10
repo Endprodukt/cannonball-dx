@@ -130,8 +130,11 @@ public:
 
         const bool accel_now =
             oinputs.input_acc >= 0x60 || input.is_pressed(Input::ACCEL);
+        const bool button_accept =
+            input.has_pressed(Input::START) ||
+            input.has_pressed(Input::ACCEPT);
 
-        if (accel_now && !accel_old)
+        if (button_accept || (accel_now && !accel_old))
             accept_letter();
 
         accel_old = accel_now;
