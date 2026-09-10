@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - test/graphics-regression-clean
-    paths:
-      - .github/workflows/ferrari-shadow-source-fix.yml
 
 permissions:
   contents: write
@@ -13,7 +11,7 @@ permissions:
 jobs:
   patch:
     if: github.actor != 'github-actions[bot]'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,18 +19,17 @@ jobs:
           fetch-depth: 0
 
       - name: Patch dedicated Ferrari and crash shadow source selection
-        shell: pwsh
         run: |
-          @'
+          python3 - <<'PY'
           from pathlib import Path
 
           path = Path('src/main/engine/osprites.cpp')
           text = path.read_text(encoding='utf-8')
 
-          old = '''    uint32_t zoom = 0;
+          old = """    uint32_t zoom = 0;
     switch (ZOOM_LOOKUP[index+2]) {
-'''
-          new = '''    uint32_t zoom = 0;
+"""
+          new = """    uint32_t zoom = 0;
 
     // The dedicated Ferrari/crash shadow graphic is a fixed shadow asset, not
     // a normal multi-size scenery sprite. Sprite Enhancement must not switch it
@@ -44,39 +41,35 @@ jobs:
         config.video.hiresprites == 1 && !dedicated_shadow;
 
     switch (ZOOM_LOOKUP[index+2]) {
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'insert anchor count: {text.count(old)}')
+"""
+          assert text.count(old) == 1, text.count(old)
           text = text.replace(old, new, 1)
 
-          old = '''    if (input_index != 127) {
+          old = """    if (input_index != 127) {
         if (config.video.hiresprites == 1) {
-'''
-          new = '''    if (input_index != 127) {
+"""
+          new = """    if (input_index != 127) {
         if (use_hires_source) {
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'precalc hires anchor count: {text.count(old)}')
+"""
+          assert text.count(old) == 1, text.count(old)
           text = text.replace(old, new, 1)
 
-          old = '''    if (config.video.hiresprites == 0) {
+          old = """    if (config.video.hiresprites == 0) {
         // original game resolution. Use (patched) original game sprite sizes.
-'''
-          new = '''    if (!use_hires_source) {
+"""
+          new = """    if (!use_hires_source) {
         // original game resolution. Use (patched) original game sprite sizes.
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'source path anchor count: {text.count(old)}')
+"""
+          assert text.count(old) == 1, text.count(old)
           text = text.replace(old, new, 1)
 
           path.write_text(text, encoding='utf-8')
-          '@ | python -
+          PY
 
           git diff --check
           git diff -- src/main/engine/osprites.cpp
 
       - name: Commit source fix
-        shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
