@@ -12,6 +12,7 @@
 #include "engine/ostats.hpp"
 #include "engine/outils.hpp"
 #include "engine/ohiscore.hpp"
+#include "sdl2/input.hpp"
 #include <iostream>
 
 OHiScore ohiscore;
@@ -324,8 +325,14 @@ void OHiScore::do_input(uint32_t adr)
     else
         letter_selected = position;
 
-    // Check accelerator for press and depress
-    if (!acc_curr || !(acc_prev ^ acc_curr)) return;
+    // The original accelerator edge remains valid, while START and the
+    // configurable frontend ACCEPT action can confirm the highlighted glyph too.
+    const bool button_accept =
+        input.has_pressed(Input::START) ||
+        input.has_pressed(Input::ACCEPT);
+
+    if (!button_accept && (!acc_curr || !(acc_prev ^ acc_curr)))
+        return;
 
     // End option selected
     if (letter_selected == ENTRIES)
