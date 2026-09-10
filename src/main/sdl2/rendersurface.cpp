@@ -655,7 +655,7 @@ void RenderSurface::init_overlay()
             uint8_t* scnlp3 = a8.data() + ((dst_rect.h - y - 1) * dst_rect.w);
             uint8_t* scnlp4 = scnlp3 + dst_rect.w - 1;
             int y_pos = (y < midy) ? y : dst_rect.h - y;
-            uint32_t shadeval, maskval;
+            uint32_t shadeval;
 
             for (int x = 0; x <= (dst_rect.w >> 1); x++) {
                 // mask is symetrical so we only need to calculate half
@@ -914,16 +914,16 @@ bool RenderSurface::finalize_frame()
             float invExpandX;
             if (config.video.hires==0) {
                 // add 3% width to the source as the non-SIMD blargg filter leaves a black bar on the right
-                invExpandX = 1 / 1.03;
+                invExpandX = 1.0f / 1.03f;
             } else {
                 #if SNES_NTSC_HAVE_SIMD
-                invExpandX = 1 / 1.01;
+                invExpandX = 1.0f / 1.01f;
                 #else
                     // add 3% width to the source as the non-SIMD blargg filter leaves a black bar on the right
-                    invExpandX = 1 / 1.03;
+                    invExpandX = 1.0f / 1.03f;
                 #endif
             }
-            float invExpandY = 1.0;
+            float invExpandY = 1.0f;
             glb::set_uniform2("invExpand",      invExpandX, invExpandY);
 
             glb::set_uniform("brightboost",     1 + (float(config.video.brightboost) / 100.0f));

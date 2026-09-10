@@ -54,13 +54,8 @@
 #include <algorithm>
 #include <atomic>
 
-#ifdef _WIN32
-  #include <thread>
-#else
-  #include <pthread.h>
-#endif
-
 #ifndef _WIN32
+  #include <pthread.h>
   #include <sys/resource.h>
   #include <sys/syscall.h>   // for SYS_gettid
   #include <unistd.h>        // for syscall()
@@ -74,10 +69,8 @@ static uint32_t perf_end_frame = 0;
 #include "singlecorepi.hpp" // detects if running on a single-core RaspberryPi
 
 #ifdef _WIN32
-  #include <thread>
   #define sched_yield() std::this_thread::yield()
 #else
-  #include <pthread.h>
   #include <sched.h>
 #endif
 
@@ -88,6 +81,8 @@ static uint32_t perf_end_frame = 0;
 // ------------------------------------------------------------------------------------------------
 #ifdef __linux__
   #include <signal.h>
+  #include <execinfo.h>
+  #include <fcntl.h>
   #include <sys/ioctl.h>
   #include <linux/watchdog.h>
 
@@ -138,11 +133,6 @@ static uint32_t perf_end_frame = 0;
 // Diagnostics - displays info on crash
 // ------------------------------------------------------------------------------------------------
 #ifdef __linux__
-    #include <execinfo.h>
-    #include <signal.h>
-    #include <unistd.h>
-    #include <cstdio>
-
     static void segv_handler(int sig) {
         void* buf[64];
         int n = backtrace(buf, 64);
@@ -522,11 +512,6 @@ static void tick()
     }
 }
 
-
-#ifdef __linux__
-#include <fcntl.h>
-#include <unistd.h>
-#endif
 
 // Combined thread: updates play stats and kicks the watchdog (on linux)
 static void play_stats_and_watchdog_updater() {

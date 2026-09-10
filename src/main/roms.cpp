@@ -9,7 +9,6 @@
 #include <cstring>
 #include "stdint.hpp"
 #include "roms.hpp"
-#include <iostream>
 
 Roms roms;
 

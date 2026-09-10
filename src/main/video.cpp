@@ -1,25 +1,884 @@
 /***************************************************************************
-    Bug-fix option wrapper for the preserved video implementation.
+    Video Rendering.
 
-    The complete DX video source is kept in video_bugfix_base.cpp. Its single
-    negative fix_bugs test is redirected to the dedicated menu/map road-line
-    option without changing the surrounding renderer code.
+    - Renders the System 16 Video Layers
+    - Handles Reads and Writes to these layers from the main game code
+    - Interfaces with platform specific rendering code
+
+    Copyright Chris White.
+    See license.txt for more details.
+
+    Revisions for CannonBall-SE Copyright (c) 2025 James Pearce:
+    - Removed Boost alignment helpers.
+    - Use C++23 for:
+      - aligned new/delete for pixel buffers (portable on x86/ARM)
+      - byteswap (single instruction big-to-little-endian conversion
 ***************************************************************************/
 
-#include <new>
-#include <cstddef>
+// Aligned Memory Allocation (std, not Boost)
+#include <new>          // std::align_val_t, ::operator new/delete
+#include <cstddef>      // std::size_t
 #include <cstdint>
-#include <cstring>
+#include <cstring>      // std::memset
 #include <iostream>
-#include <bit>
-#include <algorithm>
+#include <bit>          // std::byteswap (C++20/23)
+#include <algorithm>    // std::clamp
+
 #include "video.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
 #include "engine/oroad.hpp"
 #include "engine/music_side_art.hpp"
+
 #include "sdl2/pixelscaler_renderer.hpp"
 
-#define fix_bugs fix_bugs && false || !config.bugfix_menu_map_road_line()
-#include "video_bugfix_base.cpp"
-#undef fix_bugs
+Video video;
+
+Video::Video(void)
+{
+    renderer     = new PixelScalerRenderer();
+    pixels       = NULL;
+    sprite_layer = new hwsprites();
+    tile_layer   = new hwtiles();
+
+    set_shadow_intensity(shadow::ORIGINAL);
+
+    enabled      = false;
+}
+
+Video::~Video(void)
+{
+    disable();
+    delete sprite_layer;
+    delete tile_layer;
+    // JJP - moved to disable - if (pixels) delete[] pixels;
+    //renderer->disable();
+    delete renderer;
+}
+
+int Video::init(Roms* roms, video_settings_t* settings, bool preserve_hardware_state)
+try
+{
+    if (!roms->tiles.rom || !roms->sprites.rom || !roms->road.rom) {
+        std::cerr << "ROM buffers missing at Video::init() — cannot build graphics subsystem.\n";
+        return false;
+    }
+
+    if (!set_video_mode(settings))
+    {
+        disable();
+        return false;
+    }
+
+    // Internal pixel arrays.
+    // JJP - add 128 bytes to each video buffer so that we can then avoid testing for x>0 in the sprite rendering loop
+//    std::size_t size = ((config.s16_width * config.s16_height) + alignment) * sizeof(uint16_t);
+    std::size_t size = ((config.s16_width * (config.s16_height+2)) + alignment) * sizeof(uint16_t);
+    // Initialise two buffers. This is used to allow the renderer to read from one buffer while the main thread writes to the other.
+    pixel_buffers[0] = static_cast<uint16_t*>(::operator new(size, std::align_val_t(alignment)));
+    pixel_buffers[1] = static_cast<uint16_t*>(::operator new(size, std::align_val_t(alignment)));
+    current_pixel_buffer = 0;
+    pixels = pixel_buffers[current_pixel_buffer] + alignment;
+    // Initialize both buffers to all zeros using std::memset
+    std::memset(pixel_buffers[0], 0, size);
+    std::memset(pixel_buffers[1], 0, size);
+
+    // Convert S16 tiles to a more useable format
+    const bool hires = config.video.hires != 0;
+
+    if (preserve_hardware_state)
+    {
+        // Display-mode/VSync/renderer restarts must not destroy the running
+        // System 16 video state. Passing nullptr refreshes only the
+        // resolution-dependent render paths while keeping decoded graphics,
+        // tile/text RAM, sprite RAM and road state intact.
+        tile_layer->init(nullptr, hires);
+        sprite_layer->init(nullptr);
+        hwroad.init(nullptr, hires);
+    }
+    else
+    {
+        tile_layer->init(roms->tiles.rom, hires);
+        sprite_layer->init(roms->sprites.rom);
+        hwroad.init(roms->road.rom, hires);
+
+        clear_tile_ram();
+        clear_text_ram();
+    }
+
+//    renderer->init(config.s16_width, config.s16_height, settings->scale, settings->mode, settings->scanlines);
+
+    enabled = true;
+    return true;
+}
+catch (const std::bad_alloc&)
+{
+    std::cerr << "Unable to allocate video buffers.\n";
+    disable();
+    return false;
+}
+
+void Video::swap_buffers()
+{
+//std::cout << std::hex << "Video::swap_buffers: pixel_buffers[0/1]: " << pixel_buffers[0] << "/" << pixel_buffers[1] << std::dec << "\n";
+    current_pixel_buffer ^= 1;
+    pixels = pixel_buffers[current_pixel_buffer] + alignment;
+    renderer->swap_buffers();
+}
+
+void Video::disable()
+{
+    renderer->disable();
+    // The second allocation may have failed before pixels was assigned.
+    if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
+    if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
+    pixels = nullptr;
+    enabled = false;
+}
+
+void Video::focus_window()
+{
+    if (renderer)
+        renderer->focus_window();
+}
+
+// ------------------------------------------------------------------------------------------------
+// Configure video settings from config file
+// ------------------------------------------------------------------------------------------------
+
+int Video::set_video_mode(video_settings_t* settings)
+{
+    switch (settings->widescreen)
+    {
+    case 2: // 21:9
+        config.s16_width = S16_WIDTH_ULTRAWIDE;
+        config.s16_x_off = (S16_WIDTH_ULTRAWIDE - S16_WIDTH) / 2;
+        break;
+
+    case 1: // 16:9
+        config.s16_width = S16_WIDTH_WIDE;
+        config.s16_x_off = (S16_WIDTH_WIDE - S16_WIDTH) / 2;
+        break;
+
+    default: // 4:3
+        config.s16_width = S16_WIDTH;
+        config.s16_x_off = 0;
+        break;
+    }
+
+    config.s16_height = S16_HEIGHT;
+
+    // DX: video.hires is a backward-compatible render-scale index.
+    // 0 = original 1x, 1 = existing 2x, 2 = 3x, 3 = 4x.
+    const int render_scale = std::clamp(settings->hires + 1, 1, 4);
+    config.s16_width  *= render_scale;
+    config.s16_height *= render_scale;
+
+    if (settings->scanlines < 0) settings->scanlines = 0;
+    else if (settings->scanlines > 100) settings->scanlines = 100;
+
+    if (settings->scale < 1)
+        settings->scale = 1;
+
+    set_shadow_intensity(settings->shadow == 0 ? shadow::ORIGINAL : shadow::MAME);
+    //renderer->init_palette(config.video.red_curve, config.video.green_curve, config.video.blue_curve);
+    renderer->init_palette(100, 100, 100);
+
+    return renderer->init(config.s16_width, config.s16_height, settings->scale, settings->mode, settings->scanlines);
+//    return true;
+}
+
+// --------------------------------------------------------------------------------------------
+// Shadow Colours
+// 63% Intensity is the correct value derived from hardware as follows:
+//
+// 1/ Shadows are just an extra 220 ohm resistor that goes to ground when enabled.
+// 2/ This is in parallel with the resistor-"DAC" (3.9k, 2k, 1k, 0.5k, 0.25k),
+//    and otherwise left floating.
+//
+// Static calculation example:
+//
+// const float rDAC   = 1.f / (1.f/3900.f + 1.f/2000.f + 1.f/1000.f + 1.f/500.f + 1.f/250.f);
+// const float rShade = 220.f;
+// const float shadeAttenuation = rShade / (rShade + rDAC); // 0.63f
+//
+// (MAME uses an incorrect value which is closer to 78% Intensity)
+// --------------------------------------------------------------------------------------------
+
+void Video::set_shadow_intensity(float f)
+{
+    renderer->set_shadow_intensity(f);
+}
+
+void Video::prepare_frame()
+{
+    // Renderer Specific Frame Setup
+    if (!renderer->start_frame())
+        return;
+
+    if (!enabled)
+    {
+        // Fill with black pixels
+        int i = config.s16_width * config.s16_height; // JJP optimisation
+        while (i--)
+            pixels[i] = 0;
+    }
+    else
+    {
+        // OutRun Hardware Video Emulation
+        tile_layer->update_tile_values();
+
+        (hwroad.*hwroad.render_background)(pixels);
+        tile_layer->render_tile_layer(pixels, 1, 0);      // background layer
+        tile_layer->render_tile_layer(pixels, 0, 0);      // foreground layer
+
+        if (!config.bugfix_menu_map_road_line() ||
+            oroad.horizon_base != ORoad::HORIZON_OFF)
+            (hwroad.*hwroad.render_foreground)(pixels);
+
+        sprite_layer->render(pixels, 8);
+
+        // The edited 21:9 side art represents the final appearance of the
+        // ultrawide margins. Draw it after sprites so legacy sprite fragments
+        // cannot reintroduce the blue/grey side artefacts. Text remains live
+        // and is rendered afterwards as usual.
+        music_side_art::render(pixels);
+
+        tile_layer->render_text_layer(pixels, 1);
+        tile_layer->render_text_scroll_overlay(pixels, 1);
+    }
+}
+
+void Video::render_frame(int fastpass)
+{
+    // draw the frame from the pixel buffer not in use for writing
+    uint16_t* renderer_pixels = pixel_buffers[current_pixel_buffer ^ 1] + alignment;
+    renderer->draw_frame(renderer_pixels, fastpass);
+}
+
+void Video::present_frame()
+{
+	renderer->finalize_frame();
+}
+
+bool Video::supports_window()
+{
+    return renderer->supports_window();
+}
+
+bool Video::supports_vsync()
+{
+    return renderer->supports_vsync();
+}
+
+// ---------------------------------------------------------------------------
+// Text Handling Code
+// ---------------------------------------------------------------------------
+
+void Video::clear_text_ram()
+{
+    tile_layer->clear_text_scroll_overlay();
+    for (uint32_t i = 0; i <= 0xFFF; i++)
+        tile_layer->text_ram[i] = 0;
+}
+
+void Video::write_text8(uint32_t addr, const uint8_t data)
+{
+    tile_layer->text_ram[addr & 0xFFF] = data;
+}
+
+void Video::write_text16(uint32_t* addr, const uint16_t data)
+{
+    const uint32_t base = (*addr) & 0x0FFFu;      // 4 KiB text RAM
+    const uint16_t le = std::byteswap(data);
+    std::memcpy(&tile_layer->text_ram[base], &le, sizeof(le));
+    *addr += 2;
+}
+
+/*
+void Video::write_text16(uint32_t* addr, const uint16_t data)
+{
+    tile_layer->text_ram[*addr & 0xFFF] = (data >> 8) & 0xFF;
+    tile_layer->text_ram[(*addr+1) & 0xFFF] = data & 0xFF;
+
+    *addr += 2;
+}
+*/
+
+void Video::write_text16(uint32_t addr, const uint16_t data)
+{
+    const uint32_t base = addr & 0x0FFFu;      // 4 KiB text RAM
+    const uint16_t le = std::byteswap(data);
+    std::memcpy(&tile_layer->text_ram[base], &le, sizeof(le));
+}
+
+/*
+void Video::write_text16(uint32_t addr, const uint16_t data)
+{
+    tile_layer->text_ram[addr & 0xFFF] = (data >> 8) & 0xFF;
+    tile_layer->text_ram[(addr+1) & 0xFFF] = data & 0xFF;
+}
+*/
+
+void Video::write_text32(uint32_t* addr, const uint32_t data)
+{
+    const uint32_t base = (*addr) & 0x0FFFu;      // 4 KiB text RAM
+    const uint32_t le = std::byteswap(data);
+    std::memcpy(&tile_layer->text_ram[base], &le, sizeof(le));
+    *addr += 4;
+}
+
+
+/*
+void Video::write_text32(uint32_t* addr, const uint32_t data)
+{
+    tile_layer->text_ram[*addr & 0xFFF] = (data >> 24) & 0xFF;
+    tile_layer->text_ram[(*addr+1) & 0xFFF] = (data >> 16) & 0xFF;
+    tile_layer->text_ram[(*addr+2) & 0xFFF] = (data >> 8) & 0xFF;
+    tile_layer->text_ram[(*addr+3) & 0xFFF] = data & 0xFF;
+
+    *addr += 4;
+}
+*/
+
+void Video::write_text32(uint32_t addr, const uint32_t data)
+{
+    const uint32_t base = addr & 0x0FFFu;      // 4 KiB text RAM
+    const uint32_t le = std::byteswap(data);
+    std::memcpy(&tile_layer->text_ram[base], &le, sizeof(le));
+}
+
+/*
+void Video::write_text32(uint32_t addr, const uint32_t data)
+{
+    tile_layer->text_ram[addr & 0xFFF] = (data >> 24) & 0xFF;
+    tile_layer->text_ram[(addr+1) & 0xFFF] = (data >> 16) & 0xFF;
+    tile_layer->text_ram[(addr+2) & 0xFFF] = (data >> 8) & 0xFF;
+    tile_layer->text_ram[(addr+3) & 0xFFF] = data & 0xFF;
+}
+*/
+
+uint8_t Video::read_text8(uint32_t addr)
+{
+    return tile_layer->text_ram[addr & 0xFFF];
+}
+
+// ---------------------------------------------------------------------------
+// Tile Handling Code
+// ---------------------------------------------------------------------------
+
+void Video::clear_tile_ram()
+{
+    for (uint32_t i = 0; i <= 0xFFFF; i++)
+        tile_layer->tile_ram[i] = 0;
+}
+
+void Video::write_tile8(uint32_t addr, const uint8_t data)
+{
+    tile_layer->tile_ram[addr & 0xFFFF] = data;
+}
+
+void Video::write_tile16(uint32_t* addr, const uint16_t data)
+{
+    // The tile RAM is 64 kB; wrap the address into that range
+    const uint32_t index = (*addr) & 0xFFFFU;
+    const uint16_t le = std::byteswap(data);   // big‑endian → little‑endian
+    std::memcpy(&tile_layer->tile_ram[index], &le, sizeof(le));
+    *addr += 2;
+}
+
+/*
+void Video::write_tile16(uint32_t* addr, const uint16_t data)
+{
+    tile_layer->tile_ram[*addr & 0xFFFF] = (data >> 8) & 0xFF;
+    tile_layer->tile_ram[(*addr+1) & 0xFFFF] = data & 0xFF;
+
+    *addr += 2;
+}
+*/
+
+void Video::write_tile16(uint32_t addr, const uint16_t data)
+{
+    // The tile RAM is 64 kB; wrap the address into that range
+    const uint32_t index = addr & 0xFFFFU;
+    const uint16_t le = std::byteswap(data);   // big‑endian → little‑endian
+    std::memcpy(&tile_layer->tile_ram[index], &le, sizeof(le));
+}
+
+/*
+void Video::write_tile16(uint32_t addr, const uint16_t data)
+{
+    tile_layer->tile_ram[addr & 0xFFFF] = (data >> 8) & 0xFF;
+    tile_layer->tile_ram[(addr+1) & 0xFFFF] = data & 0xFF;
+}
+*/
+
+void Video::write_tile32(uint32_t* addr, const uint32_t data)
+{
+    // The tile RAM is 64 kB – wrap the supplied address.
+    const uint32_t index = (*addr) & 0xFFFFU;
+    const uint32_t le = std::byteswap(data);  // big‑endian → little‑endian
+    std::memcpy(&tile_layer->tile_ram[index], &le, sizeof(le));
+    *addr += 4;
+}
+
+/*
+void Video::write_tile32(uint32_t* addr, const uint32_t data)
+{
+    tile_layer->tile_ram[*addr & 0xFFFF] = (data >> 24) & 0xFF;
+    tile_layer->tile_ram[(*addr+1) & 0xFFFF] = (data >> 16) & 0xFF;
+    tile_layer->tile_ram[(*addr+2) & 0xFFFF] = (data >> 8) & 0xFF;
+    tile_layer->tile_ram[(*addr+3) & 0xFFFF] = data & 0xFF;
+
+    *addr += 4;
+}
+*/
+
+void Video::write_tile32(uint32_t addr, const uint32_t data)
+{
+    // The tile RAM is 64 kB; wrap the address into that range
+    const uint32_t index = addr & 0xFFFFU;
+    const uint32_t le = std::byteswap(data);   // big‑endian → little‑endian
+    std::memcpy(&tile_layer->tile_ram[index], &le, sizeof(le));
+}
+
+/*
+void Video::write_tile32(uint32_t addr, const uint32_t data)
+{
+    tile_layer->tile_ram[addr & 0xFFFF] = (data >> 24) & 0xFF;
+    tile_layer->tile_ram[(addr+1) & 0xFFFF] = (data >> 16) & 0xFF;
+    tile_layer->tile_ram[(addr+2) & 0xFFFF] = (data >> 8) & 0xFF;
+    tile_layer->tile_ram[(addr+3) & 0xFFFF] = data & 0xFF;
+}
+*/
+
+uint8_t Video::read_tile8(uint32_t addr)
+{
+    return tile_layer->tile_ram[addr & 0xFFFF];
+}
+
+
+// ---------------------------------------------------------------------------
+// Sprite Handling Code
+// ---------------------------------------------------------------------------
+
+void Video::write_sprite16(uint32_t* addr, const uint16_t data)
+{
+    sprite_layer->write(*addr & 0xfff, data);
+    *addr += 2;
+}
+
+// ---------------------------------------------------------------------------
+// Palette Handling Code
+// ---------------------------------------------------------------------------
+
+void Video::write_pal8(uint32_t* palAddr, const uint8_t data)
+{
+    palette[*palAddr & 0x1fff] = data;
+    refresh_palette(*palAddr & 0x1fff);
+    *palAddr += 1;
+}
+
+void Video::write_pal16(uint32_t* palAddr, const uint16_t data)
+{
+    // Keep the index inside the 8 KB palette and aligned to a half‑word
+    uint32_t adr = (*palAddr) & (0x1fffu - 1u);   // 0x1fff – 1 = 8190
+
+    // Reverse the byte order and write the whole (16-bit) word at once
+    uint16_t word = std::byteswap(data);          // MSB→LSB
+    std::memcpy(&palette[adr], &word, sizeof(word));
+
+    refresh_palette(adr);
+    *palAddr += 2;
+}
+
+/*
+void Video::write_pal16(uint32_t* palAddr, const uint16_t data)
+{
+    uint32_t adr = *palAddr & (0x1fff - 1); // 0x1fff – 1 = 8190;
+    palette[adr]   = (data >> 8) & 0xFF;
+    palette[adr+1] = data & 0xFF;
+    refresh_palette(adr);
+    *palAddr += 2;
+}
+*/
+
+void Video::write_pal32(uint32_t* palAddr, const uint32_t data)
+{
+    uint32_t adr = *palAddr & (0x1fff - 3); // 0x1fff - 3 = 8188;
+
+    // Reverse the byte order and write the whole word at once
+    uint32_t word = std::byteswap(data);   // big‑endian → little‑endian
+    std::memcpy(&palette[adr], &word, sizeof(word));
+
+    refresh_palette(adr);
+    refresh_palette(adr + 2);
+    *palAddr += 4;
+}
+
+/*
+void Video::write_pal32(uint32_t* palAddr, const uint32_t data)
+{
+    uint32_t adr = *palAddr & (0x1fff - 3); // 0x1fff - 3 = 8188;
+
+    palette[adr]   = (data >> 24) & 0xFF;
+    palette[adr+1] = (data >> 16) & 0xFF;
+    palette[adr+2] = (data >> 8) & 0xFF;
+    palette[adr+3] = data & 0xFF;
+
+    refresh_palette(adr);
+    refresh_palette(adr+2);
+    *palAddr += 4;
+}
+*/
+
+void Video::write_pal32(uint32_t adr, uint32_t data)
+{
+    // keep adr within the 8‑KB palette, aligned to a 4‑byte word
+    adr &= (0x1fffu - 3u);          // 0x1fff – 3 = 8188
+
+    // Reverse the byte order and write the whole word at once
+    uint32_t word = std::byteswap(data);   // big‑endian → little‑endian
+    std::memcpy(&palette[adr], &word, sizeof(word));
+
+    refresh_palette(adr);
+    refresh_palette(adr + 2);
+}
+
+/*
+void Video::write_pal32(uint32_t adr, const uint32_t data)
+{
+    adr &= (0x1fff - 3); // 0x1fff - 3 = 8188;
+
+    palette[adr]   = (data >> 24) & 0xFF;
+    palette[adr+1] = (data >> 16) & 0xFF;
+    palette[adr+2] = (data >> 8) & 0xFF;
+    palette[adr+3] = data & 0xFF;
+    refresh_palette(adr);
+    refresh_palette(adr+2);
+}
+*/
+
+uint8_t Video::read_pal8(uint32_t palAddr)
+{
+    return palette[palAddr & 0x1fff];
+}
+
+uint16_t Video::read_pal16(uint32_t palAddr)
+{
+    uint32_t adr = palAddr & (0x1fffu - 1u);    // keep inside 8 KB, 16-bit aligned
+    uint16_t w = 0;
+    std::memcpy(&w, &palette[adr], sizeof(w));  // single 16-bit load
+
+    return std::byteswap(w);                    // palette is big-endian
+}
+
+/*
+uint16_t Video::read_pal16(uint32_t palAddr)
+{
+    uint32_t adr = palAddr & (0x1fff - 1); // 0x1fff - 1 = 8190;;
+    return (palette[adr] << 8) | palette[adr+1];
+}
+*/
+
+uint16_t Video::read_pal16(uint32_t* palAddr)
+{
+    uint32_t adr = (*palAddr) & (0x1fffu - 1u);
+
+    *palAddr += 2;                      // advance the caller’s address
+
+    uint16_t w = 0;
+    std::memcpy(&w, &palette[adr], sizeof(w));
+
+    return std::byteswap(w);
+}
+
+/*
+uint16_t Video::read_pal16(uint32_t* palAddr)
+{
+    uint32_t adr = *palAddr & (0x1fff - 1); // 0x1fff - 1 = 8190;;
+    *palAddr += 2;
+    return (palette[adr] << 8)| palette[adr+1];
+}
+*/
+
+uint32_t Video::read_pal32(uint32_t* palAddr)
+{
+    // Keep the index inside the 8 KB palette and aligned to a 4-byte word
+    uint32_t adr = (*palAddr) & (0x1fffu - 3u);   // 0x1fff - 3 = 8188
+
+    // Advance the caller’s address before we read
+    *palAddr += 4;
+
+    // Load the whole word at once
+    uint32_t word = 0;
+    std::memcpy(&word, &palette[adr], sizeof(word));
+
+    // The palette is stored big-endian; convert to the host format
+    return std::byteswap(word);
+}
+
+/*
+uint32_t Video::read_pal32(uint32_t* palAddr)
+{
+    uint32_t adr = *palAddr & (0x1fff - 3); // 0x1fff - 3 = 8188;
+    *palAddr += 4;
+    return (palette[adr] << 24) | (palette[adr+1] << 16) | (palette[adr+2] << 8) | palette[adr+3];
+}
+*/
+
+// Convert internal System 16 RRRR GGGG BBBB format palette to renderer output format
+void Video::refresh_palette(uint32_t palAddr)
+{
+    // Ensure we address an even index – the palette is 16-bit entries.
+    palAddr &= ~1u;
+
+    /*  Read the 16-bit value once.
+        The palette stores a big-endian word:  high byte first.  */
+    uint16_t a;
+    std::memcpy(&a, &palette[palAddr], sizeof a);   // one 16-bit copy
+    a = std::byteswap(a);
+
+    /*  Extract the 5-bit RGB components in a single operation each.
+        The logic is equivalent to the original code but needs only
+        one shift, one mask and one OR per component.  */
+    uint8_t r = (((a >> 0) & 0x000Fu) << 1) | ((a >> 12) & 1u);   // bits 0-3, flag bit 12
+    uint8_t g = (((a >> 4) & 0x000Fu) << 1) | ((a >> 13) & 1u); // bits 4-7, flag bit 13
+    uint8_t b = (((a >> 8) & 0x000Fu) << 1) | ((a >> 14) & 1u); // bits 8-11, flag bit 14
+
+    renderer->convert_palette(palAddr, r, g, b);
+}
+/*
+void Video::refresh_palette(uint32_t palAddr)
+{
+    palAddr &= ~1;
+    uint32_t a = (palette[palAddr] << 8) | palette[palAddr + 1];
+    uint32_t r = (a & 0x000f) << 1; // r rrr0
+    uint32_t g = (a & 0x00f0) >> 3; // g ggg0
+    uint32_t b = (a & 0x0f00) >> 7; // b bbb0
+    if ((a & 0x1000) != 0)
+        r |= 1; // r rrrr
+    if ((a & 0x2000) != 0)
+        g |= 1; // g gggg
+    if ((a & 0x4000) != 0)
+        b |= 1; // b bbbb
+
+    renderer->convert_palette(palAddr, r, g, b);
+}
+*/
+
+// ---------------------------------------------------------------------------
+// CannonBall DX clipped smooth text overlay
+// ---------------------------------------------------------------------------
+
+void hwtiles::clear_text_scroll_overlay()
+{
+    text_scroll_active = false;
+    text_scroll_top_y = 0;
+    text_scroll_bottom_y = 0;
+    text_scroll_first_row_y = 0;
+    text_scroll_row_spacing = 16;
+    text_scroll_row_count = 0;
+    text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
+    std::memset(text_scroll_overlay, 0, sizeof(text_scroll_overlay));
+}
+
+void hwtiles::configure_text_scroll_overlay(
+    int16_t top_y,
+    int16_t bottom_y,
+    int16_t first_row_y,
+    int16_t row_spacing,
+    int16_t row_count)
+{
+    text_scroll_top_y = top_y;
+    text_scroll_bottom_y = bottom_y;
+    text_scroll_first_row_y = first_row_y;
+    text_scroll_row_spacing = row_spacing > 0 ? row_spacing : 16;
+    text_scroll_row_count = row_count;
+
+    if (text_scroll_row_count < 0)
+        text_scroll_row_count = 0;
+    if (text_scroll_row_count > TEXT_SCROLL_MAX_ROWS)
+        text_scroll_row_count = TEXT_SCROLL_MAX_ROWS;
+
+    text_scroll_offset = 0;
+    text_scroll_offset_fp = 0;
+    text_scroll_speed = 0;
+    text_scroll_max_offset = 0;
+    text_scroll_active =
+        text_scroll_row_count > 0 &&
+        text_scroll_bottom_y > text_scroll_top_y;
+}
+
+void hwtiles::set_text_scroll_overlay_row(
+    int16_t row,
+    const uint16_t* data,
+    int16_t count)
+{
+    if (row < 0 || row >= TEXT_SCROLL_MAX_ROWS)
+        return;
+
+    std::memset(
+        text_scroll_overlay[row],
+        0,
+        sizeof(text_scroll_overlay[row]));
+
+    if (!data || count <= 0)
+        return;
+
+    if (count > TEXT_SCROLL_COLUMNS)
+        count = TEXT_SCROLL_COLUMNS;
+
+    std::memcpy(
+        text_scroll_overlay[row],
+        data,
+        static_cast<std::size_t>(count) * sizeof(uint16_t));
+}
+
+void hwtiles::set_text_scroll_overlay_offset(int16_t offset)
+{
+    text_scroll_offset = offset < 0 ? 0 : offset;
+    text_scroll_offset_fp = static_cast<int32_t>(text_scroll_offset) << 16;
+    text_scroll_speed = 0;
+}
+
+void hwtiles::set_text_scroll_overlay_motion(
+    int16_t pixels_per_second,
+    int16_t max_offset)
+{
+    text_scroll_speed = pixels_per_second > 0 ? pixels_per_second : 0;
+    text_scroll_max_offset = max_offset > 0 ? max_offset : 0;
+
+    if (text_scroll_offset >= text_scroll_max_offset)
+    {
+        text_scroll_offset = text_scroll_max_offset;
+        text_scroll_offset_fp =
+            static_cast<int32_t>(text_scroll_offset) << 16;
+        text_scroll_speed = 0;
+    }
+}
+
+int16_t hwtiles::get_text_scroll_overlay_offset() const
+{
+    return text_scroll_offset;
+}
+
+void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw)
+{
+    if (!text_scroll_active || !buf)
+        return;
+
+    // Advance at the DISPLAY frame rate, not the game-logic tick rate. This is
+    // what makes a 60 FPS / 30 Hz CannonBall configuration genuinely smooth.
+    if (text_scroll_speed > 0 &&
+        text_scroll_offset < text_scroll_max_offset)
+    {
+        const int frame_rate = config.fps > 0 ? config.fps : 60;
+        int32_t delta_fp =
+            (static_cast<int32_t>(text_scroll_speed) << 16) /
+            frame_rate;
+        if (delta_fp < 1)
+            delta_fp = 1;
+
+        text_scroll_offset_fp += delta_fp;
+        int32_t next_offset = text_scroll_offset_fp >> 16;
+
+        if (next_offset >= text_scroll_max_offset)
+        {
+            next_offset = text_scroll_max_offset;
+            text_scroll_offset_fp =
+                static_cast<int32_t>(text_scroll_max_offset) << 16;
+            text_scroll_speed = 0;
+        }
+
+        text_scroll_offset = static_cast<int16_t>(next_offset);
+    }
+
+    const bool hires = config.video.hires != 0;
+    const int logical_width = s16_width_noscale;
+    const int logical_height = S16_HEIGHT;
+
+    for (int row = 0; row < text_scroll_row_count; row++)
+    {
+        const int start_y =
+            text_scroll_first_row_y +
+            (row * text_scroll_row_spacing) -
+            text_scroll_offset;
+
+        if (start_y >= text_scroll_bottom_y ||
+            start_y + 8 <= text_scroll_top_y)
+        {
+            continue;
+        }
+
+        for (int col = 0; col < TEXT_SCROLL_COLUMNS; col++)
+        {
+            uint16_t raw = text_scroll_overlay[row][col];
+            if (!raw)
+                continue;
+
+            const uint8_t priority = (raw >> 15) & 1;
+            if (priority != priority_draw)
+                continue;
+
+            const uint16_t colour = (raw >> 9) & 0x07;
+            uint16_t code = raw & 0x01FF;
+            code += (tile_banks[0] << 12);
+            code &= (NUM_TILES - 1);
+
+            if (!code)
+                continue;
+
+            const int start_x = (col * 8) + config.s16_x_off;
+            const uint32_t* tile_data = tiles + (code << 3);
+
+            for (int py = 0; py < 8; py++)
+            {
+                const int sy = start_y + py;
+                if (sy < text_scroll_top_y ||
+                    sy >= text_scroll_bottom_y ||
+                    sy < 0 || sy >= logical_height)
+                {
+                    continue;
+                }
+
+                const uint32_t packed = tile_data[py];
+
+                for (int px = 0; px < 8; px++)
+                {
+                    const uint16_t pixel = static_cast<uint16_t>(
+                        (packed >> ((7 - px) * 4)) & 0x0F);
+                    if (!pixel)
+                        continue;
+
+                    const int sx = start_x + px;
+                    if (sx < 0 || sx >= logical_width)
+                        continue;
+
+                    const uint16_t palette_pixel =
+                        static_cast<uint16_t>((colour << 3) | pixel);
+
+                    if (!hires)
+                    {
+                        buf[(sy * config.s16_width) + sx] = palette_pixel;
+                    }
+                    else
+                    {
+                        const int physical_x = sx << 1;
+                        const int physical_y = sy << 1;
+                        uint16_t* dst =
+                            buf + (physical_y * config.s16_width) + physical_x;
+
+                        dst[0] = palette_pixel;
+                        dst[1] = palette_pixel;
+                        dst[config.s16_width] = palette_pixel;
+                        dst[config.s16_width + 1] = palette_pixel;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -63,7 +63,9 @@ jobs:
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: cannonball-dx-windows-${{ github.ref_name }}-${{ github.sha }}
+          # github.ref_name may contain '/', which upload-artifact rejects.
+          # The commit SHA is unique and works for every branch name.
+          name: cannonball-dx-windows-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: |
