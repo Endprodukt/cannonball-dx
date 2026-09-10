@@ -1,0 +1,74 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows x64 Release
+    runs-on: windows-latest
+
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          cmake --version
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            throw "vcpkg was not found at $env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" version
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: build/vcpkg_installed
+          key: vcpkg-windows-x64-${{ hashFiles('vcpkg.json') }}
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset windows-release -A x64 `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DWITH_MARCH_NATIVE=OFF
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build\Release\cannonball-dx.exe")) {
+            throw "Release build completed without producing cannonball-dx.exe"
+          }
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cannonball-dx-windows-${{ github.ref_name }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/Release/cannonball-dx.exe
+            build/Release/*.dll
+            build/tilemap.bin
+            build/tilepatch.bin
+            build/gamecontrollerdb.txt
