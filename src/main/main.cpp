@@ -785,8 +785,6 @@ static int main_loop() {
 
         // ---- LAUNCH WORKER TASKS & RENDERING ----
 
-        renderedFrames++;
-
         if (using_threading) {
             // Set NTSC filter to work on the last complete frame immediately
             renderReady0.release();
@@ -817,6 +815,9 @@ static int main_loop() {
             video.render_frame(-1);
             video.present_frame();
         }
+
+        // Count only frames that reached the presentation path.
+        renderedFrames++;
 
         // Swap the buffers for the next frame.
         video.swap_buffers();
@@ -878,13 +879,16 @@ static int main_loop() {
         nextFrameTime += frameDuration;
 
         // Keep the optional on-screen FPS counter updated without
-        // printing periodic diagnostics to the console.
-        auto elapsed = std::chrono::steady_clock::now() - fpsTimer;
-        if (elapsed >= std::chrono::seconds(2))
+        // printing periodic diagnostics to the console. Use the actual
+        // measurement interval rather than assuming it was exactly two seconds.
+        const auto fpsNow = std::chrono::steady_clock::now();
+        const double elapsedSeconds =
+            std::chrono::duration<double>(fpsNow - fpsTimer).count();
+        if (elapsedSeconds >= 2.0)
         {
-            fps_counter = renderedFrames / 2;
+            fps_counter = static_cast<int>((renderedFrames / elapsedSeconds) + 0.5);
             renderedFrames = 0;
-            fpsTimer = std::chrono::steady_clock::now();
+            fpsTimer = fpsNow;
         }
 
         // Apply an explicit in-menu frame-rate change immediately.
