@@ -14,24 +14,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore global Input declaration
+
+      - name: Apply F5 and frontend edge fixes
         run: |
-          if ! grep -q '^extern Input input;$' src/main/sdl2/input.hpp; then
-            printf '\nextern Input input;\n' >> src/main/sdl2/input.hpp
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/main/sdl2/input_base.cpp')
+          s = p.read_text()
+          old = '''        // Menu Access is a normal, configurable DX input action.\n\n        case SDLK_F7:\n'''
+          new = '''        // F5 is the permanent menu fallback. It is deliberately independent\n        // of the configurable Menu Access binding.\n        case SDLK_F5:\n            set_key_state(MENU, is_pressed);\n            break;\n\n        case SDLK_F7:\n'''
+          if old not in s:
+              raise SystemExit('input_base.cpp patch point not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/main/main.cpp')
+          s = p.read_text()
+          old = '''            // Enter every frontend menu with a clean digital navigation state.\n            // SDL can queue initial controller/HAT state while devices are opened;\n            // if one direction is left logically held, the first real press in\n            // that direction cannot create a new edge and appears to be ignored.\n            // Discard only menu-navigation state collected before the menu became\n            // active. A real press after this point will generate a fresh event.\n            for (Input::presses direction :\n                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT })\n            {\n                input.keys[direction] = false;\n                input.keys_old[direction] = false;\n                input.keys_pressed[direction] = false;\n            }\n'''
+          new = '''            // Enter every frontend menu with clean digital navigation and\n            // confirmation state. A controller Accept press can launch gameplay\n            // before its matching Button-Up event is delivered; without clearing\n            // that stale held state here, the next menu visit would swallow the\n            // first Accept press because it would not form a new rising edge.\n            for (Input::presses frontend_input :\n                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT,\n                   Input::ACCEPT, Input::BACK })\n            {\n                input.keys[frontend_input] = false;\n                input.keys_old[frontend_input] = false;\n                input.keys_pressed[frontend_input] = false;\n            }\n'''
+          if old not in s:
+              raise SystemExit('main.cpp patch point not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/sdl2/input.hpp
-          if ! git diff --cached --quiet; then
-            git commit -m "Restore global Input declaration"
-            git push origin HEAD:menu-actions-decoupled
-          fi
+          git add src/main/sdl2/input_base.cpp src/main/main.cpp
+          git commit -m "Fix F5 menu fallback and stale controller accept"
+          git push origin HEAD:menu-actions-decoupled
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev libmpg123-dev
+
       - name: Configure
         run: cmake -S . -B build -G Ninja -DWITH_MARCH_NATIVE=OFF -DWITH_MP3=OFF -DQUIET_BUILD=ON
+
       - name: Build
         run: cmake --build build --parallel 2
