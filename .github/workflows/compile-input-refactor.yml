@@ -1,0 +1,24 @@
+name: Compile input refactor
+
+on:
+  push:
+    branches:
+      - menu-actions-decoupled
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: contains(github.event.head_commit.message, '[compile-input-refactor]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DWITH_MARCH_NATIVE=OFF -DWITH_MP3=OFF -DQUIET_BUILD=ON
+      - name: Build
+        run: cmake --build build --parallel 2
