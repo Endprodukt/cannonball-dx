@@ -596,20 +596,31 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
             if (zoom < 1) zoom = 1;
         }
 
-        // Convert every source row the destination sampler can actually touch,
-        // including the final fractional zoom row. rawh is the real source
-        // height supplied by OSprites::do_sprite(), so clamp to it rather than
-        // ever walking into the following sprite ROM data. This keeps the last
-        // legitimate Ferrari/shadow row while preventing one-line black garbage
-        // on crash and other animated sprites.
         const uint32_t destination_rows = static_cast<uint32_t>(
             ytarget >= top ? ytarget - top : top - ytarget);
-        const uint32_t sampled_rows = destination_rows == 0 ? 0 :
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(destination_rows - 1) *
-                 static_cast<uint64_t>(zoom)) >> 9) + 1;
-        const uint32_t sprite_height = std::min(
-            sampled_rows, static_cast<uint32_t>(rawh));
+
+        // Preserve the proven original/2x sampling rule from the black-stripe
+        // fix. The optimized 1x/2x renderer advances source rows using the same
+        // fixed-point accumulator, so rounding this count up exposes one row
+        // beyond the sprite on some Ferrari, crash and shadow frames.
+        uint32_t sprite_height;
+        if (render_scale <= 2)
+        {
+            sprite_height = static_cast<uint32_t>(
+                (static_cast<uint64_t>(destination_rows) *
+                 static_cast<uint64_t>(zoom)) >> 9);
+        }
+        else
+        {
+            // 3x/4x use the one-destination-row renderer and can touch a final
+            // fractional source row. Keep that path bounded by the ROM height.
+            const uint32_t sampled_rows = destination_rows == 0 ? 0 :
+                static_cast<uint32_t>(
+                    (static_cast<uint64_t>(destination_rows - 1) *
+                     static_cast<uint64_t>(zoom)) >> 9) + 1;
+            sprite_height = std::min(
+                sampled_rows, static_cast<uint32_t>(rawh));
+        }
 
 //std::cout << "\rSprite height: " << height << ", Calculated Height: " << sprite_height << ", raw height: " << rawh << "\n";
 
@@ -728,15 +739,17 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
             }
 
         } else {
-            // not flipped
+            // Shadow presence is context dependent: the same ROM row can be
+            // reached by different hi-res sprite definitions with a different
+            // pitch. At hi-res, never reuse address-only shadow metadata from
+            // another sprite context or 0xA shadow pixels can be rendered as
+            // ordinary dark colour pixels, producing horizontal black stripes.
             for (int y = 0; y < sprite_height; y++) {
-                if (spriterom_shadowinfo[shadowaddr] == 0xff) {
-                    // first time seeing this sprite line
+                if (render_scale > 1 || spriterom_shadowinfo[shadowaddr] == 0xff) {
                     uint32_t readaddr = shadowaddr;
                     uint32_t shadow_found = 0;
                     for (int i = 0; i < pitch; ++i) {
                         uint32_t pixels = spriterom[readaddr++];
-                        // check for shadows
                         uint32_t pxt = pixels ^ 0xAAAAAAAAu;
                         if (((pxt - 0x11111111u) & ~pxt & 0x88888888u) != 0) {
                             shadow_found = 0x11;
