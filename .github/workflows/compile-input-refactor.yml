@@ -30,7 +30,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev
+          sudo apt-get install -y ninja-build pkg-config libsdl2-dev libtinyxml2-dev libegl1-mesa-dev libgles2-mesa-dev libudev-dev libmpg123-dev
       - name: Configure
         run: cmake -S . -B build -G Ninja -DWITH_MARCH_NATIVE=OFF -DWITH_MP3=OFF -DQUIET_BUILD=ON
       - name: Build
