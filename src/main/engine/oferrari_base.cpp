@@ -871,7 +871,9 @@ void OFerrari::draw_shadow()
             spr_shadow->addr = outrun.adr.shadow_data;
         }
 
-        if (oroad.get_view_mode() != ORoad::VIEW_INCAR)
+        // TEMP A/B TEST: suppress only the dedicated Ferrari shadow.
+        // If the black bottom stripe remains, it belongs to the Ferrari sprite itself.
+        if (false && oroad.get_view_mode() != ORoad::VIEW_INCAR)
             osprites.do_spr_order_shadows(spr_shadow);
     }
 }
