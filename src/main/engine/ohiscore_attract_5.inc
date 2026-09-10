@@ -209,15 +209,14 @@ void OHiScore::tick()
     // The preserved Original/Continuous editor expects a real steering wheel
     // and converts steering distance into repeated letter movement. Keyboard
     // and D-pad directions are discrete controls, so handle their press edges
-    // directly and temporarily neutralize the simulated digital steering. This
-    // keeps one press equal to one letter while leaving a real analog wheel on
-    // the original arcade path unchanged.
+    // directly and neutralize the simulated digital steering while held. A
+    // real analog wheel still uses the untouched arcade steering path whenever
+    // no digital direction is active.
     const bool stock_name_entry =
         (state & 3) == STATE_ENTRY && score_pos != -1;
     const bool digital_direction_held =
         stock_name_entry &&
         (input.is_pressed(Input::LEFT) || input.is_pressed(Input::RIGHT));
-    const int16_t saved_steering = oinputs.input_steering;
 
     if (stock_name_entry)
     {
@@ -251,8 +250,13 @@ void OHiScore::tick()
 
     tick_base();
 
+    // Do not restore a simulated digital steering offset here. Leaving it at
+    // centre prevents release/recentring frames from causing an extra letter.
     if (digital_direction_held)
-        oinputs.input_steering = saved_steering;
+    {
+        oinputs.input_steering = 0x80;
+        steer = 0;
+    }
 }
 
 int OHiScore::score_position()
