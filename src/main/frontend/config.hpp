@@ -33,6 +33,57 @@
     static constexpr int ENDLESS_DEFAULT_TRAFFIC_INTERVAL = 3; \
     static constexpr int ENDLESS_DEFAULT_MAX_TRAFFIC = 8; \
     static constexpr int ENDLESS_DEFAULT_RANDOM_START = 0; \
+    static constexpr int SYSTEM_ACTION_PAUSE = 0; \
+    static constexpr int SYSTEM_ACTION_ACCEPT = 1; \
+    static constexpr int SYSTEM_ACTION_BACK = 2; \
+    const char* system_action_name(int action) \
+    { \
+        if (action == SYSTEM_ACTION_ACCEPT) return "accept"; \
+        if (action == SYSTEM_ACTION_BACK) return "back"; \
+        return "pause"; \
+    } \
+    int system_action_key(int action) \
+    { \
+        const std::string path = std::string("controls.system.") + system_action_name(action) + ".keyboard"; \
+        return cfg.get_int(path, -1); \
+    } \
+    void set_system_action_key(int action, int key) \
+    { \
+        const std::string path = std::string("controls.system.") + system_action_name(action) + ".keyboard"; \
+        cfg.put_int(path, key); \
+    } \
+    std::string system_action_group_path(int action, int group, const char* leaf) \
+    { \
+        return std::string("controls.system.") + system_action_name(action) + \
+            (group == 0 ? ".gamepad." : ".wheel.") + leaf; \
+    } \
+    int system_action_binding_type(int action, int group) \
+    { \
+        return cfg.get_int(system_action_group_path(action, group, "type"), -1); \
+    } \
+    int system_action_binding_index(int action, int group) \
+    { \
+        return cfg.get_int(system_action_group_path(action, group, "index"), -1); \
+    } \
+    int system_action_binding_value(int action, int group) \
+    { \
+        return cfg.get_int(system_action_group_path(action, group, "value"), 0); \
+    } \
+    std::string system_action_binding_device(int action, int group) \
+    { \
+        return cfg.get_string(system_action_group_path(action, group, "device"), ""); \
+    } \
+    void set_system_action_binding(int action, int group, int type, int index, int value, const std::string& device) \
+    { \
+        cfg.put_int(system_action_group_path(action, group, "type"), type); \
+        cfg.put_int(system_action_group_path(action, group, "index"), index); \
+        cfg.put_int(system_action_group_path(action, group, "value"), value); \
+        cfg.put_string(system_action_group_path(action, group, "device"), device); \
+    } \
+    void clear_system_action_binding(int action, int group) \
+    { \
+        set_system_action_binding(action, group, -1, -1, 0, ""); \
+    } \
     int radio_key() \
     { \
         return cfg.get_int("controls.radio.keyboard", -1); \
