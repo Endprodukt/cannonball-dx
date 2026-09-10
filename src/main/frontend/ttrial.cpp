@@ -45,6 +45,10 @@ namespace
     const int TRAFFIC_OFF = 0;
     const int TRAFFIC_ON = 1;
 
+    const int COURSE_ROW_START[] = {0, 1, 3, 6, 10};
+    const int COURSE_ROW_COUNT[] = {1, 2, 3, 4, 5};
+    const int COURSE_ROWS = 5;
+
     struct CourseRecordDisplay
     {
         uint16_t total_counter = 0;
@@ -70,6 +74,66 @@ namespace
     const char* traffic_name()
     {
         return traffic_enabled ? "TRAFFIC ON" : "TRAFFIC OFF";
+    }
+
+    int course_row(int index)
+    {
+        for (int row = COURSE_ROWS - 1; row > 0; --row)
+        {
+            if (index >= COURSE_ROW_START[row])
+                return row;
+        }
+        return 0;
+    }
+
+    int move_course_digital(int current, Input::presses direction)
+    {
+        const int row = course_row(current);
+        const int row_start = COURSE_ROW_START[row];
+        const int row_end = row_start + COURSE_ROW_COUNT[row] - 1;
+
+        if (direction == Input::LEFT)
+            return current > row_start ? current - 1 : current;
+
+        if (direction == Input::RIGHT)
+            return current < row_end ? current + 1 : current;
+
+        int target_row = row;
+        if (direction == Input::UP)
+            --target_row;
+        else if (direction == Input::DOWN)
+            ++target_row;
+        else
+            return current;
+
+        if (target_row < 0 || target_row >= COURSE_ROWS)
+            return current;
+
+        // Rows on the OutRun course map are staggered. For vertical movement,
+        // select the course in the adjacent row whose real map X position is
+        // closest to the current Ferrari marker instead of relying on indices.
+        const int current_x = osprites.jump_table[FERRARI_POS[current]].x;
+        const int target_start = COURSE_ROW_START[target_row];
+        const int target_end = target_start + COURSE_ROW_COUNT[target_row];
+
+        int best = target_start;
+        int best_distance = 0x7FFFFFFF;
+
+        for (int candidate = target_start; candidate < target_end; ++candidate)
+        {
+            int distance =
+                osprites.jump_table[FERRARI_POS[candidate]].x - current_x;
+            if (distance < 0)
+                distance = -distance;
+
+            if (distance < best_distance)
+            {
+                best = candidate;
+                best_distance = distance;
+            }
+        }
+
+        return best;
     }
 
     Uint32 selection_timeout_ms()
@@ -384,15 +448,30 @@ int TTrial::tick()
 
                 const int previous_level = level_selected;
 
-                if (input.has_pressed(Input::LEFT) || oinputs.is_analog_l())
+                // Keyboard and D-pad follow the visible 1/2/3/4/5 course-map
+                // layout. The analog wheel deliberately keeps the original DX
+                // linear 0..14 selector, including wrap-around.
+                if (input.has_pressed(Input::LEFT))
+                    level_selected = move_course_digital(level_selected, Input::LEFT);
+                else if (input.has_pressed(Input::RIGHT))
+                    level_selected = move_course_digital(level_selected, Input::RIGHT);
+                else if (input.has_pressed(Input::UP))
+                    level_selected = move_course_digital(level_selected, Input::UP);
+                else if (input.has_pressed(Input::DOWN))
+                    level_selected = move_course_digital(level_selected, Input::DOWN);
+                else if (!input.is_pressed(Input::LEFT) &&
+                         !input.is_pressed(Input::RIGHT))
                 {
-                    if (--level_selected < 0)
-                        level_selected = sizeof(FERRARI_POS) - 1;
-                }
-                else if (input.has_pressed(Input::RIGHT) || oinputs.is_analog_r())
-                {
-                    if (++level_selected > sizeof(FERRARI_POS) - 1)
-                        level_selected = 0;
+                    if (oinputs.is_analog_l())
+                    {
+                        if (--level_selected < 0)
+                            level_selected = sizeof(FERRARI_POS) - 1;
+                    }
+                    else if (oinputs.is_analog_r())
+                    {
+                        if (++level_selected > sizeof(FERRARI_POS) - 1)
+                            level_selected = 0;
+                    }
                 }
 
                 if (level_selected != previous_level)
