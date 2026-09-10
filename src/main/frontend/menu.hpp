@@ -1,9 +1,10 @@
 /***************************************************************************
-    Front End Menu System - CannonBall DX Endless settings extension.
+    Front End Menu System - CannonBall DX gameplay extensions.
 
     Keep the current DX menu implementation intact as MenuLegacy and layer the
-    Endless configuration page on top. This avoids duplicating the large DX
-    frontend while still giving Endless its own persistent tuning page.
+    Endless and Bug Fixes configuration pages on top. This avoids duplicating
+    the large DX frontend while keeping detailed gameplay tuning out of the
+    main settings page.
 ***************************************************************************/
 
 #pragma once
@@ -62,6 +63,11 @@ public:
         config.engine.car_pal =
             car_palette_state::get_default(config.engine.car_pal);
 
+        // The preserved Ferrari source still branches on engine.fix_bugs for
+        // its two slip-detection paths. Keep that legacy runtime bit synced only
+        // to the dedicated Wheel Slip option; every other fix is independent.
+        config.sync_bugfix_runtime();
+
         MenuBase::init(init_main_menu);
     }
 
@@ -81,22 +87,24 @@ public:
         if (config.smartypi.enabled)
             return;
 
-        // Gameplay is the natural home for rules that affect an Endless run.
-        // Keep the main settings page compact and expose the detailed values
-        // only after the player explicitly opens ENDLESS SETTINGS.
-        auto existing = std::find(
-            menu_engine.begin(), menu_engine.end(), "ENDLESS SETTINGS");
-        if (existing == menu_engine.end())
+        // Gameplay is the natural home for detailed run rules and compatibility
+        // choices. Keep the main page compact and put both pages before Car Setup.
+        auto insert_before_handling = [&]()
         {
-            auto insert_before = std::find_if(
+            return std::find_if(
                 menu_engine.begin(),
                 menu_engine.end(),
                 [](const std::string& entry)
                 {
                     return entry.rfind(ENTRY_SUB_HANDLING, 0) == 0;
                 });
-            menu_engine.insert(insert_before, "ENDLESS SETTINGS");
-        }
+        };
+
+        if (std::find(menu_engine.begin(), menu_engine.end(), "ENDLESS SETTINGS") == menu_engine.end())
+            menu_engine.insert(insert_before_handling(), "ENDLESS SETTINGS");
+
+        if (std::find(menu_engine.begin(), menu_engine.end(), "BUG FIXES") == menu_engine.end())
+            menu_engine.insert(insert_before_handling(), "BUG FIXES");
     }
 
     // Existing out-of-line DX implementations in menu.cpp remain the final
@@ -106,6 +114,7 @@ public:
 
 protected:
     std::vector<std::string> menu_endless;
+    std::vector<std::string> menu_bugfixes;
 
     static const FfbMenuItem* dx_ffb_effect_items(int& count)
     {
@@ -366,6 +375,62 @@ protected:
         return std::string(label) + " " + std::to_string(value) + " STAGES";
     }
 
+    static std::string bool_text(const char* label, bool enabled)
+    {
+        return std::string(label) + (enabled ? " ON" : " OFF");
+    }
+
+    void populate_bugfix_settings()
+    {
+        menu_bugfixes.clear();
+        menu_bugfixes.push_back(bool_text("STEERING INPUT GLITCH", config.bugfix_steering_input()));
+        menu_bugfixes.push_back(bool_text("CHECKPOINT LAP TIME", config.bugfix_checkpoint_lap_time()));
+        menu_bugfixes.push_back(bool_text("ENDING PALETTE", config.bugfix_ending_palette()));
+        menu_bugfixes.push_back(bool_text("MUSIC SELECT TILE", config.bugfix_music_select_tile()));
+        menu_bugfixes.push_back(bool_text("MENU/MAP ROAD LINE", config.bugfix_menu_map_road_line()));
+        menu_bugfixes.push_back(bool_text("CRASH ENGINE SOUND", config.bugfix_crash_engine_sound()));
+        menu_bugfixes.push_back(
+            std::string("WHEEL SLIP DETECTION ") +
+            (config.bugfix_wheel_slip_se() ? "SE" : "ORIGINAL"));
+        menu_bugfixes.push_back("RESET TO DEFAULTS");
+        menu_bugfixes.push_back(ENTRY_BACK);
+    }
+
+    bool set_bugfix_value(int row, bool enabled)
+    {
+        switch (row)
+        {
+            case 0: config.set_bugfix_steering_input(enabled); break;
+            case 1: config.set_bugfix_checkpoint_lap_time(enabled); break;
+            case 2: config.set_bugfix_ending_palette(enabled); break;
+            case 3: config.set_bugfix_music_select_tile(enabled); break;
+            case 4: config.set_bugfix_menu_map_road_line(enabled); break;
+            case 5: config.set_bugfix_crash_engine_sound(enabled); break;
+            case 6: config.set_bugfix_wheel_slip_se(enabled); break;
+            default: return false;
+        }
+
+        const int old_cursor = cursor;
+        populate_bugfix_settings();
+        cursor = old_cursor;
+        return true;
+    }
+
+    bool toggle_bugfix_value(int row)
+    {
+        switch (row)
+        {
+            case 0: return set_bugfix_value(row, !config.bugfix_steering_input());
+            case 1: return set_bugfix_value(row, !config.bugfix_checkpoint_lap_time());
+            case 2: return set_bugfix_value(row, !config.bugfix_ending_palette());
+            case 3: return set_bugfix_value(row, !config.bugfix_music_select_tile());
+            case 4: return set_bugfix_value(row, !config.bugfix_menu_map_road_line());
+            case 5: return set_bugfix_value(row, !config.bugfix_crash_engine_sound());
+            case 6: return set_bugfix_value(row, !config.bugfix_wheel_slip_se());
+            default: return false;
+        }
+    }
+
     void populate_endless_settings()
     {
         menu_endless.clear();
@@ -494,24 +559,89 @@ protected:
             return;
         }
 
-        // Open the Endless page from Gameplay. All other Gameplay entries are
+        // Open the two detailed Gameplay pages. All other Gameplay entries are
         // still owned by the existing DX menu implementation.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_engine &&
             cursor >= 0 &&
-            cursor < static_cast<int>(menu_engine.size()) &&
-            menu_engine[cursor] == "ENDLESS SETTINGS")
+            cursor < static_cast<int>(menu_engine.size()))
         {
-            if (!select_pressed())
+            const std::string option = menu_engine[cursor];
+            if (option == "ENDLESS SETTINGS" || option == "BUG FIXES")
             {
-                MenuLegacy::tick_menu();
+                if (!select_pressed())
+                {
+                    MenuLegacy::tick_menu();
+                    return;
+                }
+
+                if (option == "ENDLESS SETTINGS")
+                {
+                    populate_endless_settings();
+                    set_menu(&menu_endless);
+                }
+                else
+                {
+                    populate_bugfix_settings();
+                    set_menu(&menu_bugfixes);
+                }
+
+                refresh_menu();
+                return;
+            }
+        }
+
+        if (!config.smartypi.enabled && menu_selected == &menu_bugfixes)
+        {
+            int direction = 0;
+            if (input.has_pressed(Input::RIGHT))
+                direction = 1;
+            else if (input.has_pressed(Input::LEFT))
+                direction = -1;
+
+            if (direction && cursor >= 0 && cursor <= 6)
+            {
+                if (set_bugfix_value(cursor, direction > 0))
+                {
+                    config.save();
+                    osoundint.queue_sound(sound::BEEP1);
+                }
                 return;
             }
 
-            populate_endless_settings();
-            set_menu(&menu_endless);
-            refresh_menu();
-            return;
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            if (cursor >= 0 && cursor <= 6)
+            {
+                if (toggle_bugfix_value(cursor))
+                {
+                    config.save();
+                    osoundint.queue_sound(sound::BEEP1);
+                }
+                return;
+            }
+
+            if (cursor == 7)
+            {
+                config.reset_bugfix_settings();
+                config.save();
+                populate_bugfix_settings();
+                cursor = 7;
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
+
+            if (cursor == 8)
+            {
+                menu_back();
+                refresh_menu();
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
         }
 
         if (!config.smartypi.enabled && menu_selected == &menu_endless)
