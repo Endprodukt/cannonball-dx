@@ -2,74 +2,81 @@ name: Fix Ferrari shadow source selection
 
 on:
   push:
-    branches:
-      - test/graphics-regression-clean
+    branches: [test/graphics-regression-clean]
+    paths:
+      - .github/workflows/ferrari-shadow-source-fix.yml
 
 permissions:
   contents: write
 
 jobs:
-  patch:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+  apply:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: test/graphics-regression-clean
           fetch-depth: 0
 
-      - name: Patch dedicated Ferrari and crash shadow source selection
+      - name: Keep dedicated Ferrari shadows on original source frame
+        shell: pwsh
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          $path = 'src/main/engine/osprites.cpp'
+          $text = (Get-Content $path -Raw).Replace("`r`n", "`n")
 
-          path = Path('src/main/engine/osprites.cpp')
-          text = path.read_text(encoding='utf-8')
+          $old = @(
+            '    uint32_t zoom = 0;',
+            '    switch (ZOOM_LOOKUP[index+2]) {'
+          ) -join "`n"
+          $new = @(
+            '    uint32_t zoom = 0;',
+            '',
+            '    // The dedicated Ferrari/crash shadow graphic is a fixed shadow asset, not',
+            '    // a normal multi-size scenery sprite. Sprite Enhancement must not switch it',
+            '    // to the next-size source frame; doing so reads an invalid bottom row and',
+            '    // produces the thin black line seen beneath the Ferrari and during crashes.',
+            '    // Internal engine scaling still happens later in the hardware renderer.',
+            '    const bool dedicated_shadow = input->addr == outrun.adr.shadow_data;',
+            '    const bool use_hires_source =',
+            '        config.video.hiresprites == 1 && !dedicated_shadow;',
+            '',
+            '    switch (ZOOM_LOOKUP[index+2]) {'
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
+          if ($count -ne 1) { throw "Expected one zoom anchor, found $count" }
+          $text = $text.Replace($old, $new)
 
-          old = """    uint32_t zoom = 0;
-    switch (ZOOM_LOOKUP[index+2]) {
-"""
-          new = """    uint32_t zoom = 0;
+          $old = @(
+            '    if (input_index != 127) {',
+            '        if (config.video.hiresprites == 1) {'
+          ) -join "`n"
+          $new = @(
+            '    if (input_index != 127) {',
+            '        if (use_hires_source) {'
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
+          if ($count -ne 1) { throw "Expected one hires pre-calc anchor, found $count" }
+          $text = $text.Replace($old, $new)
 
-    // The dedicated Ferrari/crash shadow graphic is a fixed shadow asset, not
-    // a normal multi-size scenery sprite. Sprite Enhancement must not switch it
-    // to the next-size source frame; doing so reads an invalid bottom row and
-    // produces the thin black line seen beneath the Ferrari and during crashes.
-    // Internal engine scaling still happens later in the hardware renderer.
-    const bool dedicated_shadow = input->addr == outrun.adr.shadow_data;
-    const bool use_hires_source =
-        config.video.hiresprites == 1 && !dedicated_shadow;
+          $old = @(
+            '    if (config.video.hiresprites == 0) {',
+            '        // original game resolution. Use (patched) original game sprite sizes.'
+          ) -join "`n"
+          $new = @(
+            '    if (!use_hires_source) {',
+            '        // original game resolution. Use (patched) original game sprite sizes.'
+          ) -join "`n"
+          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
+          if ($count -ne 1) { throw "Expected one source-path anchor, found $count" }
+          $text = $text.Replace($old, $new)
 
-    switch (ZOOM_LOOKUP[index+2]) {
-"""
-          assert text.count(old) == 1, text.count(old)
-          text = text.replace(old, new, 1)
-
-          old = """    if (input_index != 127) {
-        if (config.video.hiresprites == 1) {
-"""
-          new = """    if (input_index != 127) {
-        if (use_hires_source) {
-"""
-          assert text.count(old) == 1, text.count(old)
-          text = text.replace(old, new, 1)
-
-          old = """    if (config.video.hiresprites == 0) {
-        // original game resolution. Use (patched) original game sprite sizes.
-"""
-          new = """    if (!use_hires_source) {
-        // original game resolution. Use (patched) original game sprite sizes.
-"""
-          assert text.count(old) == 1, text.count(old)
-          text = text.replace(old, new, 1)
-
-          path.write_text(text, encoding='utf-8')
-          PY
+          Set-Content $path $text -Encoding UTF8 -NoNewline
 
           git diff --check
           git diff -- src/main/engine/osprites.cpp
 
-      - name: Commit source fix
+      - name: Commit changes
+        shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
