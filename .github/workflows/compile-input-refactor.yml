@@ -15,33 +15,106 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply F5 and frontend edge fixes
+      - name: Fix system-action release semantics
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          p = Path('src/main/sdl2/input_base.cpp')
+          p = Path('src/main/sdl2/input.cpp')
           s = p.read_text()
-          old = '''        // Menu Access is a normal, configurable DX input action.\n\n        case SDLK_F7:\n'''
-          new = '''        // F5 is the permanent menu fallback. It is deliberately independent\n        // of the configurable Menu Access binding.\n        case SDLK_F5:\n            set_key_state(MENU, is_pressed);\n            break;\n\n        case SDLK_F7:\n'''
-          if old not in s:
-              raise SystemExit('input_base.cpp patch point not found')
-          p.write_text(s.replace(old, new, 1))
+          start = s.index('    int system_action_state_for_event(')
+          end = s.index('\n    bool group_has_axis_target(', start)
+          old = s[start:end]
+          new = '''    int system_action_state_for_event(
+        int action,
+        const std::string& signature,
+        int type,
+        int index,
+        int value,
+        bool button_pressed,
+        int group)
+    {
+        if (signature.empty())
+            return -1;
 
-          p = Path('src/main/main.cpp')
-          s = p.read_text()
-          old = '''            // Enter every frontend menu with a clean digital navigation state.\n            // SDL can queue initial controller/HAT state while devices are opened;\n            // if one direction is left logically held, the first real press in\n            // that direction cannot create a new edge and appears to be ignored.\n            // Discard only menu-navigation state collected before the menu became\n            // active. A real press after this point will generate a fresh event.\n            for (Input::presses direction :\n                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT })\n            {\n                input.keys[direction] = false;\n                input.keys_old[direction] = false;\n                input.keys_pressed[direction] = false;\n            }\n'''
-          new = '''            // Enter every frontend menu with clean digital navigation and\n            // confirmation state. A controller Accept press can launch gameplay\n            // before its matching Button-Up event is delivered; without clearing\n            // that stale held state here, the next menu visit would swallow the\n            // first Accept press because it would not form a new rising edge.\n            for (Input::presses frontend_input :\n                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT,\n                   Input::ACCEPT, Input::BACK })\n            {\n                input.keys[frontend_input] = false;\n                input.keys_old[frontend_input] = false;\n                input.keys_pressed[frontend_input] = false;\n            }\n'''
-          if old not in s:
-              raise SystemExit('main.cpp patch point not found')
-          p.write_text(s.replace(old, new, 1))
+        // A press is context-sensitive, but its matching release must always be
+        // allowed through. Menu Accept can launch gameplay before SDL delivers
+        // Button-Up; rejecting that release outside STATE_MENU leaves ACCEPT
+        // logically held and makes the next menu visit swallow its first press.
+        const bool press_allowed =
+            action == Config::SYSTEM_ACTION_PAUSE
+                ? cannonball::state == cannonball::STATE_GAME &&
+                  group == config.input_mode()
+                : cannonball::state == cannonball::STATE_MENU;
+
+        const int stored_type =
+            config.system_action_binding_type(action, group);
+        const int stored_index =
+            config.system_action_binding_index(action, group);
+        const std::string stored_device =
+            config.system_action_binding_device(action, group);
+
+        // "!" is an explicit unbound marker. Empty means no custom binding and
+        // therefore allows the standard GAMEPAD fallback below.
+        if (stored_device == "!")
+            return -1;
+
+        const bool has_custom_binding =
+            stored_type >= device_binding_t::TYPE_BUTTON &&
+            stored_type <= device_binding_t::TYPE_HAT &&
+            stored_index >= 0 &&
+            !stored_device.empty();
+
+        if (has_custom_binding)
+        {
+            if (stored_device != signature ||
+                stored_type != type ||
+                stored_index != index)
+            {
+                return -1;
+            }
+
+            bool active = button_pressed;
+            if (type == device_binding_t::TYPE_HAT)
+            {
+                const int direction =
+                    config.system_action_binding_value(action, group);
+                active = direction != SDL_HAT_CENTERED &&
+                    (value & direction) != 0;
+            }
+
+            if (active && !press_allowed)
+                return -1;
+
+            return active ? 1 : 0;
+        }
+
+        // Standard SDL controller defaults are fallbacks, not aliases to the
+        // gameplay actions. Once a custom binding exists it replaces only this
+        // system action. Wheel/raw-device bindings intentionally have no default.
+        if (group == Input::BINDING_GAMEPAD &&
+            type == device_binding_t::TYPE_BUTTON &&
+            index == default_system_gamepad_button(action))
+        {
+            if (button_pressed && !press_allowed)
+                return -1;
+
+            return button_pressed ? 1 : 0;
+        }
+
+        return -1;
+    }
+'''
+          if old == new:
+              raise SystemExit('input.cpp already patched')
+          p.write_text(s[:start] + new + s[end:])
           PY
 
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/sdl2/input_base.cpp src/main/main.cpp
-          git commit -m "Fix F5 menu fallback and stale controller accept"
+          git add src/main/sdl2/input.cpp
+          git commit -m "Clear system actions on release across state changes"
           git push origin HEAD:menu-actions-decoupled
 
       - name: Install build dependencies
