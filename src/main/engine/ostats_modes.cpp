@@ -1,16 +1,13 @@
 /***************************************************************************
-    In-Game Statistics - CannonBall DX Endless wrapper.
+    DX mode-specific statistics presentation and progression.
 
-    The preserved OStats implementation remains in ostats_base.cpp. Endless
-    adds run-distance tracking, configurable difficulty progression, stage
-    banners and clean music changes on top of the original timer/lap handling.
+    Core timer, score and checkpoint mechanics live in ostats.cpp.
 ***************************************************************************/
 
 #include <cstdio>
 #include <cstring>
 
-// Load all preserved dependencies before renaming methods so the temporary
-// macros cannot touch declarations in another header.
+#include "frontend/config.hpp"
 #include "engine/audio/osoundint.hpp"
 #include "engine/ohud.hpp"
 #include "engine/obonus.hpp"
@@ -20,12 +17,6 @@
 #include "engine/otraffic.hpp"
 #include "engine/oinitengine.hpp"
 #include "engine/endless_hiscore.hpp"
-
-#define do_timers do_timers_base
-#define init_next_level init_next_level_base
-#include "ostats_base.cpp"
-#undef init_next_level
-#undef do_timers
 
 extern EndlessHiScore endless_hiscore;
 
@@ -545,7 +536,7 @@ void OStats::do_timers()
         reset_ttrial_lap_tracking();
     }
 
-    do_timers_base();
+    do_timers_core();
 
     // The base timer routine is currently a no-op outside GS_INGAME, but keep
     // the selected start value authoritative after it as well. This prevents a
@@ -586,7 +577,7 @@ void OStats::init_next_level()
 
     const uint8_t time_before = time_counter;
 
-    init_next_level_base();
+    init_next_level_core();
 
     if (endless_checkpoint)
     {

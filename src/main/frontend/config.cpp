@@ -425,7 +425,7 @@ void Config::load_core()
 
     if (!file_found) {
         // create a config file with the defaults
-        save();
+        save_core();
     }
 }
 

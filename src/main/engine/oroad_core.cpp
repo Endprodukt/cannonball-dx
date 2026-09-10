@@ -2,12 +2,12 @@
     Road Rendering & Control
 
     This is a complete port of the 68000 SUB CPU Program ROM.
-    
+
     The original code consists of a shared Sega library and some routines
     which are OutRun specific.
-    
+
     Some of the original code is not used and is therefore not ported.
-    
+
     This is the most complex area of the game code, and an area of the code
     in need of refactoring.
 
@@ -41,7 +41,7 @@ ORoad::~ORoad(void)
 {
 }
 
-void ORoad::tick()
+void ORoad::tick_core()
 {
     // Enhancement: Adjust View
     const int16_t horizon_step = config.tick_fps == 120 ? 8 : 16;
@@ -71,7 +71,7 @@ int16_t ORoad::get_road_y(uint16_t index)
 }
 
 // Initialize Road Values
-// 
+//
 // Source Address: 0x10B8
 // Input:          None
 // Output:         None
@@ -90,7 +90,7 @@ void ORoad::init()
     road_load_end    = 0;
     road_ctrl        = ROAD_OFF;
     road_load_split  = 0;
-    road_width       = 0;  
+    road_width       = 0;
     horizon_y2       = 0;
     horizon_y_bak    = 0;
     pos_fine         = 0;
@@ -137,7 +137,7 @@ void ORoad::init()
     y_addr = 0;
     scanline = 0;
     total_height = 0;
-    // End of extra initialization code 
+    // End of extra initialization code
 
     stage_loaded = -1;
     horizon_set  = 0;
@@ -187,7 +187,7 @@ void ORoad::set_view_mode(uint8_t mode, bool snap)
 }
 
 // Main Loop
-// 
+//
 // Source Address: 0x1044
 // Input:          None
 // Output:         None
@@ -208,7 +208,7 @@ void ORoad::do_road()
 }
 
 // Set Default Horizontal Scroll Values
-// 
+//
 // Source Address: 0x1106
 // Input:          None
 // Output:         None
@@ -224,7 +224,7 @@ void ORoad::set_default_hscroll()
 }
 
 // Clear Road RAM
-// 
+//
 // Source Address: 0x115A
 // Input:          None
 // Output:         None
@@ -246,21 +246,21 @@ void ORoad::clear_road_ram()
 }
 
 // Initalize Stage 1
-// 
+//
 // Source Address: 0x10DE
 // Input:          None
 // Output:         None
 
 void ORoad::init_stage1()
 {
-    trackloader.init_path(0); 
+    trackloader.init_path(0);
     road_pos = 0;
     road_ctrl = ROAD_BOTH_P0;
     // ignore init counter stuff (move.b  #$A,$49(a5))
 }
 
 // Rotate Values & Load Next Level/Split/Bonus Road
-// 
+//
 // Source Address: 0x119E
 // Input:          None
 // Output:         None
@@ -280,7 +280,7 @@ void ORoad::rotate_values()
 }
 
 // Check whether we need to load the next stage / road split / bonus data
-// 
+//
 // Source Address: 0x11D0
 // Input:          None
 // Output:         None
@@ -312,7 +312,7 @@ void ORoad::check_load_road()
 
 // 1/ Setup Road X Data from ROM
 // 2/ Apply H-Scroll To Data
-// 
+//
 // Source Address: 0x1590
 // Input:          None
 // Output:         None
@@ -390,9 +390,9 @@ void ORoad::setup_x_data(uint32_t addr)
 
         for (int16_t pos = curve_start; pos <= curve_end; pos++)
         {
-            x += xinc;              
+            x += xinc;
             if (x < -0x3200 || x > 0x3200) return;
-            road_x[scanline] = x;           
+            road_x[scanline] = x;
             if (--scanline < 0) return;
         }
 
@@ -408,30 +408,30 @@ void ORoad::setup_x_data(uint32_t addr)
 void ORoad::create_curve(
        int16_t &curve_inc, int16_t &curve_end,
        int32_t curve_x_total, int32_t curve_y_total, int16_t curve_x_dist, int16_t curve_y_dist)
-{    
+{
     // Note multiplication result should be 32bit, inputs 16 bit
     int32_t d0 = ((curve_x_total >> 5) * curve_y_dist) - ((curve_y_total >> 5) * curve_x_dist);
     int32_t d2 = ((curve_x_total >> 5) * curve_x_dist) + ((curve_y_total >> 5) * curve_y_dist);
 
-    d2 >>= 7;        
-    int32_t d1 = (d2 >> 7) + 0x410;     
+    d2 >>= 7;
+    int32_t d1 = (d2 >> 7) + 0x410;
 
     curve_inc = d0 / d1;        // Total amount to increment x by
     curve_end = (d2 / d1) * 4;
 }
 
 // Set The Correct Tilemap X *target* Position From The Road Data
-// 
+//
 // Source Address: 0x16F6
 //
 // Use Euclidean distance between a series of points.
 // This is essentially the standard distance that you'd measure with a ruler.
 
 void ORoad::set_tilemap_x(uint32_t addr)
-{    
+{
     // d0 = Word 0 + Word 2 + Word 4 + Word 6 [Next 4 x positions]
     // d1 = Word 1 + Word 3 + Word 5 + Word 7 [Next 4 y positions]
-    
+
     int16_t x = trackloader.readPath(&addr);
     int16_t y = trackloader.readPath(&addr);
     x += trackloader.readPath(&addr);
@@ -458,7 +458,7 @@ void ORoad::set_tilemap_x(uint32_t addr)
     {
         scroll_x = (-0x100 * y) / x;
     }
-    
+
     // turn right
     if (x > 0)       scroll_x += 0x200;
     else if (x < 0)  scroll_x += 0x600;
@@ -512,7 +512,7 @@ void ORoad::setup_hscroll()
 
         case ROAD_R1_SPLIT:
             do_road_offset(road1_h, +road_width_bak, true);
-            break;  
+            break;
     }
 }
 
@@ -524,7 +524,7 @@ void ORoad::setup_hscroll()
 // Take into account the position of the player's car.
 //
 // The road data is adjusted per scanline.
-// It is adjusted a different amount depending on how far into the horizon it is. 
+// It is adjusted a different amount depending on how far into the horizon it is.
 // So lines closer to the player's car are adjusted more.
 
 void ORoad::do_road_offset(int16_t* dst_x, int16_t width, bool invert)
@@ -535,7 +535,7 @@ void ORoad::do_road_offset(int16_t* dst_x, int16_t width, bool invert)
 
     // ---------------------------------------------------------------
     // Process H-Scroll: Car not central on road 0
-    // The following loop ensures that the road offset 
+    // The following loop ensures that the road offset
     // becomes before significant the closer it is to the player's car
     // ---------------------------------------------------------------
     if (car_offset != 0)
@@ -556,8 +556,8 @@ void ORoad::do_road_offset(int16_t* dst_x, int16_t width, bool invert)
                 h_scroll += x_off;
             else
                 h_scroll -= x_off;
-            
-            // Write final h-scroll value 
+
+            // Write final h-scroll value
             (*dst_x++) = h_scroll;
 
             scanline_inc += car_offset;
@@ -601,7 +601,7 @@ void ORoad::do_road_offset(int16_t* dst_x, int16_t width, bool invert)
 }
 
 // Main Loop
-// 
+//
 // Source Address: 0x1B12
 // Input:          None
 // Output:         None
@@ -694,16 +694,16 @@ void ORoad::init_height_seg()
         case 0:
             init_elevation(h_addr);
             break;
-        
+
         case 1:
         case 2:
             init_elevation_delay(h_addr);
             break;
-        
+
         case 3:
             init_elevation_mixed(h_addr);
             break;
-        
+
         case 4:
             init_horizon_adjust(h_addr);
             break;
@@ -715,7 +715,7 @@ void ORoad::init_height_seg()
 // Standard Elevation Height Section.
 // A series of sequential values are provided to adjust the horizon position.
 //
-// The duration of each value can be adjusted using the 'step' value and the multipliers. 
+// The duration of each value can be adjusted using the 'step' value and the multipliers.
 //
 // To map a road position to a height segment length:
 //
@@ -738,8 +738,8 @@ void ORoad::init_elevation(uint32_t& addr)
 
 void ORoad::do_elevation()
 {
-    // By Default: One Height Entry Per Two Road Positions 
-    // Potential advance stage of height map we're on 
+    // By Default: One Height Entry Per Two Road Positions
+    // Potential advance stage of height map we're on
     height_step += pos_fine_diff * 12;
 
     // Adjust the speed at which we transverse elevation sections of the height map
@@ -756,8 +756,8 @@ void ORoad::do_elevation()
     height_start = d1;
     height_end   = d1;
 
-    // Advance to next height entry if appropriate. 
-    height_index += height_inc; 
+    // Advance to next height entry if appropriate.
+    height_index += height_inc;
     height_inc = 0;
 
     // Increment to next height entry in table.
@@ -844,10 +844,10 @@ void ORoad::do_elevation_delay()
         height_start = d1 + 0x100;
     }
     // Part 2
-    // Source: 0x1D2E 
+    // Source: 0x1D2E
     else
     {
-        height_delay -= (d1 / step_adjust);    
+        height_delay -= (d1 / step_adjust);
         height_start = 0x1FF;
 
         if (height_delay < 0) // Set flag so we inc next time
@@ -862,7 +862,7 @@ void ORoad::do_elevation_delay()
 // no real advantage over the previous hold section code.
 //
 // Part 1: [Height Index = 0 - 5] Change horizon to relevant height over this period by looking at upcoming height entries.
-//                                Height Start & End Increments from 256 to 511. 
+//                                Height Start & End Increments from 256 to 511.
 // Part 2: [Height Index = 6]     Decrement Delay from provided value to 0. Hold horizon at this height.
 //                                Height Start constant at 511 and end at 256
 // Part 3: [Height Index = 1]     Height Start Decrements from 511 to 256. Revert horizon to original height over this period.
@@ -885,7 +885,7 @@ void ORoad::do_elevation_mixed()
     uint16_t d1 = pos_fine_diff * 12;
     height_index += height_inc;
     height_inc = 0;
-    
+
     // Parts 2 & 3 - Delayed Section. Source: 0x1E1C
     if (height_index >= 6)
     {
@@ -912,14 +912,14 @@ void ORoad::do_elevation_mixed()
             if (d1 > 0xFF) d1 = 0xFF;
             height_start = 0x1FF - d1;
             if (height_start != 0x100) return;
-            
+
             height_step = 1; // Set position on road segment to start
             height_inc  = 1;
             elevation   = NO_CHANGE;
         }
     }
     // Part 1. Source: 0x1DEA
-    // Look ahead at next 6 entries in data as normal. 
+    // Look ahead at next 6 entries in data as normal.
     else
     {
         height_step += d1;
@@ -930,7 +930,7 @@ void ORoad::do_elevation_mixed()
         height_end   = d1;
 
         if (height_start < 0x1FF) return;
-        
+
         // set_end2:
         height_start = 0x1FF;
         height_end   = 0x1FF;
@@ -944,7 +944,7 @@ void ORoad::do_elevation_mixed()
 //
 // Part 1: Height Start Increments from 256 to 512. Change horizon to relevant height over this period.
 //         Alter the speed at which this takes place with the step value.
-// Part 2: Horizon is set and remains at this position until changed with another horizon data block. 
+// Part 2: Horizon is set and remains at this position until changed with another horizon data block.
 //
 // Example Data  : 0x3672
 // Source        : 0x1EB6
@@ -954,7 +954,7 @@ void ORoad::init_horizon_adjust(uint32_t& addr)
 
     // Set Horizon Modifier
     horizon_mod = trackloader.read16(trackloader.heightmap_data, addr) - horizon_base;
-    
+
     // Use do_horizon_adjust() function
     height_ctrl = 5;
     do_horizon_adjust();
@@ -1016,20 +1016,20 @@ void ORoad::set_y_interpolate()
 
     section_lengths[0] = d1;
     d2 >>= 1;
-    section_lengths[1] = d2;    
-    
+    section_lengths[1] = d2;
+
     uint16_t d3 = 0x200 - d1 - d2;
     section_lengths[3] = d3;
     d3 >>= 1;
     section_lengths[2] = d3;
     section_lengths[3] -= d3;
-    
+
     d3 = section_lengths[3];
     section_lengths[4] = d3;
     d3 >>= 1;
     section_lengths[3] = d3;
     section_lengths[4] -= d3;
-    
+
     d3 = section_lengths[4];
     section_lengths[5] = d3;
     d3 >>= 1;
@@ -1047,7 +1047,7 @@ void ORoad::set_y_interpolate()
     // Address of next entry in road height table data [rom so no need to scale]
     a1_lookup = (height_index * 2) + height_addr;
 
-    // Road Y Positions (references to this decrement) [Destination]    
+    // Road Y Positions (references to this decrement) [Destination]
     y_addr = 0x200 + road_p1;
 
     a3_o = 0;
@@ -1058,7 +1058,7 @@ void ORoad::set_y_interpolate()
     const int16_t next_height_value = trackloader.read16(trackloader.heightmap_data, a1_lookup);
     height_final = (next_height_value * (height_start - 0x100)) >> 4;
 
-    // 1faa 
+    // 1faa
     int32_t horizon_copy = (horizon_base + horizon_offset) << 4;
     if (height_ctrl2 == 2)  // hold state
         horizon_copy += height_final;
@@ -1068,7 +1068,7 @@ void ORoad::set_y_interpolate()
     change_per_entry = horizon_copy;
     scanline = 0x200; // 200 (512 pixels)
     total_height = 0;
-    set_y_2044();  
+    set_y_2044();
 }
 
 // Source: 0x2044
@@ -1093,9 +1093,9 @@ void ORoad::set_y_2044()
     {
         for (uint16_t i = 0; i <= section_length; i++)
         {
-            total_height += change_per_entry; 
+            total_height += change_per_entry;
             road_y[--y_addr] = (total_height << 4) >> 16;
-        }        
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -1117,7 +1117,7 @@ void ORoad::set_y_2044()
     // Return if not end at end of height section data
     if (y != -1) return;
 
-    // At end of height section data, initalize next segmnet 
+    // At end of height section data, initalize next segmnet
     if (height_lookup == height_lookup_wrk)
         height_lookup = 0;
 
@@ -1217,10 +1217,10 @@ void ORoad::set_elevation()
 void ORoad::set_y_horizon()
 {
     uint32_t a0 = 0x200 + road_p1; // a0 = Road Height Positions + Relevant Offset
-    
+
     int32_t d1 = (horizon_mod * (height_start - 0x100)) >> 4;
     int32_t d2 = ((horizon_base + horizon_offset) << 4) + d1;
-    
+
     uint32_t total_height = 0;
 
     // write_next_y:
@@ -1232,7 +1232,7 @@ void ORoad::set_y_horizon()
     }
 
     road_unk[0] = 0;
-    
+
     // If not at end of section return. Otherwise, setup new horizon y-value
     if (height_start != 0x1FF) return;
 
@@ -1275,7 +1275,7 @@ void ORoad::set_horizon_y()
             d0 = 0x1FF - d7;
         }
         // 13e6
-        d6 = d7 >> 1; 
+        d6 = d7 >> 1;
         if (d6 <= 2) break;
         int16_t d1 = d0 - d6;
         int16_t d2 = d0;
@@ -1286,7 +1286,7 @@ void ORoad::set_horizon_y()
         d0 -= d7;
         int16_t d5 = d0;
         uint16_t a2 = road_y_addr + d5;
-        
+
         d0 = road_y[road_y_addr + d0];
         d1 = road_y[road_y_addr + d1];
         d2 = road_y[road_y_addr + d2];
@@ -1295,7 +1295,7 @@ void ORoad::set_horizon_y()
 
         // 1426:
         d5 = d0;
-        
+
         int32_t d2l = (d2 + d0 + d4) * 0x5555; // turn d2 into a long
         d2l >>= 16;
         int32_t d1l = (d1 + d0 + (int16_t) d2l) * 0x5555; // turn d2 into a long
@@ -1341,7 +1341,7 @@ void ORoad::set_horizon_y()
             d5 -= d3;
         }
 
-        road_int += 2; 
+        road_int += 2;
     } // end loop
 
     // ------------------------------------------------------------------------
@@ -1378,7 +1378,7 @@ void ORoad::do_road_data()
     // Road Priority Elevation Data [Destination]
     uint32_t addr_priority = 0x280 + road_p1;
 
-    int16_t rom_line_select = 0x1FF;            // This is the triangular road shape from ROM. Lines 0 - 512. 
+    int16_t rom_line_select = 0x1FF;            // This is the triangular road shape from ROM. Lines 0 - 512.
     int16_t src_this = road_y[--addr_src] >> 4; // source entry #1 / 16 [d0]
     int16_t src_next = 0;                       // [d4]
     int16_t write_priority = 0;                 // [d5]
@@ -1392,9 +1392,9 @@ void ORoad::do_road_data()
     while (--rom_line_select > 0) // Read next line of road source data
     {
         src_next = road_y[--addr_src] >> 4;
-        
+
         // Plot next position of road using rom_line_select source
-        // The speed at which we advance through the source data is controlled by the values in road_y, 
+        // The speed at which we advance through the source data is controlled by the values in road_y,
         // which are a sequential list of numbers when the road is flat
         if (src_this < src_next)
         {
@@ -1405,13 +1405,13 @@ void ORoad::do_road_data()
                 return;
             }
             src_this = src_next; // d0 = source entry #1 / 16
-         
+
             road_y[--addr_dst] = rom_line_select; // Set next line of road appearance info, from ROM
             write_priority = -1;                  // Denote that we need to write priority data
         }
-        else if (src_this == src_next) 
+        else if (src_this == src_next)
             continue;
-        // Write priority data for elevation. Only called when there is a hill. 
+        // Write priority data for elevation. Only called when there is a hill.
         // This is denoted by the next number in the sequence being smaller than the current
         // Note: This isn't needed to directly render the road.
         else if (write_priority == -1)
@@ -1426,15 +1426,15 @@ void ORoad::do_road_data()
     // Fill Horizon above road at top of screen
     //
     // Note that this is the area above the road, and is detected because
-    // the rom line select is negative, and therefore there is no more to 
+    // the rom line select is negative, and therefore there is no more to
     // read.
     // ------------------------------------------------------------------------
     if (rom_line_select <= 0)
     {
         const uint16_t SOLID_FILL = 0x800;
-        
+
         // d3 = (0x3F | 0x800) = 0x83F [1000 00111111] Sets Solid Fill, Transparent Colour
-        const uint16_t TRANSPARENT = 0x3F | SOLID_FILL; 
+        const uint16_t TRANSPARENT = 0x3F | SOLID_FILL;
         int16_t d7 = 255 - src_next - scanline;
 
         if (d7 < 0)
@@ -1445,7 +1445,7 @@ void ORoad::do_road_data()
         {
             while (scanline-- > 0)
                 road_y[--addr_dst] = TRANSPARENT; // Copy transparent line to ram
-            
+
             // end
             road_y[addr_priority] = 0; road_y[addr_priority + 1] = 0;
             return;
@@ -1471,7 +1471,7 @@ void ORoad::do_road_data()
             d7++; // Increment solid colour
         }
         while (d7 <= TRANSPARENT);
-        
+
         while (scanline-- > 0)
             road_y[--addr_dst] = TRANSPARENT; // Copy transparent line to ram
     // 1346
@@ -1515,7 +1515,7 @@ void ORoad::blit_roads()
             hwroad.write_road_control(1);
             break;
 
-        case ROAD_BOTH_P1:     // Both Roads (Road 1 Priority) 
+        case ROAD_BOTH_P1:     // Both Roads (Road 1 Priority)
         case ROAD_BOTH_P1_INV: // Both Roads (Road 1 Priority) (Road Split. Invert Road 1)
             blit_road(road0_adr);
             blit_road(road1_adr);
@@ -1595,7 +1595,7 @@ void ORoad::output_hscroll(int16_t* src, uint32_t dst)
 //          -------- -----a--  Road 0: pixel value 2 color index
 //          -------- ------b-  Road 0: pixel value 1 color index
 //          -------- -------c  Road 0: pixel value 0 color index
- 
+
 void ORoad::copy_bg_color()
 {
     // Scroll stripe data over road based on fine position

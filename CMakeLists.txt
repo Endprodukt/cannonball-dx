@@ -159,6 +159,7 @@ set(src_frontend
 
     "${main_cpp_base}/frontend/cabdiag.cpp"
     "${main_cpp_base}/frontend/config.cpp"
+    "${main_cpp_base}/frontend/config_settings.cpp"
     "${main_cpp_base}/frontend/menu.cpp"
     "${main_cpp_base}/frontend/ttrial.cpp"
     )
@@ -249,10 +250,12 @@ set(src_engine
     "${main_cpp_base}/engine/ooutputs.cpp"
     "${main_cpp_base}/engine/opalette.cpp"
     "${main_cpp_base}/engine/oroad.cpp"
+    "${main_cpp_base}/engine/oroad_core.cpp"
     "${main_cpp_base}/engine/osmoke.cpp"
     "${main_cpp_base}/engine/osprite.cpp"
     "${main_cpp_base}/engine/osprites.cpp"
     "${main_cpp_base}/engine/ostats.cpp"
+    "${main_cpp_base}/engine/ostats_modes.cpp"
     "${main_cpp_base}/engine/otiles.cpp"
     "${main_cpp_base}/engine/otraffic.cpp"
     "${main_cpp_base}/engine/outils.cpp"

@@ -1,32 +1,17 @@
 /***************************************************************************
     Road Rendering & Control - CannonBall DX extensions.
 
-    The inherited road implementation is preserved in oroad_base.cpp. This
-    wrapper adds a persistent, bounded five-step Bumper View height control.
+    Persistent, bounded five-step Bumper View height control. The road
+    renderer itself remains isolated in oroad_core.cpp.
 ***************************************************************************/
 
 #include <SDL.h>
 #include <iostream>
 #include <string>
 
-#include "stdint.hpp"
-#include "engine/oroad.hpp"
-
-// Pre-include every dependency used by the preserved implementation before the
-// temporary tick macro below so it can affect only ORoad::tick's definition.
-#include "globals.hpp"
-#include "roms.hpp"
-#include "trackloader.hpp"
 #include "frontend/config.hpp"
-#include "engine/oaddresses.hpp"
-#include "engine/outils.hpp"
-#include "engine/oinitengine.hpp"
-#include "engine/ostats.hpp"
 #include "engine/ohud.hpp"
-
-#define tick tick_base
-#include "oroad_base.cpp"
-#undef tick
+#include "engine/oroad.hpp"
 
 namespace
 {
@@ -167,7 +152,7 @@ void ORoad::tick()
     // canonical value and only the rendered Bumper View is affected.
     const int16_t applied_offset = bumper_view ? bumper_height_offset : 0;
     horizon_base += applied_offset;
-    tick_base();
+    tick_core();
     horizon_base -= applied_offset;
 
     if (bumper_view)
