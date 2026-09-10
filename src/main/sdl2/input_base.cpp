@@ -668,7 +668,11 @@ void Input::handle_key(const int key, const bool is_pressed)
             set_key_state(TIMER, is_pressed);
             break;
 
-        // Menu Access is a normal, configurable DX input action.
+        // F5 is the permanent menu fallback. It is deliberately independent
+        // of the configurable Menu Access binding.
+        case SDLK_F5:
+            set_key_state(MENU, is_pressed);
+            break;
 
         case SDLK_F7:
             // JJP - switches between sprite rendering (original/hi-res)
