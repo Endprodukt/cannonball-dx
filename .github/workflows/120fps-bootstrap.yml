@@ -1,4 +1,4 @@
-name: Fix 120 FPS checkpoint timing
+name: Fix flipped sprite source bounds
 
 on:
   push:
@@ -18,58 +18,72 @@ jobs:
           ref: test/120fps
           fetch-depth: 0
 
-      - name: Keep granular road timing at 60 Hz
+      - name: Bound sampled sprite rows by ROM height
         shell: pwsh
         run: |
-          $path = 'src/main/engine/outrun_base.cpp'
+          $path = 'src/main/hwvideo/hwsprites.cpp'
           $text = (Get-Content $path -Raw).Replace("`r`n", "`n")
 
-          $old = @(
-            '    const bool tick_60hz = config.fps != 120 || ((cannonball::frame & 1) == 0);',
-            '    if (tick_60hz)',
-            '    {',
-            '        otiles.update_tilemaps(cannonball_mode == MODE_ORIGINAL ? ostats.cur_stage : 0);',
-            '        opalette.cycle_sky_palette();',
-            '        opalette.fade_palette();',
-            '        ostats.do_timers();',
-            '    }',
-            '',
-            '    if (cannonball_mode != MODE_TTRIAL) ohud.draw_timer1(ostats.time_counter);',
-            '    oinitengine.set_granular_position();'
+          $oldHeight = @(
+            '        // Keep the source-row count intentionally rounded down. This matches',
+            '        // the hi-res black-stripe fix: the hardware-style destination height',
+            '        // can request one final rounding row, but that row must not advance',
+            '        // into the next sprite ROM row.',
+            '        const uint32_t destination_rows = static_cast<uint32_t>(',
+            '            ytarget >= top ? ytarget - top : top - ytarget);',
+            '        const uint32_t sprite_height = static_cast<uint32_t>(',
+            '            (static_cast<uint64_t>(destination_rows) *',
+            '             static_cast<uint64_t>(zoom)) >> 9);'
           ) -join "`n"
 
-          $new = @(
-            '    const bool tick_60hz = config.fps != 120 || ((cannonball::frame & 1) == 0);',
-            '    if (tick_60hz)',
-            '    {',
-            '        otiles.update_tilemaps(cannonball_mode == MODE_ORIGINAL ? ostats.cur_stage : 0);',
-            '        opalette.cycle_sky_palette();',
-            '        opalette.fade_palette();',
-            '        ostats.do_timers();',
-            '',
-            '        // Granular road position feeds sprite_scroll_speed and therefore',
-            '        // checkpoint-sprite progression. Keep it on the original 60 Hz',
-            '        // VBlank cadence at 120 FPS so sprite timing stays in lockstep',
-            '        // with the timer/checkpoint state machine.',
-            '        oinitengine.set_granular_position();',
-            '    }',
-            '',
-            '    if (cannonball_mode != MODE_TTRIAL) ohud.draw_timer1(ostats.time_counter);'
+          $newHeight = @(
+            '        // Convert every source row the destination sampler can actually touch,',
+            '        // including the final fractional zoom row. rawh is the real source',
+            '        // height supplied by OSprites::do_sprite(), so clamp to it rather than',
+            '        // ever walking into the following sprite ROM data. This keeps the last',
+            '        // legitimate Ferrari/shadow row while preventing one-line black garbage',
+            '        // on crash and other animated sprites.',
+            '        const uint32_t destination_rows = static_cast<uint32_t>(',
+            '            ytarget >= top ? ytarget - top : top - ytarget);',
+            '        const uint32_t sampled_rows = destination_rows == 0 ? 0 :',
+            '            static_cast<uint32_t>(',
+            '                (static_cast<uint64_t>(destination_rows - 1) *',
+            '                 static_cast<uint64_t>(zoom)) >> 9) + 1;',
+            '        const uint32_t sprite_height = std::min(',
+            '            sampled_rows, static_cast<uint32_t>(rawh));'
           ) -join "`n"
 
-          $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
-          if ($count -ne 1) { throw "Expected one VBlank timing block, found $count" }
-          $text = $text.Replace($old, $new)
+          $count = ([regex]::Matches($text, [regex]::Escape($oldHeight))).Count
+          if ($count -ne 1) { throw "Expected one sprite-height block, found $count" }
+          $text = $text.Replace($oldHeight, $newHeight)
+
+          $oldGuard = @(
+            '',
+            '            // The renderer can sample at most one extra source row because',
+            '            // of fixed-point zoom rounding. Never let that guard row reuse',
+            '            // data left by another flipped sprite context or read into the',
+            '            // following ROM sprite. A transparent 0xF row terminates cleanly.',
+            '            if (shadowaddr < 0x10000)',
+            '            {',
+            '                spriterom_flipped[shadowaddr] = 0xffffffff;',
+            '                spriterom_shadowinfo[shadowaddr] = 0;',
+            '            }'
+          ) -join "`n"
+
+          $count = ([regex]::Matches($text, [regex]::Escape($oldGuard))).Count
+          if ($count -ne 1) { throw "Expected one transparent guard-row block, found $count" }
+          $text = $text.Replace($oldGuard, '')
+
           Set-Content $path $text -Encoding UTF8 -NoNewline
 
           git diff --check
-          git diff -- src/main/engine/outrun_base.cpp
+          git diff -- src/main/hwvideo/hwsprites.cpp
 
       - name: Commit changes
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/engine/outrun_base.cpp
-          git commit -m 'Keep granular road timing at 60 Hz in 120 FPS mode'
+          git add src/main/hwvideo/hwsprites.cpp
+          git commit -m 'Clamp sampled sprite rows to source height'
           git push origin HEAD:test/120fps
