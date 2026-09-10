@@ -209,6 +209,10 @@ void OFerrari::cycle_car_palette()
 
 void OFerrari::tick()
 {
+    // Keep the preserved base implementation's legacy slip selector in sync
+    // even when the frontend menu is disabled and the game boots directly.
+    config.sync_bugfix_runtime();
+
     // Once the game has returned to the attract/front-end sequence, discard
     // any temporary Music Select/race colour and restore the saved default.
     if (outrun.game_state >= GS_INIT && outrun.game_state <= GS_LOGO)
