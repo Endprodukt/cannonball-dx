@@ -249,17 +249,10 @@ static void process_events(void)
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
             case SDL_KEYDOWN:
-                // Escape is reserved as BACK while the frontend is active.
-                // The configured master-break key is allowed to quit only from
-                // the actual game, so the menu can only be exited via EXIT.
-                if (event.key.keysym.sym == SDLK_ESCAPE &&
-                    cannonball::state == STATE_MENU)
-                {
-                    if (event.key.repeat == 0 && menu)
-                        menu->handle_escape();
-                }
-                else if (event.key.keysym.sym == config.master_break_key &&
-                         cannonball::state == STATE_GAME)
+                // The master-break key remains a gameplay-only emergency quit.
+                // Frontend Back is a normal configurable logical action.
+                if (event.key.keysym.sym == config.master_break_key &&
+                    cannonball::state == STATE_GAME)
                 {
                     cannonball::state = STATE_QUIT;
                 }
@@ -270,13 +263,7 @@ static void process_events(void)
                 break;
 
             case SDL_KEYUP:
-                // A menu Escape key-down is consumed above and therefore has
-                // no matching logical key press to release.
-                if (!(event.key.keysym.sym == SDLK_ESCAPE &&
-                      cannonball::state == STATE_MENU))
-                {
-                    input.handle_key_up(&event.key.keysym);
-                }
+                input.handle_key_up(&event.key.keysym);
                 break;
 
             case SDL_JOYAXISMOTION:
@@ -389,18 +376,18 @@ static void tick()
             outrun.outputs->init();
             menu->init();
 
-            // Enter every frontend menu with a clean digital navigation state.
-            // SDL can queue initial controller/HAT state while devices are opened;
-            // if one direction is left logically held, the first real press in
-            // that direction cannot create a new edge and appears to be ignored.
-            // Discard only menu-navigation state collected before the menu became
-            // active. A real press after this point will generate a fresh event.
-            for (Input::presses direction :
-                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT })
+            // Enter every frontend menu with clean digital navigation and
+            // confirmation state. A controller Accept press can launch gameplay
+            // before its matching Button-Up event is delivered; without clearing
+            // that stale held state here, the next menu visit would swallow the
+            // first Accept press because it would not form a new rising edge.
+            for (Input::presses frontend_input :
+                 { Input::UP, Input::DOWN, Input::LEFT, Input::RIGHT,
+                   Input::ACCEPT, Input::BACK })
             {
-                input.keys[direction] = false;
-                input.keys_old[direction] = false;
-                input.keys_pressed[direction] = false;
+                input.keys[frontend_input] = false;
+                input.keys_old[frontend_input] = false;
+                input.keys_pressed[frontend_input] = false;
             }
 
             cannonball::state = STATE_MENU;

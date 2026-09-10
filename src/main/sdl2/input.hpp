@@ -125,11 +125,17 @@ public:
         VIEW1 = 15,
         VIEW2 = 16,
         VIEW3 = 17,
+
+        // Frontend actions are deliberately separate from gameplay controls.
+        // A physical button may be assigned to both, but changing one binding
+        // never changes or aliases the other logical action.
+        ACCEPT = 18,
+        BACK = 19,
     };
 
-    bool keys[18];
-    bool keys_old[18];
-    bool keys_pressed[18];
+    bool keys[20];
+    bool keys_old[20];
+    bool keys_pressed[20];
 
     enum limits
     {
