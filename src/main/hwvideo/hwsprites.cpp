@@ -545,6 +545,12 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         uint8_t shadow    =  (ramBuff[data+3] >> 14) & 1;
 //        int32_t  zoom     =   ramBuff[data+3] & 0x7ff;
         int32_t  zoom     =   ramBuff[data+3] & 0x0fff;
+
+        // Hi-res shadow sprites expose one invalid trailing source row as a
+        // dark horizontal stripe. The original 1x hardware path is correct;
+        // trim one logical destination row only for actual shadow sprites.
+        if (shadow && render_scale > 1 && height > 1)
+            height--;
         int32_t ydelta    = ((ramBuff[data+4] & 0x8000) != 0) ? 1 : -1;
         int32_t flip      = (~ramBuff[data+4] >> 14) & 1;
         int32_t xdelta    = ((ramBuff[data+4] & 0x2000) != 0) ? 1 : -1;
