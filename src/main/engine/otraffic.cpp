@@ -26,6 +26,11 @@
 
 OTraffic otraffic;
 
+// TEMP DEBUG - shared between spawn_car() and move_spawned_sprite() so a
+// fresh spawn can force the very next address computation to be logged,
+// even if it happens to match the slot's previous occupant's last address.
+static int32_t traffic_dbg_last_addr[64] = {0};
+
 OTraffic::OTraffic(void)
 {
 }
@@ -257,6 +262,22 @@ void OTraffic::spawn_car(oentry* sprite)
 
     sprite->type = TYPE[spawn_index] << 3;
     sprite->function_holder = TRAFFIC_TICK;
+
+    // TEMP DEBUG - unconditional spawn-time log, since the change-only log in
+    // move_spawned_sprite() never fires while a car's frame/incline stay
+    // stable, so it can miss whether a slot really started at the horizon.
+    {
+        uint32_t dbg_slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
+        std::cerr << "[traffic-dbg] SPAWN slot=" << dbg_slot
+                  << " type=" << (int)sprite->type
+                  << " z=0x" << std::hex << sprite->z << std::dec
+                  << "\n";
+        // Force the very next address computation for this slot to be
+        // logged, even if it happens to equal the previous occupant's
+        // last-known address.
+        traffic_dbg_last_addr[dbg_slot] = -1;
+    }
+
     // JJP ghost car fix
     sprite->hidden = 0;
 }
@@ -551,11 +572,10 @@ void OTraffic::update_props(oentry* sprite)
     // can see the exact geometry values driving the pick, without flooding
     // the console every frame for every visible car.
     {
-        static int32_t last_addr[64] = {0};
         static int debug_log_budget = 60000;
         // sprite pointer address as a crude, stable-enough per-slot key for this session
         uint32_t slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
-        if (debug_log_budget > 0 && (int32_t)sprite->addr != last_addr[slot])
+        if (debug_log_budget > 0 && (int32_t)sprite->addr != traffic_dbg_last_addr[slot])
         {
             std::cerr << "[traffic-dbg] slot=" << slot
                       << " type=" << (int)sprite->type
@@ -567,13 +587,12 @@ void OTraffic::update_props(oentry* sprite)
                       << " incline=" << (int)incline
                       << " pal_src=" << (int)sprite->pal_src
                       << " pal_cycle=" << (int)traffic_pal_cycle
-                      << " prev_addr=0x" << std::hex << last_addr[slot]
+                      << " prev_addr=0x" << std::hex << traffic_dbg_last_addr[slot]
                       << " new_addr=0x" << sprite->addr << std::dec
                       << "\n";
-            last_addr[slot] = (int32_t)sprite->addr;
+            traffic_dbg_last_addr[slot] = (int32_t)sprite->addr;
             debug_log_budget--;
-        }
-    }
+        }    }
 
     osprites.map_palette(sprite);
     traffic_speed_total += sprite->traffic_speed;
