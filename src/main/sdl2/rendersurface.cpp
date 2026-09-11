@@ -267,7 +267,7 @@ void RenderSurface::set_scaling()
     // Compute source and destination rectangles.
     // These values are computed differently for fullscreen vs. windowed mode.
     if (video_mode == video_settings_t::MODE_FULL ||
-        video_mode == video_settings_t::MODE_STRETCH)
+        video_mode == video_settings_t::MODE_EXCLUSIVE)
     {
         // For fullscreen:
         scn_width = orig_width;
@@ -285,8 +285,9 @@ void RenderSurface::set_scaling()
         dst_rect.h = scn_height;
         dst_rect.w = scn_width;
 
-        if (video_mode == video_settings_t::MODE_FULL) {
-            // Maintain game aspect ratio:
+        if (config.video.widescreen != 3) {
+            // Preserve the selected game aspect ratio. Aspect mode 3 deliberately
+            // stretches the 4:3 render target across the full display.
             int correct_height = int(float(src_height) * float(scn_width) / float(src_width));
             int correct_width  = int(float(src_width) * float(scn_height) / float(src_height));
             if (correct_height > dst_rect.h) {
@@ -367,15 +368,46 @@ bool RenderSurface::init_sdl(int video_mode)
         return false;
     }
 
-    // MODE_FULL and MODE_STRETCH use borderless desktop fullscreen. A real
-    // MODE_WINDOW must keep the scaled SDL window created above instead of
-    // being promoted to fullscreen unconditionally.
-    if (video_mode == video_settings_t::MODE_FULL ||
-        video_mode == video_settings_t::MODE_STRETCH)
+    // Keep the existing Fullscreen option borderless. Exclusive uses the
+    // monitor's current desktop resolution and refresh rate as a real SDL mode.
+    if (video_mode == video_settings_t::MODE_EXCLUSIVE)
+    {
+        const int display_index = SDL_GetWindowDisplayIndex(window);
+        SDL_DisplayMode desktop_mode{};
+
+        if (display_index < 0 ||
+            SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0)
+        {
+            std::cerr << "Failed to query desktop display mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        if (SDL_SetWindowDisplayMode(window, &desktop_mode) != 0)
+        {
+            std::cerr << "Failed to set exclusive desktop mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN) != 0)
+        {
+            std::cerr << "Failed to enter exclusive fullscreen mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        std::cout << "Exclusive fullscreen: "
+                  << desktop_mode.w << "x" << desktop_mode.h;
+        if (desktop_mode.refresh_rate > 0)
+            std::cout << " @ " << desktop_mode.refresh_rate << " Hz";
+        std::cout << std::endl;
+    }
+    else if (video_mode == video_settings_t::MODE_FULL)
     {
         if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
         {
-            std::cerr << "Failed to enter fullscreen mode: "
+            std::cerr << "Failed to enter borderless fullscreen mode: "
                       << SDL_GetError() << std::endl;
             return false;
         }

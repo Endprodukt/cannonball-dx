@@ -212,7 +212,25 @@ void Config::load()
     if (video.fps != 0 && video.fps != 3)
         video.fps = 2;
     video.fps_count     = cfg.get_int("video.fps_counter",     0); // FPS Counter
-    video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode
+    video.widescreen    = cfg.get_int("video.widescreen",      0); // Aspect: 0=4:3, 1=16:9, 2=21:9, 3=stretched
+
+    // Legacy mode 2 used to mean stretched fullscreen. Stretching is now an
+    // aspect-ratio choice, leaving display mode free for real exclusive fullscreen.
+    if (video.mode == video_settings_t::MODE_STRETCH)
+    {
+        video.mode = video_settings_t::MODE_FULL;
+        video.widescreen = 3;
+    }
+    else if (video.mode != video_settings_t::MODE_WINDOW &&
+             video.mode != video_settings_t::MODE_FULL &&
+             video.mode != video_settings_t::MODE_EXCLUSIVE)
+    {
+        video.mode = video_settings_t::MODE_FULL;
+    }
+
+    if (video.widescreen < 0 || video.widescreen > 3)
+        video.widescreen = 0;
+
     video.hires_next    =
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
     video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution

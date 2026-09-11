@@ -71,9 +71,10 @@ struct menu_settings_t
 
 struct video_settings_t
 {
-    const static int MODE_WINDOW  = 0;
-    const static int MODE_FULL    = 1;
-    const static int MODE_STRETCH = 2;
+    const static int MODE_WINDOW    = 0;
+    const static int MODE_FULL      = 1; // Borderless desktop fullscreen
+    const static int MODE_STRETCH   = 2; // Legacy config value; migrated on load
+    const static int MODE_EXCLUSIVE = 3; // Exclusive fullscreen using desktop mode
 
     int mode;
     int scale;
