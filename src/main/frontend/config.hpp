@@ -36,6 +36,24 @@
     static constexpr int SYSTEM_ACTION_PAUSE = 0; \
     static constexpr int SYSTEM_ACTION_ACCEPT = 1; \
     static constexpr int SYSTEM_ACTION_BACK = 2; \
+    bool fullscreen_exclusive() \
+    { \
+        return cfg.get_int("video.fullscreen_exclusive", 0) != 0; \
+    } \
+    void set_fullscreen_exclusive(bool enabled) \
+    { \
+        cfg.put_int("video.fullscreen_exclusive", enabled ? 1 : 0); \
+    } \
+    bool stretched_aspect() \
+    { \
+        return cfg.get_int( \
+            "video.stretched_aspect", \
+            video.mode == video_settings_t::MODE_STRETCH ? 1 : 0) != 0; \
+    } \
+    void set_stretched_aspect(bool enabled) \
+    { \
+        cfg.put_int("video.stretched_aspect", enabled ? 1 : 0); \
+    } \
     const char* system_action_name(int action) \
     { \
         if (action == SYSTEM_ACTION_ACCEPT) return "accept"; \
@@ -433,3 +451,30 @@
 #include "config_base.hpp"
 #undef private
 #undef CANNONBALL_DX_CONFIG_EXTENSIONS
+
+// Keep the renderer's existing fullscreen call site simple. The DX setting
+// transparently upgrades SDL_WINDOW_FULLSCREEN_DESKTOP to real exclusive
+// fullscreen, using the monitor's current desktop mode (resolution + Hz).
+inline int cannonball_dx_set_window_fullscreen(SDL_Window* window, Uint32 flags)
+{
+    if (flags == SDL_WINDOW_FULLSCREEN_DESKTOP && config.fullscreen_exclusive())
+    {
+        const int display = SDL_GetWindowDisplayIndex(window);
+        if (display < 0)
+            return -1;
+
+        SDL_DisplayMode desktop{};
+        if (SDL_GetDesktopDisplayMode(display, &desktop) != 0)
+            return -1;
+
+        if (SDL_SetWindowDisplayMode(window, &desktop) != 0)
+            return -1;
+
+        return SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+    }
+
+    return SDL_SetWindowFullscreen(window, flags);
+}
+
+#define SDL_SetWindowFullscreen(window, flags) \
+    cannonball_dx_set_window_fullscreen((window), (flags))
