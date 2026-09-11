@@ -1,0 +1,120 @@
+name: Apply exclusive fullscreen patch
+
+on:
+  push:
+    branches:
+      - test-exclusive-fullscreen
+    paths:
+      - .github/workflows/apply-exclusive-fullscreen.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test-exclusive-fullscreen
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}\n{old}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_first(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"{path}: match not found\n{old}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Display-mode values: retain 2 only as a legacy migration value.
+          replace_once(
+              "src/main/frontend/config_base.hpp",
+              '''    const static int MODE_WINDOW  = 0;\n    const static int MODE_FULL    = 1;\n    const static int MODE_STRETCH = 2;\n''',
+              '''    const static int MODE_WINDOW    = 0;\n    const static int MODE_FULL      = 1; // Borderless desktop fullscreen\n    const static int MODE_STRETCH   = 2; // Legacy config value; migrated on load\n    const static int MODE_EXCLUSIVE = 3; // Exclusive fullscreen using desktop mode\n''')
+
+          # Migrate old STRETCHED display mode into the new aspect-ratio setting.
+          replace_once(
+              "src/main/frontend/config_base.cpp",
+              '''    video.widescreen    = cfg.get_int("video.widescreen",      0); // Enable Widescreen Mode\n    video.hires_next    =\n''',
+              '''    video.widescreen    = cfg.get_int("video.widescreen",      0); // Aspect: 0=4:3, 1=16:9, 2=21:9, 3=stretched\n\n    // Legacy mode 2 used to mean stretched fullscreen. Stretching is now an\n    // aspect-ratio choice, leaving display mode free for real exclusive fullscreen.\n    if (video.mode == video_settings_t::MODE_STRETCH)\n    {\n        video.mode = video_settings_t::MODE_FULL;\n        video.widescreen = 3;\n    }\n    else if (video.mode != video_settings_t::MODE_WINDOW &&\n             video.mode != video_settings_t::MODE_FULL &&\n             video.mode != video_settings_t::MODE_EXCLUSIVE)\n    {\n        video.mode = video_settings_t::MODE_FULL;\n    }\n\n    if (video.widescreen < 0 || video.widescreen > 3)\n        video.widescreen = 0;\n\n    video.hires_next    =\n''')
+
+          replace_once(
+              "src/main/frontend/menulabels.hpp",
+              '''const static char* VIDEO_LABELS[3] = { "WINDOWED", "FULLSCREEN", "STRETCHED" };\nconst static char* ASPECT_LABELS[3] = { "4-3", "16-9", "21-9" };\n''',
+              '''const static char* VIDEO_LABELS[4] = { "WINDOWED", "FULLSCREEN", "LEGACY STRETCH", "FULLSCREEN EXCLUSIVE" };\nconst static char* ASPECT_LABELS[4] = { "4-3", "16-9", "21-9", "STRETCHED" };\n''')
+
+          # Enter/accept cycles the three real display modes and skips legacy 2.
+          replace_once(
+              "src/main/frontend/menu_base.cpp",
+              '''            else if (SELECTED(ENTRY_FULLSCREEN))\n            {\n                if (++config.video.mode > video_settings_t::MODE_STRETCH)\n                    config.video.mode = video.supports_window() ? video_settings_t::MODE_WINDOW : video_settings_t::MODE_WINDOW + 1;\n                // restart_video();\n                config.videoRestartRequired = true;\n            }\n''',
+              '''            else if (SELECTED(ENTRY_FULLSCREEN))\n            {\n                if (config.video.mode == video_settings_t::MODE_WINDOW)\n                    config.video.mode = video_settings_t::MODE_FULL;\n                else if (config.video.mode == video_settings_t::MODE_FULL)\n                    config.video.mode = video_settings_t::MODE_EXCLUSIVE;\n                else\n                    config.video.mode = video.supports_window()\n                        ? video_settings_t::MODE_WINDOW\n                        : video_settings_t::MODE_FULL;\n\n                config.videoRestartRequired = true;\n            }\n''')
+
+          replace_once(
+              "src/main/frontend/menu_base.cpp",
+              '''                if (++config.video.widescreen > 2)\n                    config.video.widescreen = 0;\n''',
+              '''                if (++config.video.widescreen > 3)\n                    config.video.widescreen = 0;\n''')
+
+          # DX also supports direct left/right edits. Keep those in sync with Enter.
+          replace_once(
+              "src/main/frontend/menu_legacy.hpp.inc",
+              '''                const int next = wrap_value(\n                    config.video.mode,\n                    video_settings_t::MODE_WINDOW,\n                    video_settings_t::MODE_STRETCH,\n                    1,\n                    direction);\n''',
+              '''                const int current =\n                    config.video.mode == video_settings_t::MODE_WINDOW\n                        ? video_settings_t::MODE_WINDOW\n                        : (config.video.mode == video_settings_t::MODE_EXCLUSIVE\n                            ? video_settings_t::MODE_EXCLUSIVE\n                            : video_settings_t::MODE_FULL);\n                const int next = direction > 0\n                    ? (current == video_settings_t::MODE_WINDOW\n                        ? video_settings_t::MODE_FULL\n                        : (current == video_settings_t::MODE_FULL\n                            ? video_settings_t::MODE_EXCLUSIVE\n                            : video_settings_t::MODE_WINDOW))\n                    : (current == video_settings_t::MODE_WINDOW\n                        ? video_settings_t::MODE_EXCLUSIVE\n                        : (current == video_settings_t::MODE_EXCLUSIVE\n                            ? video_settings_t::MODE_FULL\n                            : video_settings_t::MODE_WINDOW));\n''')
+
+          replace_once(
+              "src/main/frontend/menu_legacy.hpp.inc",
+              '''                const int next = wrap_value(config.video.widescreen, 0, 2, 1, direction);\n''',
+              '''                const int next = wrap_value(config.video.widescreen, 0, 3, 1, direction);\n''')
+
+          # Both borderless and exclusive are fullscreen-sized. Stretching is now
+          # selected by aspect ratio, not by a separate render-surface mode.
+          replace_first(
+              "src/main/sdl2/rendersurface.cpp",
+              '''    if (video_mode == video_settings_t::MODE_FULL ||\n        video_mode == video_settings_t::MODE_STRETCH)\n    {\n''',
+              '''    if (video_mode == video_settings_t::MODE_FULL ||\n        video_mode == video_settings_t::MODE_EXCLUSIVE)\n    {\n''')
+
+          replace_once(
+              "src/main/sdl2/rendersurface.cpp",
+              '''        if (video_mode == video_settings_t::MODE_FULL) {\n            // Maintain game aspect ratio:\n''',
+              '''        if (config.video.widescreen != 3) {\n            // Preserve the selected game aspect ratio. Aspect mode 3 deliberately\n            // stretches the 4:3 render target across the full display.\n''')
+
+          replace_once(
+              "src/main/sdl2/rendersurface.cpp",
+              '''    // MODE_FULL and MODE_STRETCH use borderless desktop fullscreen. A real\n    // MODE_WINDOW must keep the scaled SDL window created above instead of\n    // being promoted to fullscreen unconditionally.\n    if (video_mode == video_settings_t::MODE_FULL ||\n        video_mode == video_settings_t::MODE_STRETCH)\n    {\n        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)\n        {\n            std::cerr << "Failed to enter fullscreen mode: "\n                      << SDL_GetError() << std::endl;\n            return false;\n        }\n    }\n''',
+              '''    // Keep the existing Fullscreen option borderless. Exclusive uses the\n    // monitor's current desktop resolution and refresh rate as a real SDL mode.\n    if (video_mode == video_settings_t::MODE_EXCLUSIVE)\n    {\n        const int display_index = SDL_GetWindowDisplayIndex(window);\n        SDL_DisplayMode desktop_mode{};\n\n        if (display_index < 0 ||\n            SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0)\n        {\n            std::cerr << "Failed to query desktop display mode: "\n                      << SDL_GetError() << std::endl;\n            return false;\n        }\n\n        if (SDL_SetWindowDisplayMode(window, &desktop_mode) != 0)\n        {\n            std::cerr << "Failed to set exclusive desktop mode: "\n                      << SDL_GetError() << std::endl;\n            return false;\n        }\n\n        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN) != 0)\n        {\n            std::cerr << "Failed to enter exclusive fullscreen mode: "\n                      << SDL_GetError() << std::endl;\n            return false;\n        }\n\n        std::cout << "Exclusive fullscreen: "\n                  << desktop_mode.w << "x" << desktop_mode.h;\n        if (desktop_mode.refresh_rate > 0)\n            std::cout << " @ " << desktop_mode.refresh_rate << " Hz";\n        std::cout << std::endl;\n    }\n    else if (video_mode == video_settings_t::MODE_FULL)\n    {\n        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)\n        {\n            std::cerr << "Failed to enter borderless fullscreen mode: "\n                      << SDL_GetError() << std::endl;\n            return false;\n        }\n    }\n''')
+
+          # Sanity checks before a commit is allowed.
+          rs = Path("src/main/sdl2/rendersurface.cpp").read_text(encoding="utf-8")
+          if "MODE_STRETCH" in rs:
+              raise SystemExit("rendersurface.cpp still contains runtime MODE_STRETCH")
+
+          legacy = Path("src/main/frontend/menu_legacy.hpp.inc").read_text(encoding="utf-8")
+          if "wrap_value(config.video.widescreen, 0, 2" in legacy:
+              raise SystemExit("DX aspect-ratio left/right path still stops at 21:9")
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/frontend/config_base.hpp \
+                  src/main/frontend/config_base.cpp \
+                  src/main/frontend/menulabels.hpp \
+                  src/main/frontend/menu_base.cpp \
+                  src/main/frontend/menu_legacy.hpp.inc \
+                  src/main/sdl2/rendersurface.cpp
+          git diff --cached --check
+          git commit -m "Add exclusive fullscreen and move stretch to aspect ratio"
+          git push origin HEAD:test-exclusive-fullscreen
