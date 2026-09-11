@@ -44,18 +44,13 @@ const static uint16_t UNUSED = 0x0000;
 
 const static uint16_t ZOOM_LOOKUP_HIRES[] =
 {
-    // JJP/DX - the most-distant tier (true SIZE5) previously borrowed SIZE4's
-    // "next size up" graphic data here, same as every other tier does. Unlike
-    // the other tiers, this produced visibly wrong vehicle graphics at long
-    // range (see cleanup-claude branch notes) rather than just a sharper
-    // image, so this tier keeps its own native SIZE5 data instead.
-    0x7E0,0x0000,SIZE5,SIZE5,
-    0x7E0,0x0000,SIZE5,SIZE5,
-    0x7E0,0x0000,SIZE5,SIZE5,
-    0x7E0,0x0000,SIZE5,SIZE5,
-    0x652,0x1000,SIZE5,SIZE5,
-    0x546,0x2000,SIZE5,SIZE5,
-    0x486,0x3000,SIZE5,SIZE5,
+    0x7E0,0x0000,SIZE4,SIZE5,
+    0x7E0,0x0000,SIZE4,SIZE5,
+    0x7E0,0x0000,SIZE4,SIZE5,
+    0x7E0,0x0000,SIZE4,SIZE5,
+    0x652,0x1000,SIZE4,SIZE5,
+    0x546,0x2000,SIZE4,SIZE5,
+    0x486,0x3000,SIZE4,SIZE5,
     0x7E0,0x0000,SIZE3,SIZE4,
     0x702,0x0800,SIZE3,SIZE4,
     0x652,0x1000,SIZE3,SIZE4,
