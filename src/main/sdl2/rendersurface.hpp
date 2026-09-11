@@ -19,6 +19,14 @@
 #include <condition_variable>
 #include "gl_backend.hpp"   // tiny ES2 backend
 
+// SDL's Windows backend can reject SDL_SetWindowInputFocus with
+// "That operation is not supported". RenderSurface::focus_window already
+// shows and raises the window, which is the supported path we need here.
+// Treat the unsupported explicit input-focus request as a no-op on Windows.
+#ifdef _WIN32
+#define SDL_SetWindowInputFocus(window) 0
+#endif
+
 class RenderSurface : public RenderBase
 {
 public:
