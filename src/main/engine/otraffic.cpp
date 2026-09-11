@@ -552,7 +552,7 @@ void OTraffic::update_props(oentry* sprite)
     // the console every frame for every visible car.
     {
         static int32_t last_addr[64] = {0};
-        static int debug_log_budget = 4000;
+        static int debug_log_budget = 60000;
         // sprite pointer address as a crude, stable-enough per-slot key for this session
         uint32_t slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
         if (debug_log_budget > 0 && (int32_t)sprite->addr != last_addr[slot])

@@ -682,12 +682,16 @@ void Input::handle_key(const int key, const bool is_pressed)
             config.video.hiresprites ^= 1;
             break;
 
-        case SDLK_F6:
+        case SDLK_F12:
             // TEMP DEBUG - marker key for correlating [traffic-dbg] log lines
-            // with what's visible on screen. Press when a wrong-looking car
-            // is seen; remove once the wrong-sprite-at-distance issue is fixed.
+            // with what's visible on screen. Logging already runs continuously
+            // for the whole session, so an imprecise press is fine - just
+            // press it roughly when/after a wrong-looking car is seen, the
+            // surrounding log lines (including a bit before the marker) are
+            // what matters. Remove once the wrong-sprite-at-distance issue
+            // is fixed.
             if (!is_pressed) break;
-            std::cerr << "[traffic-dbg] ===== MARKER (F6 pressed) =====\n";
+            std::cerr << "[traffic-dbg] ===== MARKER (F12 pressed) =====\n";
             break;
 
         case SDLK_F8:
