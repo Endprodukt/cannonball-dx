@@ -76,6 +76,21 @@ namespace
         "HIGHEST",
     };
 
+    const char* DISPLAY_MODE_NAMES[3] =
+    {
+        "WINDOWED",
+        "FULLSCREEN",
+        "FULLSCREEN EXCLUSIVE",
+    };
+
+    const char* ASPECT_MODE_NAMES[4] =
+    {
+        "4-3",
+        "16-9",
+        "21-9",
+        "STRETCHED",
+    };
+
     // Menu selections are infrequent, so write immediately after the change
     // rather than carrying a separate explicit SAVE action. Video changes that
     // require a renderer restart are saved on the next menu tick, after the
@@ -85,6 +100,74 @@ namespace
     bool starts_with_label(const std::string& value, const char* label)
     {
         return value.rfind(label, 0) == 0;
+    }
+
+    int display_mode_index()
+    {
+        if (config.video.mode == video_settings_t::MODE_WINDOW)
+            return 0;
+        return config.fullscreen_exclusive() ? 2 : 1;
+    }
+
+    int aspect_mode_index()
+    {
+        if (config.video.mode == video_settings_t::MODE_STRETCH ||
+            config.stretched_aspect())
+            return 3;
+        return std::clamp(config.video.widescreen, 0, 2);
+    }
+
+    std::string display_mode_menu_text()
+    {
+        return std::string(ENTRY_FULLSCREEN) + DISPLAY_MODE_NAMES[display_mode_index()];
+    }
+
+    std::string aspect_mode_menu_text()
+    {
+        return std::string(ENTRY_WIDESCREEN) + ASPECT_MODE_NAMES[aspect_mode_index()];
+    }
+
+    void set_display_mode(int index)
+    {
+        index = (index % 3 + 3) % 3;
+
+        if (index == 0)
+        {
+            if (config.video.mode == video_settings_t::MODE_STRETCH)
+                config.set_stretched_aspect(true);
+            config.video.mode = video_settings_t::MODE_WINDOW;
+            config.set_fullscreen_exclusive(false);
+        }
+        else
+        {
+            config.video.mode = config.stretched_aspect()
+                ? video_settings_t::MODE_STRETCH
+                : video_settings_t::MODE_FULL;
+            config.set_fullscreen_exclusive(index == 2);
+        }
+
+        config.videoRestartRequired = true;
+    }
+
+    void set_aspect_mode(int index)
+    {
+        index = (index % 4 + 4) % 4;
+
+        if (index == 3)
+        {
+            config.set_stretched_aspect(true);
+            if (config.video.mode != video_settings_t::MODE_WINDOW)
+                config.video.mode = video_settings_t::MODE_STRETCH;
+        }
+        else
+        {
+            config.set_stretched_aspect(false);
+            config.video.widescreen = index;
+            if (config.video.mode == video_settings_t::MODE_STRETCH)
+                config.video.mode = video_settings_t::MODE_FULL;
+        }
+
+        config.videoRestartRequired = true;
     }
 
     bool is_system_action_row(int row)
@@ -188,14 +271,10 @@ namespace
     {
         if (config.input_mode_is_gamepad())
         {
-            // Keep every stored FFB preference intact, but stop all wheel
-            // effects while GAMEPAD owns the driving controls.
             forcefeedback::set_enabled(false);
             return;
         }
 
-        // WHEEL mode owns feedback. Stop any gamepad motors immediately; the
-        // input layer blocks future rumble calls until GAMEPAD is selected.
         input.set_rumble(false, config.controls.rumble, 0);
 
         if (!config.controls.haptic)
@@ -222,22 +301,9 @@ namespace
 
     const char* ROW_LABELS[BINDING_ROWS] =
     {
-        "STEERING",
-        "ACCELERATE",
-        "BRAKE",
-        "GEAR LOW",
-        "GEAR HIGH",
-        "START",
-        "COIN",
-        "MENU ACCESS",
-        "PAUSE",
-        "MENU ACCEPT",
-        "MENU BACK",
-        "VIEW CHANGE",
-        "VIEW 1",
-        "VIEW 2",
-        "VIEW 3",
-        "RADIO",
+        "STEERING", "ACCELERATE", "BRAKE", "GEAR LOW", "GEAR HIGH", "START", "COIN",
+        "MENU ACCESS", "PAUSE", "MENU ACCEPT", "MENU BACK", "VIEW CHANGE", "VIEW 1",
+        "VIEW 2", "VIEW 3", "RADIO",
     };
 
     const int ROW_TARGETS[BINDING_ROWS] =
@@ -250,70 +316,37 @@ namespace
         device_binding_t::TARGET_START,
         device_binding_t::TARGET_COIN,
         device_binding_t::TARGET_MENU,
-        -1, // Pause uses the independent system-action binding store.
-        -1, // Menu Accept uses the independent system-action binding store.
-        -1, // Menu Back uses the independent system-action binding store.
+        -1, -1, -1,
         device_binding_t::TARGET_VIEW,
         device_binding_t::TARGET_VIEW1,
         device_binding_t::TARGET_VIEW2,
         device_binding_t::TARGET_VIEW3,
-        -1, // Radio uses its own persistent button/HAT binding per input group.
+        -1,
     };
 
-    // Steering is a two-key cell and therefore uses -1 here. System actions
-    // and Radio use their own persistent keyboard settings rather than slots.
     const int ROW_KEY_SLOT[BINDING_ROWS] =
     {
-        -1,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        -1,
-        -1,
-        -1,
-        11,
-        12,
-        13,
-        14,
-        -1,
+        -1, 4, 5, 6, 7, 8, 9, 10, -1, -1, -1, 11, 12, 13, 14, -1,
     };
 
     std::string clip_text(const std::string& text, size_t width)
     {
-        if (text.size() <= width)
-            return text;
-
-        return text.substr(0, width);
+        return text.size() <= width ? text : text.substr(0, width);
     }
 
     std::string compact_key_name(int key)
     {
-        if (key < 0)
-            return "-";
-
+        if (key < 0) return "-";
         switch (key)
         {
-            case SDLK_UP:        return "UP";
-            case SDLK_DOWN:      return "DOWN";
-            case SDLK_LEFT:      return "LEFT";
-            case SDLK_RIGHT:     return "RIGHT";
-            case SDLK_RETURN:    return "ENTER";
-            case SDLK_BACKSPACE: return "BSP";
-            case SDLK_DELETE:    return "DEL";
-            case SDLK_SPACE:     return "SPACE";
-            case SDLK_ESCAPE:    return "ESC";
-            case SDLK_TAB:       return "TAB";
-            case SDLK_LCTRL:     return "LCTRL";
-            case SDLK_LALT:      return "LALT";
-            case SDLK_LSHIFT:    return "LSHIFT";
-            default:
-                break;
+            case SDLK_UP: return "UP"; case SDLK_DOWN: return "DOWN";
+            case SDLK_LEFT: return "LEFT"; case SDLK_RIGHT: return "RIGHT";
+            case SDLK_RETURN: return "ENTER"; case SDLK_BACKSPACE: return "BSP";
+            case SDLK_DELETE: return "DEL"; case SDLK_SPACE: return "SPACE";
+            case SDLK_ESCAPE: return "ESC"; case SDLK_TAB: return "TAB";
+            case SDLK_LCTRL: return "LCTRL"; case SDLK_LALT: return "LALT";
+            case SDLK_LSHIFT: return "LSHIFT"; default: break;
         }
-
         const char* name = SDL_GetKeyName(key);
         return (name && *name) ? std::string(name) : std::string("?");
     }
@@ -321,73 +354,44 @@ namespace
     std::string keyboard_binding_text(int row)
     {
         if (row == 0)
-        {
-            const std::string left = compact_key_name(config.controls.keyconfig[2]);
-            const std::string right = compact_key_name(config.controls.keyconfig[3]);
-            return clip_text(left + "/" + right, 8);
-        }
-
+            return clip_text(compact_key_name(config.controls.keyconfig[2]) + "/" +
+                             compact_key_name(config.controls.keyconfig[3]), 8);
         if (is_system_action_row(row))
-            return clip_text(
-                compact_key_name(config.system_action_key(system_action_for_row(row))),
-                8);
-
+            return clip_text(compact_key_name(config.system_action_key(system_action_for_row(row))), 8);
         if (row == RADIO_ROW)
             return clip_text(compact_key_name(config.radio_key()), 8);
-
-        const int slot = ROW_KEY_SLOT[row];
-        return clip_text(compact_key_name(config.controls.keyconfig[slot]), 8);
+        return clip_text(compact_key_name(config.controls.keyconfig[ROW_KEY_SLOT[row]]), 8);
     }
 
     std::string hat_direction(int value)
     {
-        if (value & SDL_HAT_UP)    return "U";
-        if (value & SDL_HAT_DOWN)  return "D";
-        if (value & SDL_HAT_LEFT)  return "L";
+        if (value & SDL_HAT_UP) return "U";
+        if (value & SDL_HAT_DOWN) return "D";
+        if (value & SDL_HAT_LEFT) return "L";
         if (value & SDL_HAT_RIGHT) return "R";
         return "?";
     }
 
     bool binding_is_group(const device_binding_t& binding, int group)
     {
-        if (binding.device.size() < 2 || binding.device[1] != ':')
-            return false;
-
-        if (group == Input::BINDING_GAMEPAD)
-            return binding.device[0] == 'G';
-
-        return binding.device[0] == 'W';
+        if (binding.device.size() < 2 || binding.device[1] != ':') return false;
+        return group == Input::BINDING_GAMEPAD ? binding.device[0] == 'G' : binding.device[0] == 'W';
     }
 
     std::string format_physical_binding(const device_binding_t& binding)
     {
         std::string text;
-
-        switch (binding.type)
+        if (binding.type == device_binding_t::TYPE_AXIS)
         {
-            case device_binding_t::TYPE_AXIS:
-                if (binding.device.rfind("G:", 0) == 0 &&
-                    binding.index >= Input::RAW_GAMEPAD_AXIS_BASE)
-                {
-                    text = "RAW" + std::to_string(
-                        binding.index - Input::RAW_GAMEPAD_AXIS_BASE);
-                }
-                else
-                {
-                    text = "AX" + std::to_string(binding.index);
-                }
-                break;
-
-            case device_binding_t::TYPE_HAT:
-                text = "H" + std::to_string(binding.index) +
-                    hat_direction(binding.value);
-                break;
-
-            default:
-                text = "B" + std::to_string(binding.index);
-                break;
+            if (binding.device.rfind("G:", 0) == 0 && binding.index >= Input::RAW_GAMEPAD_AXIS_BASE)
+                text = "RAW" + std::to_string(binding.index - Input::RAW_GAMEPAD_AXIS_BASE);
+            else
+                text = "AX" + std::to_string(binding.index);
         }
-
+        else if (binding.type == device_binding_t::TYPE_HAT)
+            text = "H" + std::to_string(binding.index) + hat_direction(binding.value);
+        else
+            text = "B" + std::to_string(binding.index);
         return clip_text(text, 7);
     }
 
@@ -395,24 +399,14 @@ namespace
     {
         const device_binding_t* first = nullptr;
         int count = 0;
-
         for (const auto& binding : config.controls.device_bindings)
         {
-            if (binding.target != target || !binding_is_group(binding, group))
-                continue;
-
-            if (!first)
-                first = &binding;
-
+            if (binding.target != target || !binding_is_group(binding, group)) continue;
+            if (!first) first = &binding;
             count++;
         }
-
-        if (count == 0)
-            return "-";
-
-        if (count > 1)
-            return "MULTI";
-
+        if (count == 0) return "-";
+        if (count > 1) return "MULTI";
         return format_physical_binding(*first);
     }
 
@@ -420,33 +414,22 @@ namespace
     {
         const int index = config.system_action_binding_index(action, group);
         const std::string device = config.system_action_binding_device(action, group);
-
-        if (device == "!")
-            return "-";
-
+        if (device == "!") return "-";
         if (index >= 0 && !device.empty())
         {
             device_binding_t binding;
             binding.type = config.system_action_binding_type(action, group);
             binding.index = index;
             binding.value = config.system_action_binding_value(action, group);
-            binding.device =
-                std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
+            binding.device = std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
             return format_physical_binding(binding);
         }
-
-        // Standardized SDL face/menu buttons are fixed fallbacks. They are not
-        // aliases to Gear/Start and disappear only when this system action gets
-        // an explicit custom GAMEPAD binding.
         if (group == Input::BINDING_GAMEPAD)
         {
-            if (action == Config::SYSTEM_ACTION_ACCEPT)
-                return "A";
-            if (action == Config::SYSTEM_ACTION_BACK)
-                return "B";
+            if (action == Config::SYSTEM_ACTION_ACCEPT) return "A";
+            if (action == Config::SYSTEM_ACTION_BACK) return "B";
             return "R3";
         }
-
         return "-";
     }
 
@@ -454,49 +437,28 @@ namespace
     {
         const int index = config.radio_binding_index(group);
         const std::string device = config.radio_binding_device(group);
-
-        if (device == "!")
-            return "-";
-
-        // L3 is the standard GAMEPAD radio button until the user explicitly
-        // replaces or clears it. WHEEL deliberately has no implicit default.
-        if (index < 0 || device.empty())
-            return group == Input::BINDING_GAMEPAD ? "L3" : "-";
-
+        if (device == "!") return "-";
+        if (index < 0 || device.empty()) return group == Input::BINDING_GAMEPAD ? "L3" : "-";
         device_binding_t binding;
         binding.type = config.radio_binding_type(group);
         binding.index = index;
         binding.value = config.radio_binding_value(group);
-        binding.device =
-            std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
-
+        binding.device = std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
         return format_physical_binding(binding);
     }
 }
 
 void Menu::tick()
 {
-    // Menu Access opens the frontend from gameplay. Once the frontend is open,
-    // it is deliberately inert: Menu Back is the only logical back action.
     input.keys[Input::MENU] = false;
     input.keys_old[Input::MENU] = false;
     input.keys_pressed[Input::MENU] = false;
 
-    // Apply the logical Back action before the inherited frontend tick. The
-    // binding editor handles Back itself so the button remains bindable there.
-    if (state != STATE_REDEFINE_KEYS &&
-        state != STATE_REDEFINE_JOY &&
-        input.has_pressed(Input::BACK))
-    {
+    if (state != STATE_REDEFINE_KEYS && state != STATE_REDEFINE_JOY && input.has_pressed(Input::BACK))
         handle_escape();
-    }
 
-    // The DX wrapper inserts its own credit directly above the inherited SE
-    // credit. Change only that DX entry; never match the generic BUILD text,
-    // because the SE credit uses it too.
     bool dx_credit_found = false;
     bool se_credit_found = false;
-
     for (std::string& entry : menu_about)
     {
         if (entry.rfind("DX ", 0) == 0 && entry.find("BUILD") != std::string::npos)
@@ -505,78 +467,60 @@ void Menu::tick()
             dx_credit_found = true;
         }
         else if (entry == SE_ABOUT_CREDIT)
-        {
             se_credit_found = true;
-        }
     }
-
-    // Defensive fallback for old/custom menu layouts: keep both credits visible
-    // and in the intended DX-then-SE order.
     if (!dx_credit_found)
     {
         auto se_entry = std::find(menu_about.begin(), menu_about.end(), SE_ABOUT_CREDIT);
         menu_about.insert(se_entry, DX_ABOUT_CREDIT);
     }
+    if (!se_credit_found) menu_about.push_back(SE_ABOUT_CREDIT);
 
-    if (!se_credit_found)
-        menu_about.push_back(SE_ABOUT_CREDIT);
-
-    // Keep the Bumper View height setting present in the rebuilt DX Gameplay
-    // menu and synchronized with changes made through the in-game F4 hotkey.
     if (!menu_engine.empty())
     {
-        auto bumper_entry = std::find_if(
-            menu_engine.begin(),
-            menu_engine.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, BUMPER_HEIGHT_LABEL);
-            });
-
+        auto bumper_entry = std::find_if(menu_engine.begin(), menu_engine.end(),
+            [](const std::string& entry){ return starts_with_label(entry, BUMPER_HEIGHT_LABEL); });
         if (bumper_entry == menu_engine.end())
         {
-            auto insert_before = std::find_if(
-                menu_engine.begin(),
-                menu_engine.end(),
-                [](const std::string& entry)
-                {
-                    return starts_with_label(entry, ENTRY_SUB_HANDLING);
-                });
-
+            auto insert_before = std::find_if(menu_engine.begin(), menu_engine.end(),
+                [](const std::string& entry){ return starts_with_label(entry, ENTRY_SUB_HANDLING); });
             menu_engine.insert(insert_before, bumper_height_menu_text());
         }
-        else
-        {
-            *bumper_entry = bumper_height_menu_text();
-        }
+        else *bumper_entry = bumper_height_menu_text();
     }
 
-    // Fundamental render scale stays on the VIDEO root.
     if (!menu_video.empty())
     {
-        auto resolution_entry = std::find_if(
-            menu_video.begin(),
-            menu_video.end(),
+        auto resolution_entry = std::find_if(menu_video.begin(), menu_video.end(),
             [](const std::string& entry)
             {
-                return starts_with_label(entry, ENTRY_HIRES) ||
-                       starts_with_label(entry, ENGINE_RESOLUTION_LABEL);
+                return starts_with_label(entry, ENTRY_HIRES) || starts_with_label(entry, ENGINE_RESOLUTION_LABEL);
             });
-        if (resolution_entry != menu_video.end())
-            *resolution_entry = engine_resolution_menu_text();
+        if (resolution_entry != menu_video.end()) *resolution_entry = engine_resolution_menu_text();
+
+        auto display_entry = std::find_if(menu_video.begin(), menu_video.end(),
+            [](const std::string& entry){ return starts_with_label(entry, ENTRY_FULLSCREEN); });
+        if (display_entry == menu_video.end())
+        {
+            auto aspect_entry = std::find_if(menu_video.begin(), menu_video.end(),
+                [](const std::string& entry){ return starts_with_label(entry, ENTRY_WIDESCREEN); });
+            display_entry = menu_video.insert(aspect_entry, display_mode_menu_text());
+        }
+        else
+            *display_entry = display_mode_menu_text();
+
+        auto aspect_entry = std::find_if(menu_video.begin(), menu_video.end(),
+            [](const std::string& entry){ return starts_with_label(entry, ENTRY_WIDESCREEN); });
+        if (aspect_entry != menu_video.end()) *aspect_entry = aspect_mode_menu_text();
     }
 
-    // Optional visual additions live in VIDEO ENHANCEMENTS and stay synced
-    // with hotkeys or other paths that can change their underlying settings.
     if (!menu_video_enhancements.empty())
     {
         for (std::string& entry : menu_video_enhancements)
         {
-            if (starts_with_label(entry, ENTRY_SPRITERES) ||
-                starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))
+            if (starts_with_label(entry, ENTRY_SPRITERES) || starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))
                 entry = sprite_enhancement_menu_text();
-            else if (starts_with_label(entry, ENTRY_OBJECTS) ||
-                     starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))
+            else if (starts_with_label(entry, ENTRY_OBJECTS) || starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))
                 entry = object_enhancement_menu_text();
             else if (starts_with_label(entry, FERRARI_MIRROR_FIX_LABEL))
                 entry = ferrari_mirror_fix_menu_text();
@@ -585,21 +529,11 @@ void Menu::tick()
         }
     }
 
-    // The original frontend uses analog steering as a menu up/down control.
-    // That is convenient on a cabinet but extremely annoying with a PC wheel.
-    // Neutralise steering only while browsing normal menus. In-game steering
-    // and the binding editor itself continue to receive the real wheel value.
     const int16_t steering_before = oinputs.input_steering;
-
-    if (state == STATE_MENU)
-        oinputs.input_steering = 0x80;
-
+    if (state == STATE_MENU) oinputs.input_steering = 0x80;
     MenuBase::tick();
     oinputs.input_steering = steering_before;
 
-    // Apply feedback ownership once when INPUT MODE changes, including the
-    // first frontend tick after startup. This prevents a connected inactive
-    // wheel or gamepad from physically reacting to the other control family.
     static int synced_input_mode = -1;
     const int current_input_mode = config.input_mode();
     if (current_input_mode != synced_input_mode)
@@ -608,29 +542,16 @@ void Menu::tick()
         synced_input_mode = current_input_mode;
     }
 
-    // Persist every changed menu setting without requiring an explicit SAVE
-    // item. A renderer restart is completed by the outer main loop after this
-    // tick, so defer that one write until the following menu tick.
     if (config_save_pending && !config.videoRestartRequired)
     {
         config_save_pending = false;
-        if (!config.save())
-            display_message("ERROR SAVING SETTINGS!");
+        if (!config.save()) display_message("ERROR SAVING SETTINGS!");
     }
 
-    // The Spring option is a high-speed maximum. The frontend must always use
-    // the same 40% low-speed value as a stationary car, never the configured
-    // maximum itself. Re-sync only on menu entry, FFB enable, or value change.
     static bool menu_spring_active = false;
     static int menu_spring_strength = -1;
-
-    const bool frontend_menu =
-        cannonball::state == cannonball::STATE_MENU &&
-        state == STATE_MENU;
-
-    if (!frontend_menu ||
-        !config.controls.haptic ||
-        !config.input_mode_is_wheel())
+    const bool frontend_menu = cannonball::state == cannonball::STATE_MENU && state == STATE_MENU;
+    if (!frontend_menu || !config.controls.haptic || !config.input_mode_is_wheel())
     {
         menu_spring_active = false;
         menu_spring_strength = -1;
@@ -651,9 +572,6 @@ void Menu::tick()
 
 void Menu::handle_escape()
 {
-    // Normal menu hierarchy: Escape/Menu Back is BACK. At the root it is
-    // deliberately a no-op, because EXIT is the only frontend action that may
-    // close CannonBall.
     if (state == STATE_MENU)
     {
         if (menu_selected != &menu_main)
@@ -665,8 +583,6 @@ void Menu::handle_escape()
         return;
     }
 
-    // Escape must also get out of the binding editor even while it is waiting
-    // for a new key/axis/button, where the normal logical actions are not polled.
     if (state == STATE_REDEFINE_KEYS || state == STATE_REDEFINE_JOY)
     {
         input.set_capture_group(-1);
@@ -677,7 +593,6 @@ void Menu::handle_escape()
         input.joy_hat_value = SDL_HAT_CENTERED;
         input.joy_hat_device = -1;
         input.reset_axis_config();
-
         redef_state = 0;
         state = STATE_MENU;
         refresh_menu();
@@ -685,10 +600,6 @@ void Menu::handle_escape()
         return;
     }
 
-    // Time Trial and hardware-test screens already have their own cleanup and
-    // BACK handling on the historical MENU action. Generate an internal one-
-    // frame MENU edge from the new independent Back action so their teardown
-    // behaviour is retained without making Menu Access itself a Back button.
     input.keys_old[Input::MENU] = false;
     input.keys[Input::MENU] = true;
     input.keys_pressed[Input::MENU] = true;
@@ -696,54 +607,32 @@ void Menu::handle_escape()
 
 void Menu::populate_controls()
 {
-    // Probe the GameController path before the base menu decides whether the
-    // rumble options should be visible. enable=false guarantees no vibration.
     input.set_rumble(false, config.controls.rumble, 0);
-
     ENTRY_REDEFJOY = "CONFIG INPUTS";
     MenuBase::populate_controls();
 
     auto erase_entry = [&](const char* label)
     {
-        menu_controls.erase(
-            std::remove_if(
-                menu_controls.begin(),
-                menu_controls.end(),
-                [&](const std::string& entry)
-                {
-                    return starts_with_label(entry, label);
-                }),
-            menu_controls.end());
+        menu_controls.erase(std::remove_if(menu_controls.begin(), menu_controls.end(),
+            [&](const std::string& entry){ return starts_with_label(entry, label); }), menu_controls.end());
     };
 
     if (config.input_mode_is_gamepad())
     {
-        // Wheel-output settings are irrelevant while GAMEPAD owns the game.
         erase_entry(ENTRY_FFB);
         erase_entry(ENTRY_FFB_STRENGTH);
         erase_entry(ENTRY_CENTERING_STRENGTH);
-
-        // Rumble enable remains independent from the saved strength.
-        const auto rumble_strength = std::find_if(
-            menu_controls.begin(),
-            menu_controls.end(),
-            [](const std::string& entry)
-            {
-                return starts_with_label(entry, ENTRY_RUMBLE);
-            });
-
+        const auto rumble_strength = std::find_if(menu_controls.begin(), menu_controls.end(),
+            [](const std::string& entry){ return starts_with_label(entry, ENTRY_RUMBLE); });
         if (rumble_strength != menu_controls.end())
             menu_controls.insert(rumble_strength, gamepad_rumble_menu_text());
     }
     else
     {
-        // WHEEL mode never drives gamepad motors, so hide both rumble controls.
         erase_entry(ENTRY_RUMBLE);
         erase_entry(GAMEPAD_RUMBLE_LABEL);
     }
 
-    // INPUT MODE is always the first item. CONFIG INPUTS remains available in
-    // both modes so the inactive device family can be prepared before switching.
     erase_entry(INPUT_MODE_LABEL);
     erase_entry(ENTRY_REDEFJOY);
     menu_controls.insert(menu_controls.begin(), input_mode_menu_text());
@@ -752,22 +641,13 @@ void Menu::populate_controls()
 
 bool Menu::select_pressed()
 {
-    // Bumper height is a five-step value. LEFT and RIGHT move in opposite
-    // directions and wrap around; Enter remains a forward-cycle fallback.
-    if (menu_selected == &menu_engine &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_engine.size()) &&
+    if (menu_selected == &menu_engine && cursor >= 0 && cursor < static_cast<int>(menu_engine.size()) &&
         starts_with_label(menu_engine[cursor], BUMPER_HEIGHT_LABEL) &&
         (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
     {
         int level = config.bumper_view_height_level();
-
-        if (input.has_pressed(Input::RIGHT))
-            level = (level + 1) % Config::BUMPER_VIEW_HEIGHT_LEVELS;
-        else
-            level = (level + Config::BUMPER_VIEW_HEIGHT_LEVELS - 1) %
-                Config::BUMPER_VIEW_HEIGHT_LEVELS;
-
+        if (input.has_pressed(Input::RIGHT)) level = (level + 1) % Config::BUMPER_VIEW_HEIGHT_LEVELS;
+        else level = (level + Config::BUMPER_VIEW_HEIGHT_LEVELS - 1) % Config::BUMPER_VIEW_HEIGHT_LEVELS;
         config.set_bumper_view_height_level(level);
         menu_engine[cursor] = bumper_height_menu_text();
         config_save_pending = true;
@@ -775,12 +655,7 @@ bool Menu::select_pressed()
         return false;
     }
 
-    // INPUT MODE uses left/right like the other value-style settings. Keyboard
-    // arrows remain active in both modes; the selected physical input family
-    // may also provide them when appropriate.
-    if (menu_selected == &menu_controls &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_controls.size()) &&
+    if (menu_selected == &menu_controls && cursor >= 0 && cursor < static_cast<int>(menu_controls.size()) &&
         starts_with_label(menu_controls[cursor], INPUT_MODE_LABEL) &&
         (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
     {
@@ -792,35 +667,46 @@ bool Menu::select_pressed()
         return false;
     }
 
-    // PC/controller frontend confirmation is now a dedicated logical action.
-    // Never infer it from Gear, Accelerate or gameplay Start. Genuine cabinets
-    // retain their historical Start/accelerator select path.
-    const bool pressed =
-        input.has_pressed(Input::ACCEPT) ||
-        (config.smartypi.enabled &&
-         (input.has_pressed(Input::START) || oinputs.is_analog_select()));
+    if (menu_selected == &menu_video && cursor >= 0 && cursor < static_cast<int>(menu_video.size()) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        const std::string option = menu_video[cursor];
+        const int delta = input.has_pressed(Input::RIGHT) ? 1 : -1;
 
-    if (!pressed)
-        return false;
+        if (starts_with_label(option, ENTRY_FULLSCREEN))
+        {
+            set_display_mode(display_mode_index() + delta);
+            menu_video[cursor] = display_mode_menu_text();
+            config_save_pending = true;
+            osoundint.queue_sound(sound::BEEP1);
+            return false;
+        }
 
-    // The base implementation applies most setting changes only after this
-    // virtual hook returns. Mark the write now; Menu::tick saves after the base
-    // tick has completed, so the new value is what reaches config.xml.
+        if (starts_with_label(option, ENTRY_WIDESCREEN))
+        {
+            set_aspect_mode(aspect_mode_index() + delta);
+            menu_video[cursor] = aspect_mode_menu_text();
+            config_save_pending = true;
+            osoundint.queue_sound(sound::BEEP1);
+            return false;
+        }
+    }
+
+    const bool pressed = input.has_pressed(Input::ACCEPT) ||
+        (config.smartypi.enabled && (input.has_pressed(Input::START) || oinputs.is_analog_select()));
+    if (!pressed) return false;
+
     config_save_pending = true;
 
-    if (menu_selected == &menu_engine &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_engine.size()))
+    if (menu_selected == &menu_engine && cursor >= 0 && cursor < static_cast<int>(menu_engine.size()))
     {
         const std::string& option = menu_engine[cursor];
-
         if (starts_with_label(option, BUMPER_HEIGHT_LABEL))
         {
             config.cycle_bumper_view_height();
             menu_engine[cursor] = bumper_height_menu_text();
             return false;
         }
-
         if (starts_with_label(option, SELECTION_TIMER_LABEL))
         {
             config.cycle_selection_timer();
@@ -829,45 +715,46 @@ bool Menu::select_pressed()
         }
     }
 
-    if (menu_selected == &menu_video &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_video.size()))
+    if (menu_selected == &menu_video && cursor >= 0 && cursor < static_cast<int>(menu_video.size()))
     {
         const std::string& option = menu_video[cursor];
-
+        if (starts_with_label(option, ENTRY_FULLSCREEN))
+        {
+            set_display_mode(display_mode_index() + 1);
+            menu_video[cursor] = display_mode_menu_text();
+            return false;
+        }
+        if (starts_with_label(option, ENTRY_WIDESCREEN))
+        {
+            set_aspect_mode(aspect_mode_index() + 1);
+            menu_video[cursor] = aspect_mode_menu_text();
+            return false;
+        }
         if (starts_with_label(option, ENTRY_FRAME_RATE))
         {
             int rate = config.fps;
             rate = rate == 30 ? 60 : (rate == 60 ? 120 : 30);
             config.video.fps = rate == 30 ? 0 : (rate == 120 ? 3 : 2);
             config.set_fps(config.video.fps);
-            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) +
-                                 std::to_string(rate) + " FPS";
+            menu_video[cursor] = std::string(ENTRY_FRAME_RATE) + std::to_string(rate) + " FPS";
             return false;
         }
-
         if (starts_with_label(option, ENGINE_RESOLUTION_LABEL))
         {
             int scale = engine_resolution_scale() + 1;
-            if (scale > 4)
-                scale = 1;
-
+            if (scale > 4) scale = 1;
             request_engine_resolution_scale(scale);
             menu_video[cursor] = engine_resolution_menu_text(scale);
             return false;
         }
     }
 
-    if (menu_selected == &menu_video_enhancements &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_video_enhancements.size()))
+    if (menu_selected == &menu_video_enhancements && cursor >= 0 && cursor < static_cast<int>(menu_video_enhancements.size()))
     {
         const std::string& option = menu_video_enhancements[cursor];
-
         if (starts_with_label(option, SPRITE_ENHANCEMENT_LABEL))
         {
-            if (config.video.hires == 0)
-                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");
+            if (config.video.hires == 0) display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");
             else
             {
                 config.video.hiresprites ^= 1;
@@ -875,21 +762,18 @@ bool Menu::select_pressed()
             }
             return false;
         }
-
         if (starts_with_label(option, OBJECT_ENHANCEMENT_LABEL))
         {
             config.engine.level_objects ^= 1;
             menu_video_enhancements[cursor] = object_enhancement_menu_text();
             return false;
         }
-
         if (starts_with_label(option, FERRARI_MIRROR_FIX_LABEL))
         {
             config.toggle_ferrari_mirror_fix();
             menu_video_enhancements[cursor] = ferrari_mirror_fix_menu_text();
             return false;
         }
-
         if (starts_with_label(option, PIXEL_SCALER_LABEL))
         {
             pixel_scaler::cycle();
@@ -898,58 +782,40 @@ bool Menu::select_pressed()
         }
     }
 
-    if (menu_selected == &menu_handling &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_handling.size()))
+    if (menu_selected == &menu_handling && cursor >= 0 && cursor < static_cast<int>(menu_handling.size()))
     {
         const std::string& option = menu_handling[cursor];
-
         if (starts_with_label(option, ENTRY_COLOR))
         {
             config.engine.car_pal++;
-            if (config.engine.car_pal > 7)
-                config.engine.car_pal = 0;
-
+            if (config.engine.car_pal > 7) config.engine.car_pal = 0;
             refresh_menu();
             return false;
         }
     }
 
-    if (menu_selected == &menu_controls &&
-        cursor >= 0 &&
-        cursor < static_cast<int>(menu_controls.size()))
+    if (menu_selected == &menu_controls && cursor >= 0 && cursor < static_cast<int>(menu_controls.size()))
     {
         const std::string option = menu_controls[cursor];
-
         if (starts_with_label(option, INPUT_MODE_LABEL))
         {
-            // Enter remains a convenient fallback for cabinets without a
-            // separate left/right pair.
             config.cycle_input_mode();
             populate_controls();
             cursor = 0;
             return false;
         }
-
         if (starts_with_label(option, GAMEPAD_RUMBLE_LABEL))
         {
             gamepad_rumble::enabled = !gamepad_rumble::enabled;
-
-            // Stop immediately when switching off. When switching on this also
-            // refreshes/probes the controller without producing a vibration.
             input.set_rumble(false, config.controls.rumble, 0);
             menu_controls[cursor] = gamepad_rumble_menu_text();
             return false;
         }
-
         if (starts_with_label(option, ENTRY_RUMBLE))
         {
-            // With a separate ON/OFF switch, strength only cycles through real
-            // levels instead of wrapping through the old OFF/zero state.
             config.controls.rumble += 0.25f;
             if (config.controls.rumble > 1.0f || config.controls.rumble <= 0.0f)
                 config.controls.rumble = 0.25f;
-
             refresh_menu();
             return false;
         }
@@ -960,19 +826,11 @@ bool Menu::select_pressed()
 
 void Menu::redefine_joystick()
 {
-    enum WaitType
-    {
-        WAIT_NONE,
-        WAIT_KEY,
-        WAIT_BUTTON,
-        WAIT_HAT,
-    };
-
+    enum WaitType { WAIT_NONE, WAIT_KEY, WAIT_BUTTON, WAIT_HAT };
     static int selected_row = 0;
     static int selected_col = COL_KEYBOARD;
     static bool capturing = false;
     static int steering_key_step = 0;
-
     static bool waiting_release = false;
     static bool capture_after_release = false;
     static WaitType wait_type = WAIT_NONE;
@@ -1007,14 +865,10 @@ void Menu::redefine_joystick()
         refresh_menu();
     };
 
-    // menu_base.cpp sets redef_state to zero every time this editor is opened.
     if (redef_state == 0)
     {
-        // The first implementation stored bindings against individual device
-        // columns. Convert those to the new logical GAMEPAD/WHEEL grouping.
         input.normalize_device_bindings();
         config_save_pending = true;
-
         selected_row = 0;
         selected_col = COL_KEYBOARD;
         capturing = false;
@@ -1030,41 +884,18 @@ void Menu::redefine_joystick()
     auto draw_editor = [&]()
     {
         ohud.blit_text_new(12, 2, "CONTROL BINDINGS", ohud.GREEN);
-
         ohud.blit_text_new(1, 4, "CONTROL", ohud.GREY);
-        ohud.blit_text_new(
-            14,
-            4,
-            "KEYBOARD",
-            (selected_row != BACK_ROW && selected_col == COL_KEYBOARD)
-                ? ohud.PINK : ohud.GREY);
-        ohud.blit_text_new(
-            24,
-            4,
-            "GAMEPAD",
-            (selected_row != BACK_ROW && selected_col == COL_GAMEPAD)
-                ? ohud.PINK : ohud.GREY);
-        ohud.blit_text_new(
-            33,
-            4,
-            "WHEEL",
-            (selected_row != BACK_ROW && selected_col == COL_WHEEL)
-                ? ohud.PINK : ohud.GREY);
+        ohud.blit_text_new(14, 4, "KEYBOARD", (selected_row != BACK_ROW && selected_col == COL_KEYBOARD) ? ohud.PINK : ohud.GREY);
+        ohud.blit_text_new(24, 4, "GAMEPAD", (selected_row != BACK_ROW && selected_col == COL_GAMEPAD) ? ohud.PINK : ohud.GREY);
+        ohud.blit_text_new(33, 4, "WHEEL", (selected_row != BACK_ROW && selected_col == COL_WHEEL) ? ohud.PINK : ohud.GREY);
 
         for (int row = 0; row < BINDING_ROWS; row++)
         {
             const int y = 6 + row;
-
-            ohud.blit_text_new(
-                1,
-                y,
-                ROW_LABELS[row],
-                row == selected_row ? ohud.PINK : ohud.GREEN);
-
+            ohud.blit_text_new(1, y, ROW_LABELS[row], row == selected_row ? ohud.PINK : ohud.GREEN);
             const std::string key_text = keyboard_binding_text(row);
             std::string gamepad_text;
             std::string wheel_text;
-
             if (row == RADIO_ROW)
             {
                 gamepad_text = radio_group_binding_text(Input::BINDING_GAMEPAD);
@@ -1081,106 +912,49 @@ void Menu::redefine_joystick()
                 gamepad_text = group_binding_text(ROW_TARGETS[row], Input::BINDING_GAMEPAD);
                 wheel_text = group_binding_text(ROW_TARGETS[row], Input::BINDING_WHEEL);
             }
-
-            ohud.blit_text_new(
-                14,
-                y,
-                key_text.c_str(),
-                (row == selected_row && selected_col == COL_KEYBOARD)
-                    ? ohud.PINK : ohud.GREEN);
-            ohud.blit_text_new(
-                24,
-                y,
-                gamepad_text.c_str(),
-                (row == selected_row && selected_col == COL_GAMEPAD)
-                    ? ohud.PINK : ohud.GREEN);
-            ohud.blit_text_new(
-                33,
-                y,
-                wheel_text.c_str(),
-                (row == selected_row && selected_col == COL_WHEEL)
-                    ? ohud.PINK : ohud.GREEN);
+            ohud.blit_text_new(14, y, key_text.c_str(), (row == selected_row && selected_col == COL_KEYBOARD) ? ohud.PINK : ohud.GREEN);
+            ohud.blit_text_new(24, y, gamepad_text.c_str(), (row == selected_row && selected_col == COL_GAMEPAD) ? ohud.PINK : ohud.GREEN);
+            ohud.blit_text_new(33, y, wheel_text.c_str(), (row == selected_row && selected_col == COL_WHEEL) ? ohud.PINK : ohud.GREEN);
         }
 
-        ohud.blit_text_new(
-            18,
-            BACK_Y,
-            "BACK",
-            selected_row == BACK_ROW ? ohud.PINK : ohud.GREEN);
-
+        ohud.blit_text_new(18, BACK_Y, "BACK", selected_row == BACK_ROW ? ohud.PINK : ohud.GREEN);
         if (waiting_release)
-        {
             ohud.blit_text_new(11, STATUS_Y, "RELEASE CONTROL", ohud.PINK);
-        }
         else if (capturing)
         {
             if (selected_col == COL_KEYBOARD && selected_row == 0)
-            {
-                ohud.blit_text_new(
-                    4,
-                    STATUS_Y,
-                    steering_key_step == 0
-                        ? "PRESS STEERING LEFT KEY"
-                        : "PRESS STEERING RIGHT KEY",
-                    ohud.PINK);
-            }
+                ohud.blit_text_new(4, STATUS_Y, steering_key_step == 0 ? "PRESS STEERING LEFT KEY" : "PRESS STEERING RIGHT KEY", ohud.PINK);
             else if (selected_col == COL_KEYBOARD)
-            {
                 ohud.blit_text_new(8, STATUS_Y, "PRESS A KEY", ohud.PINK);
-            }
             else if (selected_row == 0)
-            {
                 ohud.blit_text_new(5, STATUS_Y, "MOVE STEERING AXIS", ohud.PINK);
-            }
             else if (selected_row == 1 || selected_row == 2)
-            {
                 ohud.blit_text_new(2, STATUS_Y, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
-            }
             else
-            {
                 ohud.blit_text_new(5, STATUS_Y, "PRESS BUTTON OR HAT", ohud.PINK);
-            }
         }
         else
         {
-            ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y, "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
             ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - BACK", ohud.GREY);
             ohud.blit_text_new(1, STATUS_Y + 2, "ALL ACTIONS CAN BE REBOUND", ohud.GREY);
         }
     };
 
-    // Wait for the control that opened the cell or was just captured to be
-    // released before listening again. This is what makes Enter bindable.
     if (waiting_release)
     {
         bool released = false;
-
         if (wait_type == WAIT_KEY)
         {
             const Uint8* keyboard_state = SDL_GetKeyboardState(nullptr);
             const SDL_Scancode scancode = SDL_GetScancodeFromKey(wait_key);
-
-            released =
-                scancode == SDL_SCANCODE_UNKNOWN ||
-                keyboard_state[scancode] == 0;
+            released = scancode == SDL_SCANCODE_UNKNOWN || keyboard_state[scancode] == 0;
         }
         else if (wait_type == WAIT_BUTTON)
-        {
-            released =
-                input.joy_button_device != wait_device ||
-                input.joy_button != wait_button;
-        }
+            released = input.joy_button_device != wait_device || input.joy_button != wait_button;
         else if (wait_type == WAIT_HAT)
-        {
-            released =
-                input.joy_hat_device != wait_device ||
-                input.joy_hat != wait_hat ||
-                (input.joy_hat_value & wait_hat_value) == 0;
-        }
-        else
-        {
-            released = true;
-        }
+            released = input.joy_hat_device != wait_device || input.joy_hat != wait_hat || (input.joy_hat_value & wait_hat_value) == 0;
+        else released = true;
 
         if (released)
         {
@@ -1192,14 +966,10 @@ void Menu::redefine_joystick()
             wait_hat = -1;
             wait_hat_value = SDL_HAT_CENTERED;
             clear_latches();
-
             capturing = capture_after_release;
             capture_after_release = false;
-
-            if (!capturing)
-                input.set_capture_group(-1);
+            if (!capturing) input.set_capture_group(-1);
         }
-
         draw_editor();
         return;
     }
@@ -1209,24 +979,16 @@ void Menu::redefine_joystick()
         if (selected_col == COL_KEYBOARD)
         {
             input.set_capture_group(-1);
-
-            // System actions are regular editable keyboard cells. Raw editor
-            // navigation fallbacks are handled only while browsing, below.
-
             if (input.key_press != -1)
             {
                 const SDL_Keycode captured_key = input.key_press;
-
                 if (selected_row == 0)
                 {
                     const int slot = steering_key_step == 0 ? 2 : 3;
                     config.controls.keyconfig[slot] = captured_key;
-
                     steering_key_step++;
                     capture_after_release = steering_key_step < 2;
-
-                    if (!capture_after_release)
-                        steering_key_step = 0;
+                    if (!capture_after_release) steering_key_step = 0;
                 }
                 else if (selected_row == RADIO_ROW)
                 {
@@ -1235,120 +997,64 @@ void Menu::redefine_joystick()
                 }
                 else if (is_system_action_row(selected_row))
                 {
-                    config.set_system_action_key(
-                        system_action_for_row(selected_row), captured_key);
+                    config.set_system_action_key(system_action_for_row(selected_row), captured_key);
                     capture_after_release = false;
                 }
                 else
                 {
-                    config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] =
-                        captured_key;
+                    config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] = captured_key;
                     capture_after_release = false;
                 }
-
                 config_save_pending = true;
                 waiting_release = true;
                 wait_type = WAIT_KEY;
                 wait_key = captured_key;
                 input.key_press = -1;
             }
-
             draw_editor();
             return;
         }
 
-        const int group =
-            selected_col == COL_GAMEPAD
-                ? Input::BINDING_GAMEPAD
-                : Input::BINDING_WHEEL;
-
-        // Capture only the event stream represented by the selected column.
-        // Runtime processing still keeps both streams alive for dual-role
-        // devices such as vJoy.
+        const int group = selected_col == COL_GAMEPAD ? Input::BINDING_GAMEPAD : Input::BINDING_WHEEL;
         input.set_capture_group(group);
-
         auto accepts_device = [&](SDL_JoystickID device)
         {
-            if (device < 0)
-                return false;
-
-            return
-                group == Input::BINDING_WHEEL ||
-                input.is_gamepad_device(device);
+            if (device < 0) return false;
+            return group == Input::BINDING_WHEEL || input.is_gamepad_device(device);
         };
-
         const int target = ROW_TARGETS[selected_row];
 
-        // Steering accepts an analog axis. Accelerator and brake accept either
-        // an axis or a digital button/HAT. Other rows are digital controls.
         if (selected_row <= 2)
         {
             SDL_JoystickID captured_device = -1;
             const int axis = input.get_axis_config(&captured_device);
-
             if (axis != -1)
             {
                 if (accepts_device(captured_device))
                 {
-                    input.set_device_binding(
-                        target,
-                        device_binding_t::TYPE_AXIS,
-                        axis,
-                        0,
-                        captured_device,
-                        group);
-
+                    input.set_device_binding(target, device_binding_t::TYPE_AXIS, axis, 0, captured_device, group);
                     config_save_pending = true;
                     capturing = false;
                     input.set_capture_group(-1);
                     clear_latches();
                 }
-
                 draw_editor();
                 return;
             }
         }
 
-        if (selected_row != 0 &&
-            input.joy_hat != -1 &&
-            input.joy_hat_value != SDL_HAT_CENTERED &&
-            accepts_device(input.joy_hat_device))
+        if (selected_row != 0 && input.joy_hat != -1 && input.joy_hat_value != SDL_HAT_CENTERED && accepts_device(input.joy_hat_device))
         {
             const SDL_JoystickID captured_device = input.joy_hat_device;
             const int captured_hat = input.joy_hat;
             const int captured_value = input.joy_hat_value;
             const std::string signature = input.get_device_signature(captured_device);
-
             if (selected_row == RADIO_ROW)
-            {
-                config.set_radio_binding(
-                    group,
-                    device_binding_t::TYPE_HAT,
-                    captured_hat,
-                    captured_value,
-                    signature);
-            }
+                config.set_radio_binding(group, device_binding_t::TYPE_HAT, captured_hat, captured_value, signature);
             else if (is_system_action_row(selected_row))
-            {
-                config.set_system_action_binding(
-                    system_action_for_row(selected_row),
-                    group,
-                    device_binding_t::TYPE_HAT,
-                    captured_hat,
-                    captured_value,
-                    signature);
-            }
+                config.set_system_action_binding(system_action_for_row(selected_row), group, device_binding_t::TYPE_HAT, captured_hat, captured_value, signature);
             else
-            {
-                input.set_device_binding(
-                    target,
-                    device_binding_t::TYPE_HAT,
-                    captured_hat,
-                    captured_value,
-                    captured_device,
-                    group);
-            }
-
+                input.set_device_binding(target, device_binding_t::TYPE_HAT, captured_hat, captured_value, captured_device, group);
             config_save_pending = true;
             capturing = false;
             waiting_release = true;
@@ -1357,53 +1063,24 @@ void Menu::redefine_joystick()
             wait_device = captured_device;
             wait_hat = captured_hat;
             wait_hat_value = captured_value;
-
             input.joy_hat = -1;
             input.joy_hat_value = SDL_HAT_CENTERED;
             input.joy_hat_device = -1;
-
             draw_editor();
             return;
         }
 
-        if (selected_row != 0 &&
-            input.joy_button != -1 &&
-            accepts_device(input.joy_button_device))
+        if (selected_row != 0 && input.joy_button != -1 && accepts_device(input.joy_button_device))
         {
             const SDL_JoystickID captured_device = input.joy_button_device;
             const int captured_button = input.joy_button;
             const std::string signature = input.get_device_signature(captured_device);
-
             if (selected_row == RADIO_ROW)
-            {
-                config.set_radio_binding(
-                    group,
-                    device_binding_t::TYPE_BUTTON,
-                    captured_button,
-                    0,
-                    signature);
-            }
+                config.set_radio_binding(group, device_binding_t::TYPE_BUTTON, captured_button, 0, signature);
             else if (is_system_action_row(selected_row))
-            {
-                config.set_system_action_binding(
-                    system_action_for_row(selected_row),
-                    group,
-                    device_binding_t::TYPE_BUTTON,
-                    captured_button,
-                    0,
-                    signature);
-            }
+                config.set_system_action_binding(system_action_for_row(selected_row), group, device_binding_t::TYPE_BUTTON, captured_button, 0, signature);
             else
-            {
-                input.set_device_binding(
-                    target,
-                    device_binding_t::TYPE_BUTTON,
-                    captured_button,
-                    0,
-                    captured_device,
-                    group);
-            }
-
+                input.set_device_binding(target, device_binding_t::TYPE_BUTTON, captured_button, 0, captured_device, group);
             config_save_pending = true;
             capturing = false;
             waiting_release = true;
@@ -1411,10 +1088,8 @@ void Menu::redefine_joystick()
             wait_type = WAIT_BUTTON;
             wait_device = captured_device;
             wait_button = captured_button;
-
             input.joy_button = -1;
             input.joy_button_device = -1;
-
             draw_editor();
             return;
         }
@@ -1423,11 +1098,7 @@ void Menu::redefine_joystick()
         return;
     }
 
-    // Browse mode never owns either device event stream.
     input.set_capture_group(-1);
-
-    // Menu Back is independent from Menu Access and works as the editor's
-    // normal back action while not actively capturing a new control.
     if (input.has_pressed(Input::BACK) || input.key_press == SDLK_ESCAPE)
     {
         leave_editor();
@@ -1437,109 +1108,63 @@ void Menu::redefine_joystick()
     if (input.has_pressed(Input::DOWN))
     {
         selected_row++;
-        if (selected_row >= EDITOR_ROWS)
-            selected_row = 0;
-
-        if (selected_row == BACK_ROW)
-            selected_col = COL_KEYBOARD;
-
+        if (selected_row >= EDITOR_ROWS) selected_row = 0;
+        if (selected_row == BACK_ROW) selected_col = COL_KEYBOARD;
         osoundint.queue_sound(sound::BEEP1);
     }
     else if (input.has_pressed(Input::UP))
     {
         selected_row--;
-        if (selected_row < 0)
-            selected_row = EDITOR_ROWS - 1;
-
-        if (selected_row == BACK_ROW)
-            selected_col = COL_KEYBOARD;
-
+        if (selected_row < 0) selected_row = EDITOR_ROWS - 1;
+        if (selected_row == BACK_ROW) selected_col = COL_KEYBOARD;
         osoundint.queue_sound(sound::BEEP1);
     }
     else if (selected_row != BACK_ROW && input.has_pressed(Input::RIGHT))
     {
         selected_col++;
-        if (selected_col >= EDITOR_COLUMNS)
-            selected_col = 0;
-
+        if (selected_col >= EDITOR_COLUMNS) selected_col = 0;
         osoundint.queue_sound(sound::BEEP1);
     }
     else if (selected_row != BACK_ROW && input.has_pressed(Input::LEFT))
     {
         selected_col--;
-        if (selected_col < 0)
-            selected_col = EDITOR_COLUMNS - 1;
-
+        if (selected_col < 0) selected_col = EDITOR_COLUMNS - 1;
         osoundint.queue_sound(sound::BEEP1);
     }
 
-    const bool clear_pressed =
-        input.key_press == SDLK_DELETE ||
-        input.key_press == SDLK_BACKSPACE;
-
+    const bool clear_pressed = input.key_press == SDLK_DELETE || input.key_press == SDLK_BACKSPACE;
     if (clear_pressed && selected_row != BACK_ROW)
     {
-        bool changed = true;
-
         if (selected_col == COL_KEYBOARD)
         {
             if (is_system_action_row(selected_row))
-            {
-                config.set_system_action_key(
-                    system_action_for_row(selected_row), -1);
-            }
+                config.set_system_action_key(system_action_for_row(selected_row), -1);
             else if (selected_row == 0)
             {
                 config.controls.keyconfig[2] = -1;
                 config.controls.keyconfig[3] = -1;
             }
             else if (selected_row == RADIO_ROW)
-            {
                 config.set_radio_key(-1);
-            }
             else
-            {
                 config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] = -1;
-            }
         }
         else
         {
-            const int group =
-                selected_col == COL_GAMEPAD
-                    ? Input::BINDING_GAMEPAD
-                    : Input::BINDING_WHEEL;
-
+            const int group = selected_col == COL_GAMEPAD ? Input::BINDING_GAMEPAD : Input::BINDING_WHEEL;
             if (selected_row == RADIO_ROW)
-            {
                 config.clear_radio_binding(group);
-            }
             else if (is_system_action_row(selected_row))
-            {
-                config.clear_system_action_binding(
-                    system_action_for_row(selected_row),
-                    group);
-            }
+                config.clear_system_action_binding(system_action_for_row(selected_row), group);
             else
-            {
                 input.clear_device_bindings(ROW_TARGETS[selected_row], group);
-            }
         }
-
-        if (changed)
-            config_save_pending = true;
-
+        config_save_pending = true;
         input.key_press = -1;
         osoundint.queue_sound(sound::BEEP1);
     }
 
-    // Raw Enter is an editor-only safety fallback. It remains usable even if
-    // the user clears or remaps Menu Accept, and it can still be captured once
-    // the editor is actively listening to a KEYBOARD cell.
-    const bool activate =
-        select_pressed() ||
-        input.key_press == SDLK_RETURN ||
-        input.key_press == SDLK_KP_ENTER;
-
+    const bool activate = select_pressed() || input.key_press == SDLK_RETURN || input.key_press == SDLK_KP_ENTER;
     if (activate)
     {
         if (selected_row == BACK_ROW)
@@ -1548,19 +1173,10 @@ void Menu::redefine_joystick()
             leave_editor();
             return;
         }
-
-        // Every KEYBOARD / GAMEPAD / WHEEL cell is editable. Enter remains
-        // only an editor-navigation fallback while this screen is in browse mode.
-
         capturing = false;
         steering_key_step = 0;
         capture_after_release = true;
-
-        // Keep capture disabled while the control that opened the cell is still
-        // held. The selected GAMEPAD/WHEEL stream becomes active only once the
-        // editor actually starts listening on the following frame.
         input.set_capture_group(-1);
-
         if (input.joy_button != -1)
         {
             waiting_release = true;
@@ -1576,11 +1192,9 @@ void Menu::redefine_joystick()
         }
         else
         {
-            // Analog cabinet select has no discrete control to release.
             capturing = true;
             capture_after_release = false;
         }
-
         input.key_press = -1;
         input.joy_button = -1;
         input.joy_button_device = -1;
