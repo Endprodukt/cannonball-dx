@@ -22,6 +22,7 @@
 #include "engine/outils.hpp"
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
+#include <iostream>
 
 OTraffic otraffic;
 
@@ -544,6 +545,33 @@ void OTraffic::update_props(oentry* sprite)
 
     int16_t traffic_type = (roms.rom0p->read8(outrun.adr.traffic_props + sprite->type + 7) << 5) + (traffic_frame << 2) + incline;
     sprite->addr = roms.rom0p->read32(outrun.adr.traffic_data + traffic_type);
+
+    // TEMP DEBUG - remove once the wrong-sprite-at-distance issue is diagnosed.
+    // Logs whenever a given traffic slot's chosen frame/address changes, so we
+    // can see the exact geometry values driving the pick, without flooding
+    // the console every frame for every visible car.
+    {
+        static int32_t last_addr[64] = {0};
+        static int debug_log_budget = 4000;
+        // sprite pointer address as a crude, stable-enough per-slot key for this session
+        uint32_t slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
+        if (debug_log_budget > 0 && (int32_t)sprite->addr != last_addr[slot])
+        {
+            std::cerr << "[traffic-dbg] slot=" << slot
+                      << " type=" << (int)sprite->type
+                      << " z16=" << z16
+                      << " road_width=" << oroad.road_width
+                      << " x=" << x
+                      << " xabs=" << xabs
+                      << " frame=" << (int)traffic_frame
+                      << " incline=" << (int)incline
+                      << " prev_addr=0x" << std::hex << last_addr[slot]
+                      << " new_addr=0x" << sprite->addr << std::dec
+                      << "\n";
+            last_addr[slot] = (int32_t)sprite->addr;
+            debug_log_budget--;
+        }
+    }
 
     osprites.map_palette(sprite);
     traffic_speed_total += sprite->traffic_speed;
