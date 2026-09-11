@@ -799,14 +799,20 @@ void Menu::tick_menu()
             }
             else if (SELECTED(ENTRY_FULLSCREEN))
             {
-                if (++config.video.mode > video_settings_t::MODE_STRETCH)
-                    config.video.mode = video.supports_window() ? video_settings_t::MODE_WINDOW : video_settings_t::MODE_WINDOW + 1;
-                // restart_video();
+                if (config.video.mode == video_settings_t::MODE_WINDOW)
+                    config.video.mode = video_settings_t::MODE_FULL;
+                else if (config.video.mode == video_settings_t::MODE_FULL)
+                    config.video.mode = video_settings_t::MODE_EXCLUSIVE;
+                else
+                    config.video.mode = video.supports_window()
+                        ? video_settings_t::MODE_WINDOW
+                        : video_settings_t::MODE_FULL;
+
                 config.videoRestartRequired = true;
             }
             else if (SELECTED(ENTRY_WIDESCREEN))
             {
-                if (++config.video.widescreen > 2)
+                if (++config.video.widescreen > 3)
                     config.video.widescreen = 0;
 
                 // restart_video();

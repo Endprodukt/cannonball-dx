@@ -634,12 +634,23 @@ protected:
             if (selected(ENTRY_FULLSCREEN))
             {
                 handled = true;
-                const int next = wrap_value(
-                    config.video.mode,
-                    video_settings_t::MODE_WINDOW,
-                    video_settings_t::MODE_STRETCH,
-                    1,
-                    direction);
+                const int current =
+                    config.video.mode == video_settings_t::MODE_WINDOW
+                        ? video_settings_t::MODE_WINDOW
+                        : (config.video.mode == video_settings_t::MODE_EXCLUSIVE
+                            ? video_settings_t::MODE_EXCLUSIVE
+                            : video_settings_t::MODE_FULL);
+                const int next = direction > 0
+                    ? (current == video_settings_t::MODE_WINDOW
+                        ? video_settings_t::MODE_FULL
+                        : (current == video_settings_t::MODE_FULL
+                            ? video_settings_t::MODE_EXCLUSIVE
+                            : video_settings_t::MODE_WINDOW))
+                    : (current == video_settings_t::MODE_WINDOW
+                        ? video_settings_t::MODE_EXCLUSIVE
+                        : (current == video_settings_t::MODE_EXCLUSIVE
+                            ? video_settings_t::MODE_FULL
+                            : video_settings_t::MODE_WINDOW));
                 if (next != config.video.mode)
                 {
                     config.video.mode = next;
@@ -661,7 +672,7 @@ protected:
             else if (selected(ENTRY_WIDESCREEN))
             {
                 handled = true;
-                const int next = wrap_value(config.video.widescreen, 0, 2, 1, direction);
+                const int next = wrap_value(config.video.widescreen, 0, 3, 1, direction);
                 if (next != config.video.widescreen)
                 {
                     config.video.widescreen = next;
