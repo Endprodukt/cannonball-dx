@@ -565,6 +565,8 @@ void OTraffic::update_props(oentry* sprite)
                       << " xabs=" << xabs
                       << " frame=" << (int)traffic_frame
                       << " incline=" << (int)incline
+                      << " pal_src=" << (int)sprite->pal_src
+                      << " pal_cycle=" << (int)traffic_pal_cycle
                       << " prev_addr=0x" << std::hex << last_addr[slot]
                       << " new_addr=0x" << sprite->addr << std::dec
                       << "\n";

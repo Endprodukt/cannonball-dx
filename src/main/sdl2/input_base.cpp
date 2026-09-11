@@ -682,6 +682,14 @@ void Input::handle_key(const int key, const bool is_pressed)
             config.video.hiresprites ^= 1;
             break;
 
+        case SDLK_F6:
+            // TEMP DEBUG - marker key for correlating [traffic-dbg] log lines
+            // with what's visible on screen. Press when a wrong-looking car
+            // is seen; remove once the wrong-sprite-at-distance issue is fixed.
+            if (!is_pressed) break;
+            std::cerr << "[traffic-dbg] ===== MARKER (F6 pressed) =====\n";
+            break;
+
         case SDLK_F8:
             // JJP - switches between all video processing off and Pi3 defaults (full shader etc)
             // Note - doesn't alter widescreen of hires setting
