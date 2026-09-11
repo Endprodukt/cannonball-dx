@@ -744,13 +744,13 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
             }
         }
 
-        // Legacy SE "hires sprites" ROM-frame trick: only ever meaningful at
-        // native (1x) resolution now. See osprites_bugfix_base.cpp for why
-        // this is disabled once render_scale (our own 2x/3x/4x path) is
-        // active - stacking the two re-introduces SE's documented
-        // misalignment, only scaled up.
-        if (config.video.hiresprites == 1 && render_scale <= 1)
-            xpos += offset;
+        // Legacy SE "hires sprites" ROM-frame trick. offset was calibrated
+        // by SE against its fixed 2x engine resolution, so scale it
+        // proportionally for our 3x/4x modes to keep it correct relative
+        // to that baseline (matches the *= render_scale done above for
+        // xpos/top/ytarget).
+        if (config.video.hiresprites == 1 && render_scale > 1)
+            xpos += (offset * render_scale) / 2;
 
         // choose which ROM to read from - flipped or non-flipped
         const uint32_t* spritedata;
