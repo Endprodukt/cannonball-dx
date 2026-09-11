@@ -588,11 +588,15 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         // Scale coordinates in the actual internal render target. Dividing
         // zoom by the same factor makes the fixed-point sprite sampler emit
         // proportionally more destination pixels and gives 3x/4x finer motion.
+        // Round rather than truncate: plain integer division biases the
+        // scaled zoom step down (e.g. render_scale=3 loses up to 1/3 of a
+        // step every row), which compounds over a sprite's height into a
+        // small but systematic size drift versus the un-scaled renderer.
         if (render_scale > 1) {
             xpos *= render_scale;
             top *= render_scale;
             ytarget *= render_scale;
-            zoom /= render_scale;
+            zoom = (zoom + render_scale / 2) / render_scale;
             if (zoom < 1) zoom = 1;
         }
 
@@ -740,9 +744,13 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
             }
         }
 
-        // adjust x-position with pre-determined offset for hi-res sprite rendering
-        if (config.video.hiresprites == 1 && render_scale > 1)
-            xpos += (offset * render_scale) / 2;
+        // Legacy SE "hires sprites" ROM-frame trick: only ever meaningful at
+        // native (1x) resolution now. See osprites_bugfix_base.cpp for why
+        // this is disabled once render_scale (our own 2x/3x/4x path) is
+        // active - stacking the two re-introduces SE's documented
+        // misalignment, only scaled up.
+        if (config.video.hiresprites == 1 && render_scale <= 1)
+            xpos += offset;
 
         // choose which ROM to read from - flipped or non-flipped
         const uint32_t* spritedata;

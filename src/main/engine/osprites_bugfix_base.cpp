@@ -16,6 +16,8 @@
 
 #include "../trackloader.hpp"
 
+#include <algorithm>
+
 #include "engine/oanimseq.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"
@@ -661,6 +663,21 @@ std::exit(9);
     // Set real h/v zoom values
     uint32_t index = (input->zoom * 4); // x4 as table is 4-words per line
 
+    // The "hires sprites" option below is CannonBall-SE's original beta
+    // mechanism: it selects the next-larger sprite frame from ROM and
+    // corrects the size mismatch with approximate, hand-tuned multipliers
+    // ("closest we have" - see cases below). SE's own changelog documents
+    // this as liable to misalign objects. Our render_scale path (2x/3x/4x)
+    // achieves higher sprite resolution by uniformly scaling exact engine
+    // coordinates instead, so it doesn't share that failure mode. Stack the
+    // two together and the approximate offsets below get scaled up too,
+    // making any residual misalignment worse rather than better - so only
+    // fall back to the legacy ROM-frame trick at native (1x) resolution,
+    // where render_scale itself provides no extra sharpness of its own.
+    const bool use_legacy_hires_sprites =
+        (config.video.hiresprites == 1) &&
+        (std::clamp(config.video.hires + 1, 1, 4) <= 1);
+
     // determine sprite dimensions
     uint32_t input_index = 0;
     uint32_t multiplier = 512;
@@ -684,7 +701,7 @@ std::exit(9);
 
     // now adjust for which type we actually have
     if (input_index != 127) {
-        if (config.video.hiresprites == 1) {
+        if (use_legacy_hires_sprites) {
             // now adjust for difference in sprite type being used
             uint32_t original_size = ZOOM_LOOKUP_HIRES[(index*4)+2];
             sprite_height <<= 1;
@@ -693,10 +710,10 @@ std::exit(9);
     }
 
     output->set_rawh(sprite_height);
-    output->set_offset(offset);
+    output->set_offset(use_legacy_hires_sprites ? offset : int16_t(0));
 
     // determine output size (game logic)
-    if (config.video.hiresprites == 0) {
+    if (!use_legacy_hires_sprites) {
         // original game resolution. Use (patched) original game sprite sizes.
 
         zoom = ZOOM_LOOKUP[index];
