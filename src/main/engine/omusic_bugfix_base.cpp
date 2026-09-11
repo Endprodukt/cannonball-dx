@@ -8,6 +8,7 @@
 ***************************************************************************/
 
 #include "main.hpp"
+#include "random_utils.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/oferrari.hpp"
 #include "engine/ohiscore.hpp"
@@ -22,7 +23,6 @@
 #include "directx/ffeedback.hpp"
 
 #include <SDL.h>
-#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <random>
@@ -84,21 +84,7 @@ namespace
 
         // Keep Endless start selection independent from the arcade RNG seed,
         // just like the later randomized Endless stage transitions.
-        static std::mt19937 rng = []()
-        {
-            std::random_device rd;
-            const uint64_t now = static_cast<uint64_t>(
-                std::chrono::high_resolution_clock::now()
-                    .time_since_epoch().count());
-            std::seed_seq seed
-            {
-                rd(),
-                rd(),
-                static_cast<uint32_t>(now),
-                static_cast<uint32_t>(now >> 32)
-            };
-            return std::mt19937(seed);
-        }();
+        static std::mt19937 rng = random_utils::make_seeded_engine();
         static std::uniform_int_distribution<int> dist(0, 14);
 
         return LEVELS[dist(rng)];

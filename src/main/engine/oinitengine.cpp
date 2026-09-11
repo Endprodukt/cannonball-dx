@@ -11,9 +11,9 @@
     See license.txt for more details.
 ***************************************************************************/
 
-#include <chrono>
 #include <random>
 
+#include "random_utils.hpp"
 #include "trackloader.hpp"
 
 #include "engine/oanimseq.hpp"
@@ -35,7 +35,6 @@
 #include "engine/endless_hiscore.hpp"
 
 OInitEngine oinitengine;
-extern EndlessHiScore endless_hiscore;
 
 // Continuous Mode Level Ordering
 const static uint8_t CONTINUOUS_LEVELS[] = {0, 0x8, 0x9, 0x10, 0x11, 0x12, 0x18, 0x19, 0x1A, 0x1B, 0x20, 0x21, 0x22, 0x23, 0x24};
@@ -164,20 +163,8 @@ uint8_t OInitEngine::select_endless_level()
     // supposedly random Endless course order repeat between runs. Keep arcade
     // RNG behaviour untouched for every original code path and give Endless an
     // independent entropy-seeded generator instead.
-    static std::mt19937 endless_rng = []()
-    {
-        std::random_device rd;
-        const uint64_t now = static_cast<uint64_t>(
-            std::chrono::high_resolution_clock::now().time_since_epoch().count());
-        std::seed_seq seed
-        {
-            rd(),
-            rd(),
-            static_cast<uint32_t>(now),
-            static_cast<uint32_t>(now >> 32)
-        };
-        return std::mt19937(seed);
-    }();
+    static std::mt19937 endless_rng =
+        random_utils::make_seeded_engine();
     static std::uniform_int_distribution<int> level_dist(0, 14);
 
     // Prefer a random level that has not appeared in the last three stages.

@@ -7,7 +7,6 @@
 ***************************************************************************/
 
 #include <SDL.h>
-#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <random>

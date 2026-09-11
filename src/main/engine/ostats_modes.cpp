@@ -18,8 +18,6 @@
 #include "engine/oinitengine.hpp"
 #include "engine/endless_hiscore.hpp"
 
-extern EndlessHiScore endless_hiscore;
-
 namespace
 {
     // Normal completed laps keep the existing five flashes. The final lap also

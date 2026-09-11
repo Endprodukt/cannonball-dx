@@ -12,9 +12,9 @@
     See license.txt for more details.
 ***************************************************************************/
 
-#include <chrono>
 #include <iostream>
 #include <random>
+#include "random_utils.hpp"
 #include "trackloader.hpp"
 #include "roms.hpp"
 #include "engine/outrun.hpp"
@@ -324,20 +324,8 @@ void TrackLoader::init_track_bonus(const uint32_t id)
     // synchronized.
     if (outrun.cannonball_mode == Outrun::MODE_TTRIAL)
     {
-        static std::mt19937 ttrial_end_rng = []()
-        {
-            std::random_device rd;
-            const uint64_t now = static_cast<uint64_t>(
-                std::chrono::high_resolution_clock::now().time_since_epoch().count());
-            std::seed_seq seed
-            {
-                rd(),
-                rd(),
-                static_cast<uint32_t>(now),
-                static_cast<uint32_t>(now >> 32)
-            };
-            return std::mt19937(seed);
-        }();
+        static std::mt19937 ttrial_end_rng =
+            random_utils::make_seeded_engine();
         static std::uniform_int_distribution<int> end_dist(0, 4);
 
         bonus_id = static_cast<uint32_t>(end_dist(ttrial_end_rng));

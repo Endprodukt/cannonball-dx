@@ -39,7 +39,6 @@
 #undef tick
 #undef init
 
-EndlessHiScore endless_hiscore;
 TimeTrialRecords time_trial_records;
 
 namespace
