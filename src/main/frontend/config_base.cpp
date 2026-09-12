@@ -681,11 +681,8 @@ void Config::load_stats()
     }
 
     // Load machine stats from file
-    for (int i = 0; i < 1; i++)
-    {
-        stats.playcount = stats_data.get_int("playcount", 0);
-        stats.runtime   = stats_data.get_int("runtime",   0);
-    }
+    stats.playcount = stats_data.get_int("playcount", 0);
+    stats.runtime   = stats_data.get_int("runtime",   0);
 }
 
 void Config::save_stats()
