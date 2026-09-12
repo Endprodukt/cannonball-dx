@@ -17,7 +17,35 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+
+// Keep the stock backend intact, but wrap its top-left present-rect helper so
+// letterbox/pillarbox pixels are explicitly owned by CannonBall. The renderer
+// previously changed only the GL viewport; pixels outside that viewport were
+// never touched. On Windows this can leave the game region and the surrounding
+// bars on different presentation/composition paths (visible with the NVIDIA
+// G-SYNC indicator). Clear the whole default framebuffer to opaque black before
+// drawing a smaller aspect-ratio viewport.
+#define set_present_rect_pixels_top_left set_present_rect_pixels_top_left_uncleared
 #include "gl_backend.hpp"   // tiny ES2 backend
+#undef set_present_rect_pixels_top_left
+
+namespace glb
+{
+inline void set_present_rect_pixels_top_left(int x, int y, int w, int h)
+{
+    set_present_rect_pixels_top_left_uncleared(x, y, w, h);
+
+    if (G.useDstRect &&
+        (G.dstX != 0 || G.dstY != 0 || G.dstW != G.fbW || G.dstH != G.fbH))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDisable(GL_SCISSOR_TEST);
+        glViewport(0, 0, G.fbW, G.fbH);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+}
+}
 
 // SDL's Windows backend can reject SDL_SetWindowInputFocus with
 // "That operation is not supported". RenderSurface::focus_window already
