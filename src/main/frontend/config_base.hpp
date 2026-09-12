@@ -384,8 +384,8 @@ public:
         else if (setting == "crash_flip_impact")        canonical_default = 70;
         else if (setting == "crash_flip")               canonical_default = 70;
         else if (setting == "crash_flip_landing")       canonical_default = 70;
-        else if (setting == "start_steering")           canonical_default = 70;
-        else if (setting == "start_rev_shake")          canonical_default = 30;
+        else if (setting == "start_steering")           canonical_default = 30;
+        else if (setting == "start_rev_shake")          canonical_default = 20;
 
         const std::string path =
             std::string("controls.analog.haptic.effects.") + setting;
@@ -415,9 +415,9 @@ public:
         const std::string setting = name ? name : "";
         int canonical_default = default_value;
 
-        if      (setting == "low_speed")             canonical_default = 28;
+        if      (setting == "low_speed")             canonical_default = 40;
         else if (setting == "high_speed")            canonical_default = 70;
-        else if (setting == "sliding")               canonical_default = 47;
+        else if (setting == "sliding")               canonical_default = 60;
         else if (setting == "speed_start")           canonical_default = 100;
         else if (setting == "speed_full")            canonical_default = 240;
         else if (setting == "traffic_skid")          canonical_default = 35;
@@ -478,8 +478,8 @@ public:
 
         if (cfg.get_int("controls.analog.haptic.centering_strength", -1) < 0)
         {
-            controls.centering_strength = 60;
-            cfg.put_int("controls.analog.haptic.centering_strength", 60);
+            controls.centering_strength = 80;
+            cfg.put_int("controls.analog.haptic.centering_strength", 80);
         }
 
         auto seed_effect = [&](const char* name, int default_value)
@@ -511,12 +511,12 @@ public:
         seed_effect("crash_flip_impact", 70);
         seed_effect("crash_flip", 70);
         seed_effect("crash_flip_landing", 70);
-        seed_effect("start_steering", 70);
-        seed_effect("start_rev_shake", 30);
+        seed_effect("start_steering", 30);
+        seed_effect("start_rev_shake", 20);
 
-        seed_spring("low_speed", 28);
+        seed_spring("low_speed", 40);
         seed_spring("high_speed", 70);
-        seed_spring("sliding", 47);
+        seed_spring("sliding", 60);
         seed_spring("speed_start", 100);
         seed_spring("speed_full", 240);
         seed_spring("traffic_skid", 35);
