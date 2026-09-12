@@ -156,7 +156,6 @@ namespace
     {
         // First-run controller profile. These are SDL GameController values,
         // so an Xbox 360/XInput-style pad works immediately without setup.
-        controls.gear = controls_settings_t::GEAR_SEPARATE;
         controls.analog = 1;
 
         controls.axis[0] = SDL_CONTROLLER_AXIS_LEFTX;
