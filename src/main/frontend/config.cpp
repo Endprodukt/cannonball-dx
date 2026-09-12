@@ -632,7 +632,7 @@ void Config::load()
         // headroom preset materialized below by seed_ffb_tuning_defaults().
         controls.haptic = 1;
         controls.ffb_strength = 50;
-        controls.centering_strength = 60;
+        controls.centering_strength = 80;
 
         // Ensure an old resource config cannot leak previous FFB values into
         // a freshly generated config.xml.
@@ -640,7 +640,7 @@ void Config::load()
         cfg.erase("controls.analog.haptic.spring");
         cfg.put_int("controls.analog.haptic.<xmlattr>.enabled", 1);
         cfg.put_int("controls.analog.haptic.strength", 50);
-        cfg.put_int("controls.analog.haptic.centering_strength", 60);
+        cfg.put_int("controls.analog.haptic.centering_strength", 80);
 
         // Mark the standard Xbox/SDL profile even if an old resource config
         // was loaded. It will be materialized to the physical pad after SDL
@@ -652,7 +652,7 @@ void Config::load()
     {
         // Existing configs that never had the basic Spring value use the new
         // CannonBall DX default without changing any explicitly stored value.
-        controls.centering_strength = 60;
+        controls.centering_strength = 80;
     }
 
     // engine.car_pal remains the live/runtime Ferrari colour. Keep a separate
