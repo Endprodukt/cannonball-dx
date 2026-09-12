@@ -23,8 +23,22 @@
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
 #include <iostream>
+#include <fstream>
 
 OTraffic otraffic;
+
+// TEMP DEBUG - log file for traffic diagnostics (avoids flooding the console)
+static std::ofstream traffic_dbg_file;
+static bool traffic_dbg_file_open = false;
+
+static std::ofstream& dbg()
+{
+    if (!traffic_dbg_file_open) {
+        traffic_dbg_file.open("traffic_debug.log", std::ios::trunc);
+        traffic_dbg_file_open = true;
+    }
+    return traffic_dbg_file;
+}
 
 // TEMP DEBUG - shared between spawn_car() and move_spawned_sprite() so a
 // fresh spawn can force the very next address computation to be logged,
@@ -66,7 +80,7 @@ void OTraffic::init()
             // All possible type values: TYPE[] entries << 3, unique values are 0x00..0x13 << 3
             // i.e. type = 0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96,
             //              104, 112, 120, 128, 136, 144, 152
-            std::cerr << "[traffic-dump] type, frame, incline -> traffic_type_idx -> addr\n";
+            dbg() << "[traffic-dump] type, frame, incline -> traffic_type_idx -> addr\n";
             for (int t = 0; t < 0x14; t++) {
                 int type = t << 3;
                 uint8_t rom_type = roms.rom0p->read8(outrun.adr.traffic_props + type + 7);
@@ -74,7 +88,7 @@ void OTraffic::init()
                     for (int incline = 0; incline <= 0x10; incline += 0x10) {
                         int16_t traffic_type_idx = (rom_type << 5) + (frame << 2) + incline;
                         uint32_t addr = roms.rom0p->read32(outrun.adr.traffic_data + traffic_type_idx);
-                        std::cerr << "[traffic-dump] type=" << type
+                        dbg() << "[traffic-dump] type=" << type
                                   << " rom_type=" << (int)rom_type
                                   << " frame=" << frame
                                   << " incline=" << incline
@@ -84,7 +98,7 @@ void OTraffic::init()
                     }
                 }
             }
-            std::cerr << "[traffic-dump] === END ===\n";
+            dbg() << "[traffic-dump] === END ===\n";
         }
     }
 }
@@ -299,7 +313,7 @@ void OTraffic::spawn_car(oentry* sprite)
     // stable, so it can miss whether a slot really started at the horizon.
     {
         uint32_t dbg_slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
-        std::cerr << "[traffic-dbg] SPAWN slot=" << dbg_slot
+        dbg() << "[traffic-dbg] SPAWN slot=" << dbg_slot
                   << " type=" << (int)sprite->type
                   << " z=0x" << std::hex << sprite->z << std::dec
                   << "\n";
@@ -608,7 +622,7 @@ void OTraffic::update_props(oentry* sprite)
         uint32_t slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
         if (debug_log_budget > 0 && (int32_t)sprite->addr != traffic_dbg_last_addr[slot])
         {
-            std::cerr << "[traffic-dbg] slot=" << slot
+            dbg() << "[traffic-dbg] slot=" << slot
                       << " type=" << (int)sprite->type
                       << " z16=" << z16
                       << " road_width=" << oroad.road_width

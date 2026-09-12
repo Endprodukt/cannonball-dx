@@ -9,6 +9,7 @@
 ***************************************************************************/
 
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <cstring>
 #include <cstdlib> // abs
@@ -683,15 +684,12 @@ void Input::handle_key(const int key, const bool is_pressed)
             break;
 
         case SDLK_F12:
-            // TEMP DEBUG - marker key for correlating [traffic-dbg] log lines
-            // with what's visible on screen. Logging already runs continuously
-            // for the whole session, so an imprecise press is fine - just
-            // press it roughly when/after a wrong-looking car is seen, the
-            // surrounding log lines (including a bit before the marker) are
-            // what matters. Remove once the wrong-sprite-at-distance issue
-            // is fixed.
+            // TEMP DEBUG - marker key for traffic debug log file
             if (!is_pressed) break;
-            std::cerr << "[traffic-dbg] ===== MARKER (F12 pressed) =====\n";
+            {
+                std::ofstream f("traffic_debug.log", std::ios::app);
+                f << "[traffic-dbg] ===== MARKER (F12 pressed) =====\n";
+            }
             break;
 
         case SDLK_F8:
