@@ -1,4 +1,6 @@
 #include <algorithm> // Required for std::fill_n
+#include <cmath>     // Required for std::lround
+#include <optional>
 #include "hwvideo/hwroad.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
@@ -564,33 +566,128 @@ void HWRoad::render_background_hires(uint16_t* pixels)
 
 namespace
 {
-    inline int interpolate_wrapped(
-        int current,
-        int next,
+    // Fetches just the raw hpos scroll value for one native scanline of
+    // one road layer - or nullopt if the row is out of range or
+    // solid-fill (no ROM data to sample there).
+    inline std::optional<int> raw_hpos(
+        const uint16_t* roadram,
+        int road_base,      // 0x000 for road 0, 0x100 for road 1
+        int hpos_base,      // 0x200 for road 0, 0x400 for road 1
+        int direct_offset,  // 0 for road 0, 0x100 for road 1 (direct scanline mode only)
+        int row,
+        uint8_t road_control)
+    {
+        if (row < 0 || row >= S16_HEIGHT)
+            return std::nullopt;
+
+        const uint32_t data = roadram[road_base + row];
+        if (data & 0x800)
+            return std::nullopt;
+
+        const int idx = ((road_control & 4) != 0)
+            ? (direct_offset + row)
+            : static_cast<int>(data & 0x1ff);
+
+        return static_cast<int>(roadram[hpos_base + idx] & 0xfff);
+    }
+
+    // Low-pass filter (unweighted moving average) over the road's
+    // horizontal scroll position across neighbouring native scanlines.
+    //
+    // The extreme close-up crops on this branch showed the *real*,
+    // unmodified per-scanline hpos values from the ROM curvature tables
+    // moving back and forth by several units even on a visually straight
+    // road segment (measured directly from screenshots, not inferred) -
+    // small quantisation noise that's always been there, just invisible
+    // at native 1x resolution. No amount of interpolating *between* two
+    // such noisy real values can remove that noise; only averaging
+    // several neighbouring real values before using them can.
+    //
+    // Averages over up to (2*radius+1) native scanlines centred on 'row'
+    // - fewer at the edges of the valid range or next to a solid-fill
+    // row, which are simply left out rather than treated as zero. This
+    // is a deliberate, small deviation from the literal ROM value at
+    // every row (not just interpolated sub-rows) - both endpoints of the
+    // smoothstep interpolation now go through the same filter, so they
+    // stay consistent from one sub-row group to the next.
+    inline int smoothed_hpos(
+        const uint16_t* roadram,
+        int road_base, int hpos_base, int direct_offset,
+        int row, uint8_t road_control, int radius, int mask)
+    {
+        const int center = raw_hpos(roadram, road_base, hpos_base, direct_offset, row, road_control)
+            .value_or(0);
+
+        const int period = mask + 1;
+        const int half = period >> 1;
+        auto wrapped_delta = [&](int from, int to)
+        {
+            int d = (to - from) & mask;
+            if (d > half) d -= period;
+            return d;
+        };
+
+        double sum = 0.0;
+        int count = 0;
+        for (int r = row - radius; r <= row + radius; ++r)
+        {
+            const auto v = raw_hpos(roadram, road_base, hpos_base, direct_offset, r, road_control);
+            if (!v)
+                continue;
+            sum += wrapped_delta(center, *v);
+            ++count;
+        }
+
+        const int avg_delta = count > 0 ? static_cast<int>(std::lround(sum / count)) : 0;
+        return (center + avg_delta) & mask;
+    }
+
+    // Smooth (ease-in/ease-out) interpolation between two real, adjacent
+    // native-scanline values, used for the road's horizontal scroll
+    // position (hpos) when the internal upscaler needs intermediate
+    // sub-scanlines.
+    //
+    // Earlier versions of this interpolation tried a few different
+    // approaches:
+    //  - plain linear (floor division): systematically biased low,
+    //    producing a jagged "Versatz" on the stripes.
+    //  - rounded linear: better, but still has a slope discontinuity
+    //    (kink) at every native scanline boundary.
+    //  - Catmull-Rom through 4 neighbouring scanlines: removes the kink,
+    //    but pulls in scanlines further away, which on this hardware's
+    //    road data can carry small per-scanline quantisation noise - the
+    //    spline faithfully reproduces that noise as a visible wobble
+    //    along otherwise-straight stripes, and can overshoot past the
+    //    two real points it's meant to be between.
+    //
+    // Smoothstep (3t^2 - 2t^3) only ever looks at the two real values
+    // being interpolated between - no further neighbours, so no distant
+    // noise can leak in - and is mathematically bounded to [p1, p2] for
+    // t in [0, 1], so it can never overshoot. Its derivative is exactly
+    // zero at both t=0 and t=1, which is what removes the kink: this
+    // segment arrives at p2 with zero slope, and the next segment leaves
+    // p2 with zero slope too, so they always join smoothly regardless of
+    // what either side's more distant neighbours look like.
+    //
+    // Always resolves to a single nearest integer pixel - no colour
+    // blending, no change to categorical per-pixel rendering.
+    inline int smoothstep_wrapped(
+        int p1,
+        int p2,
         int fraction,
         int scale,
         int mask)
     {
         const int period = mask + 1;
         const int half = period >> 1;
-        int delta = next - current;
+        int delta = p2 - p1;
         if (delta > half) delta -= period;
         else if (delta < -half) delta += period;
 
-        // Round to the nearest integer step instead of truncating
-        // towards zero. Plain integer division here systematically
-        // biases every intermediate sub-scanline low (e.g. delta=2,
-        // scale=3 gives steps of 0,0,1 instead of the much closer
-        // 1,1,1 / 0,1,1 approximation of the true continuous line),
-        // which is what produces the visible zigzag "Versatz" on the
-        // road stripes/centre line once internal upscaling spreads
-        // that error across several output rows.
-        const int scaled = delta * fraction;
-        const int rounded = (scaled >= 0)
-            ? (scaled + scale / 2) / scale
-            : -((-scaled + scale / 2) / scale);
+        const double t = static_cast<double>(fraction) / static_cast<double>(scale);
+        const double s = t * t * (3.0 - 2.0 * t);
 
-        return (current + rounded) & mask;
+        return (p1 + static_cast<int>(std::lround(delta * s))) & mask;
     }
 }
 
@@ -634,10 +731,10 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         if ((data0 & 0x800) && (data1 & 0x800))
             continue;
 
-        int hpos0 = roadram[0x200 +
-            (((road_control & 4) != 0) ? yy : (data0 & 0x1ff))] & 0xfff;
-        int hpos1 = roadram[0x400 +
-            (((road_control & 4) != 0) ? (0x100 + yy) : (data1 & 0x1ff))] & 0xfff;
+        static constexpr int HPOS_SMOOTH_RADIUS = 2; // 5-tap moving average
+
+        int hpos0 = smoothed_hpos(roadram, 0x000, 0x200, 0, yy, road_control, HPOS_SMOOTH_RADIUS, 0xfff);
+        int hpos1 = smoothed_hpos(roadram, 0x100, 0x400, 0x100, yy, road_control, HPOS_SMOOTH_RADIUS, 0xfff);
 
         uint8_t* src0 = (data0 & 0x800)
             ? roads + 256 * 2 * 512
@@ -653,36 +750,28 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
 
             if (!(data0 & 0x800) && !(next0 & 0x800))
             {
-                const int line = interpolate_wrapped(
-                    (data0 >> 1) & 0xff,
-                    (next0 >> 1) & 0xff,
-                    sub,
-                    render_scale,
-                    0xff);
-                src0 = roads + (0x000 + line) * 512;
+                const int next_hpos = smoothed_hpos(roadram, 0x000, 0x200, 0, yy + 1, road_control, HPOS_SMOOTH_RADIUS, 0xfff);
 
-                const int next_hpos = roadram[0x200 +
-                    (((road_control & 4) != 0) ? yy + 1 : (next0 & 0x1ff))] & 0xfff;
-                hpos0 = interpolate_wrapped(
-                    hpos0, next_hpos, sub, render_scale, 0xfff);
+                // 'line' selects a row in the road ROM bitmap - a discrete
+                // pattern lookup (it can encode dash width/shape, not just
+                // position), not a continuous quantity. Switching it
+                // *anywhere* mid-group - whether by blending, splining, or
+                // rounding to the nearer neighbour - can introduce a real
+                // ROM row whose content doesn't sit smoothly between its
+                // neighbours, showing up as a notch/foot on the dash. So it
+                // stays fixed at this group's own native scanline for
+                // every sub-row; only hpos moves within the group.
+                hpos0 = smoothstep_wrapped(hpos0, next_hpos, sub, render_scale, 0xfff);
             }
 
             if (!(data1 & 0x800) && !(next1 & 0x800))
             {
-                const int line = interpolate_wrapped(
-                    (data1 >> 1) & 0xff,
-                    (next1 >> 1) & 0xff,
-                    sub,
-                    render_scale,
-                    0xff);
-                src1 = roads + (0x100 + line) * 512;
+                const int next_hpos = smoothed_hpos(roadram, 0x100, 0x400, 0x100, yy + 1, road_control, HPOS_SMOOTH_RADIUS, 0xfff);
 
-                const int next_hpos = roadram[0x400 +
-                    (((road_control & 4) != 0)
-                        ? (0x100 + yy + 1)
-                        : (next1 & 0x1ff))] & 0xfff;
-                hpos1 = interpolate_wrapped(
-                    hpos1, next_hpos, sub, render_scale, 0xfff);
+                // See road 0 above: 'line' stays fixed at this group's own
+                // native scanline for every sub-row - never switched
+                // mid-group. Only hpos is interpolated.
+                hpos1 = smoothstep_wrapped(hpos1, next_hpos, sub, render_scale, 0xfff);
             }
         }
 
