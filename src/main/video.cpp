@@ -13,6 +13,27 @@
 #include <iostream>
 #include <bit>
 #include <algorithm>
+
+#ifdef _WIN32
+#include <cstdlib>
+
+namespace
+{
+    // VRR test path: keep ANGLE/GLES2, but use ANGLE's desktop OpenGL backend
+    // instead of its default D3D11 backend. ANGLE reads this environment
+    // variable when EGL is initialized, which happens after program startup.
+    // This lets the native OpenGL driver own presentation/swap control without
+    // changing CannonBall's renderer or GLES2 shaders.
+    struct AngleBackendSelector
+    {
+        AngleBackendSelector()
+        {
+            _putenv_s("ANGLE_DEFAULT_PLATFORM", "gl");
+        }
+    } angle_backend_selector;
+}
+#endif
+
 #include "video.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
