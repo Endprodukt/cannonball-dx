@@ -211,7 +211,7 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 
 The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the centering reference level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available. The default configuration intentionally leaves headroom so individual effects can be increased without starting at the 100 ceiling. Effect strengths and spring percentages use a clear **0-100** range.
 
-The first-run FFB defaults are **enabled**, **FFB Strength 50** and **Spring 60**.
+The first-run FFB defaults are **enabled**, **FFB Strength 50** and **Spring 80**. The default engine vibration uses **strength 3** with an **engine period of 300 ms**.
 
 #### Per-effect tuning in config.xml
 
@@ -234,8 +234,8 @@ The effect names describe the physical cue they control. Changing one value does
 | `crash_flip_impact` | 70 | Initial high-speed flip impact |
 | `crash_flip` | 70 | Repeated / sustained side loads during the flip |
 | `crash_flip_landing` | 70 | Landing impact after a flip |
-| `start_steering` | 70 | Automatic steering load as the Ferrari drives onto the start line |
-| `start_rev_shake` | 11 | Throttle-dependent engine/rev shake before the start |
+| `start_steering` | 30 | Automatic steering load as the Ferrari drives onto the start line |
+| `start_rev_shake` | 20 | Throttle-dependent engine/rev shake before the start |
 
 The supplied numbers are the actual CannonBall DX defaults, not a second preset layer. For example, `sand=3` is the restrained default grit setting; changing it to `80` deliberately makes that effect dramatically stronger. Values are limited to **0-100** so every strength entry has the same meaning.
 
@@ -245,9 +245,9 @@ The normal **Spring** menu option remains the reference value. The percentage en
 
 | XML value under `haptic.spring` | DX default | Valid range | Controls |
 |---|---:|---:|---|
-| `low_speed` | 28 | 0-100 | Spring percentage in menus, Attract Mode, stationary driving and low speed |
+| `low_speed` | 40 | 0-100 | Spring percentage in menus, Attract Mode, stationary driving and low speed |
 | `high_speed` | 70 | 0-100 | Spring percentage at high speed |
-| `sliding` | 47 | 0-100 | Percentage of the currently active spring retained during on-road tyre slip |
+| `sliding` | 60 | 0-100 | Percentage of the currently active spring retained during on-road tyre slip |
 | `speed_start` | 100 | 0-294 | Vehicle-speed point where the spring begins increasing |
 | `speed_full` | 240 | 0-294 | Vehicle-speed point where the high-speed spring is reached |
 | `traffic_skid` | 35 | 0-100 | Spring level during a traffic-collision skid |
@@ -262,19 +262,19 @@ The normal **Spring** menu option remains the reference value. The percentage en
 
 With the default values, normal on-road steering behaves as follows:
 
-- **Menu, Attract Mode, Music Select Screen, stationary driving and vehicle speeds up to 100:** 28% of the configured Spring reference value
-- **100-240:** spring strength rises continuously from 28% to 70% of the configured value
+- **Menu, Attract Mode, Music Select Screen, stationary driving and vehicle speeds up to 100:** 40% of the configured Spring reference value
+- **100-240:** spring strength rises continuously from 40% to 70% of the configured value
 - **240-294:** spring remains at 70% of the configured value
-- **Tyre slip / on-road sliding:** the currently active spring is reduced to 47%, then restored when grip returns
+- **Tyre slip / on-road sliding:** the currently active spring is reduced to 60%, then restored when grip returns
 
 Examples with the default spring curve:
 
 | Spring setting | Low speed / Menu / Attract | High speed | During tyre slip at high speed |
 |---:|---:|---:|---:|
-| 100% | 28% | 70% | ~33% |
-| 80% | ~22% | 56% | ~26% |
-| 60% | ~17% | 42% | ~20% |
-| 50% | 14% | 35% | ~16% |
+| 100% | 40% | 70% | 42% |
+| 80% | 32% | 56% | ~34% |
+| 60% | 24% | 42% | ~25% |
+| 50% | 20% | 35% | 21% |
 
 The Music Select Screen keeps the configured low-speed spring and adds only short step impulses when moving between songs.
 
