@@ -25,6 +25,68 @@
 // Treat the unsupported explicit input-focus request as a no-op on Windows.
 #ifdef _WIN32
 #define SDL_SetWindowInputFocus(window) 0
+
+// VRR/Exclusive test path.
+//
+// On Windows/ANGLE, create the GLES context only after the SDL window has
+// already entered exclusive fullscreen. The normal renderer currently creates
+// the context first and changes the display mode afterwards. That can leave
+// ANGLE/NVIDIA with presentation resources created for the old windowed state.
+//
+// Keep this isolated to the test branch. MODE_EXCLUSIVE is value 3 in
+// video_settings_t; the helper deliberately takes the mode as an int so this
+// header does not need to pull the frontend configuration headers into every
+// renderer translation unit.
+inline SDL_GLContext cannonball_create_gl_context(SDL_Window* window, int mode)
+{
+    if (mode == 3)
+    {
+        const int display_index = SDL_GetWindowDisplayIndex(window);
+        SDL_DisplayMode desktop_mode{};
+
+        if (display_index < 0 ||
+            SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0)
+            return nullptr;
+
+        if (SDL_SetWindowDisplayMode(window, &desktop_mode) != 0)
+            return nullptr;
+
+        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN) != 0)
+            return nullptr;
+
+        // Mark the window so the existing post-context exclusive block does
+        // not repeat the same mode/fullscreen transition after ANGLE starts.
+        SDL_SetWindowData(window, "cannonball.exclusive.precontext",
+                          reinterpret_cast<void*>(1));
+    }
+
+    return SDL_GL_CreateContext(window);
+}
+
+inline int cannonball_set_window_display_mode(SDL_Window* window,
+                                               const SDL_DisplayMode* mode)
+{
+    if (SDL_GetWindowData(window, "cannonball.exclusive.precontext"))
+        return 0;
+
+    return SDL_SetWindowDisplayMode(window, mode);
+}
+
+inline int cannonball_set_window_fullscreen(SDL_Window* window, Uint32 flags)
+{
+    if (flags == SDL_WINDOW_FULLSCREEN &&
+        SDL_GetWindowData(window, "cannonball.exclusive.precontext"))
+        return 0;
+
+    return SDL_SetWindowFullscreen(window, flags);
+}
+
+#define SDL_GL_CreateContext(window) \
+    cannonball_create_gl_context((window), video_mode)
+#define SDL_SetWindowDisplayMode(window, mode) \
+    cannonball_set_window_display_mode((window), (mode))
+#define SDL_SetWindowFullscreen(window, flags) \
+    cannonball_set_window_fullscreen((window), (flags))
 #endif
 
 class RenderSurface : public RenderBase
