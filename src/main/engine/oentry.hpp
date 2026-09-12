@@ -156,6 +156,13 @@ public:
     // sprites are hidden (unrendered) all the time they have a position hidden value.
     int hidden;
 
+    // DX - per-sprite hysteresis state for incline and traffic_frame, to
+    // prevent frame-by-frame flickering when values hover near thresholds.
+    // At hi-res these single-frame flips are clearly visible as the sprite
+    // swapping between two different graphics every frame.
+    int8_t last_incline;
+    int8_t last_traffic_frame;
+
 	// Initalize to default values
 	void init(uint8_t i)
 	{
@@ -189,5 +196,7 @@ public:
         yw = 0;
         pass_props = 0;
         hidden = 0;
+        last_incline = -1;       // -1 = no previous value
+        last_traffic_frame = -1;
 	}
 };

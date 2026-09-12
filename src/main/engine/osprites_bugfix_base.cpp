@@ -749,16 +749,34 @@ std::exit(9);
     } else {
         // hires path. Use larger sprites to improve image quality.
         zoom = ZOOM_LOOKUP_HIRES[index];
+        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1]; // Width/Height lookup helper
+        uint16_t size_to_use = ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
+        uint16_t orig_size   = ZOOM_LOOKUP_HIRES[index+3]; // original sprite size
+
+        // Traffic sprites only: use one additional SIZE step beyond what the
+        // HIRES table provides (2 steps total), staying within the 12-bit
+        // zoom hardware cap (max 0xFFF).  Scenery sprites are left on the
+        // table's default one-step-up — their positioning/anchoring is more
+        // sensitive to dimension changes and breaks when SIZE is overridden.
+        if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
+        {
+            uint32_t candidate_zoom = (uint32_t)zoom << 1;
+            uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
+            if (candidate_zoom <= 0x0FFF && next_size != size_to_use)
+            {
+                zoom = (uint16_t)candidate_zoom;
+                size_to_use = next_size;
+            }
+        }
+
         output->set_vzoom(zoom);
         output->set_hzoom(zoom);
 
-        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1]; // Width/Height lookup helper
-
-        src_offsets = input->addr + ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
+        src_offsets = input->addr + size_to_use;
         // original sprite size entry from which rendered size will be determined.
         // this is different, because we are using "the next size up" sprites to improve hi-res fidelity
         // index+3 was previously an unused field
-        uint32_t size_offset = input->addr + ZOOM_LOOKUP_HIRES[index+3];
+        uint32_t size_offset = input->addr + orig_size;
 
         uint16_t d0 = input->draw_props | (input->zoom << 8);
         uint16_t top_bit = d0 & 0x8000; // set if zoom >= 0x80

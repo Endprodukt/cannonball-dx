@@ -588,11 +588,15 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         // Scale coordinates in the actual internal render target. Dividing
         // zoom by the same factor makes the fixed-point sprite sampler emit
         // proportionally more destination pixels and gives 3x/4x finer motion.
+        // Round rather than truncate: plain integer division biases the
+        // scaled zoom step down (e.g. render_scale=3 loses up to 1/3 of a
+        // step every row), which compounds over a sprite's height into a
+        // small but systematic size drift versus the un-scaled renderer.
         if (render_scale > 1) {
             xpos *= render_scale;
             top *= render_scale;
             ytarget *= render_scale;
-            zoom /= render_scale;
+            zoom = (zoom + render_scale / 2) / render_scale;
             if (zoom < 1) zoom = 1;
         }
 
@@ -740,7 +744,11 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
             }
         }
 
-        // adjust x-position with pre-determined offset for hi-res sprite rendering
+        // Legacy SE "hires sprites" ROM-frame trick. offset was calibrated
+        // by SE against its fixed 2x engine resolution, so scale it
+        // proportionally for our 3x/4x modes to keep it correct relative
+        // to that baseline (matches the *= render_scale done above for
+        // xpos/top/ytarget).
         if (config.video.hiresprites == 1 && render_scale > 1)
             xpos += (offset * render_scale) / 2;
 
