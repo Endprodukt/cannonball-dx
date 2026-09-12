@@ -16,8 +16,6 @@
 
 #include "../trackloader.hpp"
 
-#include <algorithm>
-
 #include "engine/oanimseq.hpp"
 #include "engine/ocrash.hpp"
 #include "engine/oferrari.hpp"

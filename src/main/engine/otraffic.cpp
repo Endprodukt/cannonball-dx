@@ -22,28 +22,8 @@
 #include "engine/outils.hpp"
 #include "engine/ostats.hpp"
 #include "engine/otraffic.hpp"
-#include <iostream>
-#include <fstream>
 
 OTraffic otraffic;
-
-// TEMP DEBUG - log file for traffic diagnostics (avoids flooding the console)
-static std::ofstream traffic_dbg_file;
-static bool traffic_dbg_file_open = false;
-
-static std::ofstream& dbg()
-{
-    if (!traffic_dbg_file_open) {
-        traffic_dbg_file.open("traffic_debug.log", std::ios::trunc);
-        traffic_dbg_file_open = true;
-    }
-    return traffic_dbg_file;
-}
-
-// TEMP DEBUG - shared between spawn_car() and move_spawned_sprite() so a
-// fresh spawn can force the very next address computation to be logged,
-// even if it happens to match the slot's previous occupant's last address.
-static int32_t traffic_dbg_last_addr[64] = {0};
 
 OTraffic::OTraffic(void)
 {
@@ -70,37 +50,6 @@ void OTraffic::init()
     spawn_location      = 0;
     // Set wheel animation reset value across all traffic (moved from spawn traffic routine)
     wheel_counter = wheel_reset = 12;
-
-    // TEMP DEBUG - dump the full traffic_data ROM table at startup, once.
-    // Shows which (type, frame, incline) combos share sprite addresses.
-    {
-        static bool dumped = false;
-        if (!dumped) {
-            dumped = true;
-            // All possible type values: TYPE[] entries << 3, unique values are 0x00..0x13 << 3
-            // i.e. type = 0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96,
-            //              104, 112, 120, 128, 136, 144, 152
-            dbg() << "[traffic-dump] type, frame, incline -> traffic_type_idx -> addr\n";
-            for (int t = 0; t < 0x14; t++) {
-                int type = t << 3;
-                uint8_t rom_type = roms.rom0p->read8(outrun.adr.traffic_props + type + 7);
-                for (int frame = 1; frame <= 3; frame++) {
-                    for (int incline = 0; incline <= 0x10; incline += 0x10) {
-                        int16_t traffic_type_idx = (rom_type << 5) + (frame << 2) + incline;
-                        uint32_t addr = roms.rom0p->read32(outrun.adr.traffic_data + traffic_type_idx);
-                        dbg() << "[traffic-dump] type=" << type
-                                  << " rom_type=" << (int)rom_type
-                                  << " frame=" << frame
-                                  << " incline=" << incline
-                                  << " idx=" << traffic_type_idx
-                                  << " addr=0x" << std::hex << addr << std::dec
-                                  << "\n";
-                    }
-                }
-            }
-            dbg() << "[traffic-dump] === END ===\n";
-        }
-    }
 }
 
 // Initalize traffic in right land lane for Stage 1
@@ -309,21 +258,6 @@ void OTraffic::spawn_car(oentry* sprite)
 
     sprite->type = TYPE[spawn_index] << 3;
     sprite->function_holder = TRAFFIC_TICK;
-
-    // TEMP DEBUG - unconditional spawn-time log, since the change-only log in
-    // move_spawned_sprite() never fires while a car's frame/incline stay
-    // stable, so it can miss whether a slot really started at the horizon.
-    {
-        uint32_t dbg_slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
-        dbg() << "[traffic-dbg] SPAWN slot=" << dbg_slot
-                  << " type=" << (int)sprite->type
-                  << " z=0x" << std::hex << sprite->z << std::dec
-                  << "\n";
-        // Force the very next address computation for this slot to be
-        // logged, even if it happens to equal the previous occupant's
-        // last-known address.
-        traffic_dbg_last_addr[dbg_slot] = -1;
-    }
 
     // JJP ghost car fix
     sprite->hidden = 0;
@@ -646,33 +580,6 @@ void OTraffic::update_props(oentry* sprite)
 
     int16_t traffic_type = (roms.rom0p->read8(outrun.adr.traffic_props + sprite->type + 7) << 5) + (traffic_frame << 2) + incline;
     sprite->addr = roms.rom0p->read32(outrun.adr.traffic_data + traffic_type);
-
-    // TEMP DEBUG - remove once the wrong-sprite-at-distance issue is diagnosed.
-    // Logs whenever a given traffic slot's chosen frame/address changes, so we
-    // can see the exact geometry values driving the pick, without flooding
-    // the console every frame for every visible car.
-    {
-        static int debug_log_budget = 60000;
-        // sprite pointer address as a crude, stable-enough per-slot key for this session
-        uint32_t slot = (reinterpret_cast<uintptr_t>(sprite) >> 4) & 63;
-        if (debug_log_budget > 0 && (int32_t)sprite->addr != traffic_dbg_last_addr[slot])
-        {
-            dbg() << "[traffic-dbg] slot=" << slot
-                      << " type=" << (int)sprite->type
-                      << " z16=" << z16
-                      << " road_width=" << oroad.road_width
-                      << " x=" << x
-                      << " xabs=" << xabs
-                      << " frame=" << (int)traffic_frame
-                      << " incline=" << (int)incline
-                      << " pal_src=" << (int)sprite->pal_src
-                      << " pal_cycle=" << (int)traffic_pal_cycle
-                      << " prev_addr=0x" << std::hex << traffic_dbg_last_addr[slot]
-                      << " new_addr=0x" << sprite->addr << std::dec
-                      << "\n";
-            traffic_dbg_last_addr[slot] = (int32_t)sprite->addr;
-            debug_log_budget--;
-        }    }
 
     osprites.map_palette(sprite);
     traffic_speed_total += sprite->traffic_speed;

@@ -9,7 +9,6 @@
 ***************************************************************************/
 
 #include <iostream>
-#include <fstream>
 #include <algorithm>
 #include <cstring>
 #include <cstdlib> // abs
@@ -681,15 +680,6 @@ void Input::handle_key(const int key, const bool is_pressed)
             // JJP - switches between sprite rendering (original/hi-res)
             if (!is_pressed) break;
             config.video.hiresprites ^= 1;
-            break;
-
-        case SDLK_F12:
-            // TEMP DEBUG - marker key for traffic debug log file
-            if (!is_pressed) break;
-            {
-                std::ofstream f("traffic_debug.log", std::ios::app);
-                f << "[traffic-dbg] ===== MARKER (F12 pressed) =====\n";
-            }
             break;
 
         case SDLK_F8:
