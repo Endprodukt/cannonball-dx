@@ -36,6 +36,10 @@ const bool FORCE_AI = false;
 const uint16_t S16_WIDTH      = 320;
 const uint16_t S16_HEIGHT     = 224;
 
+// Internal 16:10 width. 356 keeps the source close to 16:10 while preserving
+// the SIMD-friendly Blargg input alignment used by the existing wide modes.
+const uint16_t S16_WIDTH_16_10 = 356;
+
 // Internal Widescreen Width
 // JJP - was 398. Using 404 allows for optimisation of Blargg filter with SIMD.
 const uint16_t S16_WIDTH_WIDE = 404;

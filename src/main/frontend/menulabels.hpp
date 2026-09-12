@@ -160,6 +160,6 @@ const static char* GEAR_LABELS[4] = {"MANUAL", "MANUAL CABINET", "MANUAL 2 BUTTO
 const static char* FPS_LABELS[4] = { "30 FPS", "ORIGINAL", "60 FPS", "120 FPS" };
 const static char* ANALOG_LABELS[3] = { "OFF", "ON", "ON WHEEL ONLY" };
 const static char* VIDEO_LABELS[4] = { "WINDOWED", "FULLSCREEN", "LEGACY STRETCH", "FULLSCREEN EXCLUSIVE" };
-const static char* ASPECT_LABELS[4] = { "4-3", "16-9", "21-9", "STRETCHED" };
+const static char* ASPECT_LABELS[5] = { "4-3", "16-9", "21-9", "STRETCHED", "16-10" };
 const static char* RUMBLE_LABELS[5] = { "OFF", "LOW", "MED", "HIGH", "FULL" };
 const static char* CAB_LABELS[3] = { "MOVING", "UPRIGHT", "MINI" };

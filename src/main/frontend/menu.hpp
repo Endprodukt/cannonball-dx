@@ -548,6 +548,51 @@ protected:
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
 
+        // Keep the visible order intuitive without changing the persisted
+        // numeric values: 0=4:3, 1=16:9, 4=16:10, 2=21:9, 3=STRETCHED.
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_video &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_video.size()) &&
+            menu_video[cursor].rfind(ENTRY_WIDESCREEN, 0) == 0)
+        {
+            int direction = 0;
+            if (input.has_pressed(Input::LEFT))
+                direction = -1;
+            else if (input.has_pressed(Input::RIGHT))
+                direction = 1;
+
+            const bool selected = direction == 0 && select_pressed();
+            if (direction != 0 || selected)
+            {
+                static const int ASPECT_ORDER[5] = { 0, 1, 4, 2, 3 };
+                int order_index = 0;
+                for (int i = 0; i < 5; ++i)
+                {
+                    if (ASPECT_ORDER[i] == config.video.widescreen)
+                    {
+                        order_index = i;
+                        break;
+                    }
+                }
+
+                const int step = direction < 0 ? -1 : 1;
+                order_index = (order_index + step + 5) % 5;
+                const int next = ASPECT_ORDER[order_index];
+
+                if (next != config.video.widescreen)
+                {
+                    config.video.widescreen = next;
+                    config.videoRestartRequired = true;
+                    directional_save_pending = true;
+                }
+
+                osoundint.queue_sound(sound::BEEP1);
+                refresh_menu();
+                return;
+            }
+        }
+
         // Once inside the FFB tuning pages, use the DX handler so engine
         // vibration strength and period live beside the existing effect values
         // without adding another option to the main Controls page.
