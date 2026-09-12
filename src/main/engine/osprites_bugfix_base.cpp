@@ -751,16 +751,40 @@ std::exit(9);
     } else {
         // hires path. Use larger sprites to improve image quality.
         zoom = ZOOM_LOOKUP_HIRES[index];
+        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1]; // Width/Height lookup helper
+        uint16_t size_to_use = ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
+        uint16_t orig_size   = ZOOM_LOOKUP_HIRES[index+3]; // original sprite size
+
+        // Traffic sprites: always fetch from SIZE1 (the largest, always-unique
+        // ROM graphic) and compensate with a proportionally larger zoom value.
+        //
+        // The original ROM stores only 6 unique vehicle models; the 20 in-game
+        // 'types' are palette swaps.  For the smaller SIZE tiers (SIZE5 through
+        // SIZE2), Sega shared a single generic sprite across all vehicle types
+        // — invisible at 320×224, but at 2x/3x/4x internal resolution the
+        // generic sprite is large enough to be recognised as the wrong car.
+        //
+        // Each SIZE step is exactly 2× in zoom, so going from the table's
+        // current size_to_use to SIZE1 requires multiplying by 2^(steps).
+        // Scenery sprites are left on the table's default one-step-up logic.
+        if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
+        {
+            // How many SIZE steps from current size_to_use to SIZE1?
+            // SIZE values: SIZE1=0x00, SIZE2=0x0A, SIZE3=0x14, SIZE4=0x1E, SIZE5=0x28
+            // Each step is 0x0A apart.  Steps to SIZE1 = size_to_use / 0x0A.
+            unsigned steps = size_to_use / 0x0A;  // e.g. SIZE4(0x1E)=3, SIZE3(0x14)=2 ...
+            zoom <<= steps;                        // ×2 per step
+            size_to_use = SIZE1;
+        }
+
         output->set_vzoom(zoom);
         output->set_hzoom(zoom);
 
-        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1]; // Width/Height lookup helper
-
-        src_offsets = input->addr + ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
+        src_offsets = input->addr + size_to_use;
         // original sprite size entry from which rendered size will be determined.
         // this is different, because we are using "the next size up" sprites to improve hi-res fidelity
         // index+3 was previously an unused field
-        uint32_t size_offset = input->addr + ZOOM_LOOKUP_HIRES[index+3];
+        uint32_t size_offset = input->addr + orig_size;
 
         uint16_t d0 = input->draw_props | (input->zoom << 8);
         uint16_t top_bit = d0 & 0x8000; // set if zoom >= 0x80
