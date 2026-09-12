@@ -212,7 +212,7 @@ void Config::load()
     if (video.fps != 0 && video.fps != 3)
         video.fps = 2;
     video.fps_count     = cfg.get_int("video.fps_counter",     0); // FPS Counter
-    video.widescreen    = cfg.get_int("video.widescreen",      0); // Aspect: 0=4:3, 1=16:9, 2=21:9, 3=stretched
+    video.widescreen    = cfg.get_int("video.widescreen",      0); // Aspect: 0=4:3, 1=16:9, 2=21:9, 3=stretched, 4=16:10
 
     // Legacy mode 2 used to mean stretched fullscreen. Stretching is now an
     // aspect-ratio choice, leaving display mode free for real exclusive fullscreen.
@@ -228,7 +228,7 @@ void Config::load()
         video.mode = video_settings_t::MODE_FULL;
     }
 
-    if (video.widescreen < 0 || video.widescreen > 3)
+    if (video.widescreen < 0 || video.widescreen > 4)
         video.widescreen = 0;
 
     video.hires_next    =
@@ -681,8 +681,11 @@ void Config::load_stats()
     }
 
     // Load machine stats from file
-    stats.playcount = stats_data.get_int("playcount", 0);
-    stats.runtime   = stats_data.get_int("runtime",   0);
+    for (int i = 0; i < 1; i++)
+    {
+        stats.playcount = stats_data.get_int("playcount", 0);
+        stats.runtime   = stats_data.get_int("runtime",   0);
+    }
 }
 
 void Config::save_stats()
