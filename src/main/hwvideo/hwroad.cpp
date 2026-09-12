@@ -576,7 +576,21 @@ namespace
         int delta = next - current;
         if (delta > half) delta -= period;
         else if (delta < -half) delta += period;
-        return (current + (delta * fraction) / scale) & mask;
+
+        // Round to the nearest integer step instead of truncating
+        // towards zero. Plain integer division here systematically
+        // biases every intermediate sub-scanline low (e.g. delta=2,
+        // scale=3 gives steps of 0,0,1 instead of the much closer
+        // 1,1,1 / 0,1,1 approximation of the true continuous line),
+        // which is what produces the visible zigzag "Versatz" on the
+        // road stripes/centre line once internal upscaling spreads
+        // that error across several output rows.
+        const int scaled = delta * fraction;
+        const int rounded = (scaled >= 0)
+            ? (scaled + scale / 2) / scale
+            : -((-scaled + scale / 2) / scale);
+
+        return (current + rounded) & mask;
     }
 }
 
