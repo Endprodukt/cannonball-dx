@@ -19,8 +19,8 @@
 
 #define CANNONBALL_DX_CONFIG_EXTENSIONS \
     static constexpr int BUMPER_VIEW_HEIGHT_LEVELS = 5; \
-    static constexpr int ENGINE_VIBRATION_DEFAULT_STRENGTH = 4; \
-    static constexpr int ENGINE_PERIOD_DEFAULT_MS = 110; \
+    static constexpr int ENGINE_VIBRATION_DEFAULT_STRENGTH = 3; \
+    static constexpr int ENGINE_PERIOD_DEFAULT_MS = 300; \
     static constexpr int ENGINE_PERIOD_MIN_MS = 10; \
     static constexpr int ENGINE_PERIOD_MAX_MS = 500; \
     static constexpr int ENDLESS_DEFAULT_START_TIME = 80; \
