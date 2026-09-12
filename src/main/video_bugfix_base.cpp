@@ -397,6 +397,7 @@ void Video::write_tile16(uint32_t* addr, const uint16_t data)
 {
     tile_layer->tile_ram[*addr & 0xFFFF] = (data >> 8) & 0xFF;
     tile_layer->tile_ram[(*addr+1) & 0xFFFF] = data & 0xFF;
+
     *addr += 2;
 }
 */
