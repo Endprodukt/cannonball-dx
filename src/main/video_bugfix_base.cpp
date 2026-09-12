@@ -151,6 +151,11 @@ int Video::set_video_mode(video_settings_t* settings)
 {
     switch (settings->widescreen)
     {
+    case 4: // 16:10
+        config.s16_width = S16_WIDTH_16_10;
+        config.s16_x_off = (S16_WIDTH_16_10 - S16_WIDTH) / 2;
+        break;
+
     case 2: // 21:9
         config.s16_width = S16_WIDTH_ULTRAWIDE;
         config.s16_x_off = (S16_WIDTH_ULTRAWIDE - S16_WIDTH) / 2;
@@ -161,7 +166,7 @@ int Video::set_video_mode(video_settings_t* settings)
         config.s16_x_off = (S16_WIDTH_WIDE - S16_WIDTH) / 2;
         break;
 
-    default: // 4:3
+    default: // 4:3 / stretched output
         config.s16_width = S16_WIDTH;
         config.s16_x_off = 0;
         break;
@@ -392,7 +397,6 @@ void Video::write_tile16(uint32_t* addr, const uint16_t data)
 {
     tile_layer->tile_ram[*addr & 0xFFFF] = (data >> 8) & 0xFF;
     tile_layer->tile_ram[(*addr+1) & 0xFFFF] = data & 0xFF;
-
     *addr += 2;
 }
 */
