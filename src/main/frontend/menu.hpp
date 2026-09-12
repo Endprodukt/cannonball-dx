@@ -548,6 +548,43 @@ protected:
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
 
+        // ASPECT RATIO is handled here so DX can extend the preserved SE range
+        // without changing the legacy meaning of value 3 (STRETCHED). Value 4
+        // is the new 16:10 mode used by Steam Deck-class displays.
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_video &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_video.size()) &&
+            menu_video[cursor].rfind(ENTRY_WIDESCREEN, 0) == 0)
+        {
+            int direction = 0;
+            if (input.has_pressed(Input::LEFT))
+                direction = -1;
+            else if (input.has_pressed(Input::RIGHT))
+                direction = 1;
+
+            const bool selected = direction == 0 && select_pressed();
+            if (direction != 0 || selected)
+            {
+                int next = config.video.widescreen + (direction < 0 ? -1 : 1);
+                if (next < 0)
+                    next = 4;
+                else if (next > 4)
+                    next = 0;
+
+                if (next != config.video.widescreen)
+                {
+                    config.video.widescreen = next;
+                    config.videoRestartRequired = true;
+                    directional_save_pending = true;
+                }
+
+                osoundint.queue_sound(sound::BEEP1);
+                refresh_menu();
+                return;
+            }
+        }
+
         // Once inside the FFB tuning pages, use the DX handler so engine
         // vibration strength and period live beside the existing effect values
         // without adding another option to the main Controls page.
