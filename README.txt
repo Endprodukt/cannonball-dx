@@ -22,7 +22,7 @@ that CannonBall DX or its added features work correctly on those systems.
 No compatibility outside Windows is claimed or guaranteed.
 
 Development of the additional CannonBall DX work was carried out with assistance
-from ChatGPT by OpenAI, using GPT-5.6 Sol.
+from ChatGPT by OpenAI and Claude by Anthropic.
 
 -------------------------------------
 1. About CannonBall DX
@@ -37,27 +37,37 @@ The goal of CannonBall DX is to retain the original OutRun feel while extending
 the project for dedicated arcade cabinets, modern racing wheels and flexible
 multi-device PC setups.
 
-Major DX additions include:
+Key features available in CannonBall DX include:
 
 - Original, Original Japanese, Continuous, Endless and Time Trial game modes
 - Game-mode selection on the Music Select Screen using the VIEW controls
 - True multi-device input for wheel, pedals, shifter and buttons
 - Separate Keyboard, Gamepad and Wheel bindings
 - Persistent device identification
-- Expanded steering-wheel force feedback and configurable per-effect tuning
+- Improved keyboard, D-Pad and high-score-entry navigation
+- Expanded steering-wheel force feedback with configurable per-effect tuning
+- Configurable RPM-linked engine vibration
 - Gamepad rumble
-- 4:3, 16:9 and 21:9 display modes
+- Improved CannonBall-SE 2x Game Engine Resolution plus new 3x and 4x modes
+- 30 FPS, Original timing, 60 FPS and experimental 120 FPS modes
+- 4:3, 16:9, 16:10, 21:9 and Stretched aspect ratios
+- Windowed, Borderless Fullscreen and experimental Exclusive Fullscreen modes
 - xBRZ and HQX pixel scaling
 - Enhanced Attract Mode
 - Eight selectable Ferrari colours
 - Dedicated Time Trial and Endless records / results
-- START, BRAKE, VIEW, VIEW1, VIEW2 and VIEW3 cabinet outputs
+- Assignable in-game Radio control for changing music while driving
+- Individually configurable gameplay bug-fix options
+- START, BRAKE, VIEW, VIEW1, VIEW2, VIEW3 and RADIO cabinet outputs
 - MAME network output, Windows MAMEOutput / MAMEHooker and SmartyPi output
 - Direct MAME ROM ZIP loading
 
 CannonBall already contained steering-wheel force feedback. CannonBall DX extends
 that existing implementation with additional effects and modern wheel handling;
 it is not a replacement for a rumble-only system.
+
+The DX force-feedback extensions also include configurable engine vibration whose
+cadence follows engine RPM, alongside separate start-rev and driving behaviour.
 
 -------------------------------------
 2. ROMs - Required
@@ -192,8 +202,55 @@ Fixed keyboard controls:
 - F11         Windowed / Fullscreen
 - Alt+Enter   Windowed / Fullscreen
 
+Menu and digital-control improvements:
+
+- Keyboard and D-Pad navigation has been improved throughout the frontend.
+- High-score initials can be selected directly with Left / Right in Original,
+  Time Trial and Endless modes.
+- Start or Menu Accept can be used to confirm high-score entries.
+- Time Trial course selection can be navigated in two dimensions with the
+  keyboard or D-Pad, following the course map.
+- Analog steering / wheel-based Time Trial selection remains supported.
+
+In-game Radio control:
+
+- The Radio action can be assigned independently for Keyboard, Gamepad and Wheel.
+- While driving, Radio cycles through the available music tracks and Music Off.
+- The selected track is briefly shown on screen.
+- A dedicated Radio_lamp output is available for cabinet setups.
+
 -------------------------------------
-5. Bugs & Development
+5. Experimental Features & Known Limitations
+-------------------------------------
+
+The following features should currently be considered experimental:
+
+- 3x and 4x Game Engine Resolution
+- 120 FPS mode
+- Exclusive Fullscreen
+
+CannonBall-SE already provided a 2x high-resolution rendering mode. CannonBall DX
+builds on that work with additional rendering fixes and the new 3x and 4x modes.
+
+Higher internal resolutions make details in the original OutRun graphics much
+easier to see. As a result, behaviour that was difficult to notice at the
+original 320x224 resolution can become more obvious, including:
+
+- distant cars using different or simplified sprite frames
+- visible transitions between sprite sizes or viewing angles
+- small road, shadow or scenery alignment differences
+- limitations inherited from the original arcade graphics
+
+Some of these issues can be improved in CannonBall DX and development is
+continuing. Others are simply part of how the original arcade game works.
+
+If you find a crash, graphical problem, input issue or behaviour that differs
+from the original arcade version, please open a GitHub Issue. Screenshots,
+videos, reproduction steps and comparisons with the arcade version are especially
+helpful.
+
+-------------------------------------
+6. Bugs & Development
 -------------------------------------
 
 For source code, development information, bugs and feature requests:
@@ -203,7 +260,7 @@ https://github.com/Endprodukt/cannonball-dx
 The actively developed branch is master.
 
 -------------------------------------
-6. Build & Source Information
+7. Build & Source Information
 -------------------------------------
 
 CannonBall DX is developed and tested on Windows 10/11 (64-bit).
@@ -223,7 +280,7 @@ Source repository:
 https://github.com/Endprodukt/cannonball-dx
 
 -------------------------------------
-7. Credits
+8. Credits
 -------------------------------------
 
 CannonBall DX builds directly on the work of the original projects and their
@@ -257,7 +314,8 @@ outputs and presentation features.
 
 Development assistance for the additional CannonBall DX work was provided by:
 
-ChatGPT by OpenAI - GPT-5.6 Sol
+ChatGPT by OpenAI
+Claude by Anthropic
 
 Additional contributors / components
 ------------------------------------
@@ -303,7 +361,7 @@ Further third-party information is available in:
 docs\THIRD-PARTY-NOTICES.md
 
 -------------------------------------
-8. Third-Party Libraries
+9. Third-Party Libraries
 -------------------------------------
 
 CannonBall DX uses or interfaces with open-source components including SDL2,
@@ -332,7 +390,7 @@ See:
 docs\THIRD-PARTY-NOTICES.md
 
 -------------------------------------
-9. License
+10. License
 -------------------------------------
 
 CannonBall DX remains subject to all applicable upstream license conditions.
@@ -373,7 +431,7 @@ Third-party components, including xBRZ and HQx, remain licensed under their own
 respective terms as documented in docs\THIRD-PARTY-NOTICES.md.
 
 -------------------------------------
-10. Sega / OutRun Notice
+11. Sega / OutRun Notice
 -------------------------------------
 
 OutRun is a trademark of SEGA Corporation.
@@ -384,7 +442,7 @@ licensed, endorsed or affiliated with SEGA Corporation.
 No Sega ROM data is distributed with CannonBall DX.
 
 -------------------------------------
-11. Warranty
+12. Warranty
 -------------------------------------
 
 This software is provided without warranty.
@@ -398,7 +456,7 @@ CannonBall DX
 DX fork and additional development: Endprodukt
 Based on CannonBall-SE by James Pearce (J1mbo)
 Based on CannonBall by Chris White
-Developed with assistance from ChatGPT by OpenAI - GPT-5.6 Sol
+Developed with assistance from ChatGPT by OpenAI and Claude by Anthropic
 
 Copyright notices belonging to CannonBall, CannonBall-SE and all third-party
 components remain with their respective copyright holders.
