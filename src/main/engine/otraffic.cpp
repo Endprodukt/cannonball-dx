@@ -326,7 +326,15 @@ void OTraffic::spawn_car(oentry* sprite)
     }
 
     // JJP ghost car fix
-    sprite->hidden = 0;
+    // DX: also use hidden as a spawn fade-in delay. At hi-res (2x/3x/4x),
+    // slot recycling is visible: a van at medium distance disappears and a
+    // sports car pops up at the horizon in the same frame, looking like one
+    // car "transforming" into another. Hiding the new car for a few frames
+    // after spawn lets the old car visually clear the screen first.
+    // The delay is short enough (~60-120ms) to not affect gameplay, and at
+    // the horizon the car is still tiny enough that appearing a few frames
+    // later is imperceptible.
+    sprite->hidden = config.fps == 120 ? 8 : (config.fps == 60 ? 4 : 2);
 }
 
 // Check Traffic Collision
