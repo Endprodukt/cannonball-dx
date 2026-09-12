@@ -262,6 +262,8 @@ void OTraffic::spawn_car(oentry* sprite)
     sprite->traffic_proximity = 0;
     sprite->traffic_fx = 0;
     sprite->z = 0x10000;    // Traffic starts on horizon in the distance
+    sprite->last_incline = -1;        // DX: reset hysteresis
+    sprite->last_traffic_frame = -1;
     int16_t rnd = outils::random();
     spawn_location++;
 
@@ -557,8 +559,22 @@ void OTraffic::update_props(oentry* sprite)
     if (oroad.road_p0 > (0x10 / 2))
         y = oroad.road_y[oroad.road_p0 - (0x10 / 2)] - oroad.road_y[oroad.road_p0];
 
-    // 0 = No Incline, 10 = Flat Road/Incline
-    int8_t incline = (y < 0x12) ? 0x10 : 0; // d1
+    // 0 = No Incline, 0x10 = Flat Road/Incline
+    // DX: hysteresis to prevent frame-by-frame flickering when y hovers
+    // near the threshold (0x12).  Once incline has been chosen, it sticks
+    // until y moves past a wider band (0x0E / 0x16) before flipping back.
+    int8_t incline;
+    if (sprite->last_incline < 0) {
+        // First frame for this sprite — use the original threshold
+        incline = (y < 0x12) ? 0x10 : 0;
+    } else if (sprite->last_incline == 0x10) {
+        // Currently flat/incline — only switch to "no incline" if y clearly above threshold
+        incline = (y >= 0x16) ? 0 : 0x10;
+    } else {
+        // Currently no incline — only switch to flat if y clearly below threshold
+        incline = (y < 0x0E) ? 0x10 : 0;
+    }
+    sprite->last_incline = incline;
 
     // ------------------------------------------------------------------------
     // Cap Player X Position 
@@ -581,15 +597,34 @@ void OTraffic::update_props(oentry* sprite)
 
     x = (x >> 2) + (sprite->xw1 >> 2);
     
-    int8_t traffic_frame = 0;
+    // DX: hysteresis on traffic_frame to prevent flickering when xabs
+    // hovers near the 0x10 or 0x30 boundaries.  Each boundary gets a
+    // ±4 dead zone — the frame only changes once xabs has moved clearly
+    // past the threshold, not when it oscillates on top of it.
+    int8_t traffic_frame;
     int32_t xabs = x < 0 ? -x : x;
 
-    if (xabs < 0x10)
-        traffic_frame = 1;
-    else if (xabs < 0x30)
-        traffic_frame = 2;
-    else
-        traffic_frame = 3;
+    if (sprite->last_traffic_frame < 0) {
+        // First frame — use original thresholds
+        if (xabs < 0x10)       traffic_frame = 1;
+        else if (xabs < 0x30)  traffic_frame = 2;
+        else                   traffic_frame = 3;
+    } else {
+        traffic_frame = sprite->last_traffic_frame;
+        switch (traffic_frame) {
+            case 1:
+                if (xabs >= 0x14)  traffic_frame = 2;  // leave 1 only when clearly past 0x10
+                break;
+            case 2:
+                if (xabs < 0x0C)   traffic_frame = 1;  // drop to 1 only when clearly below 0x10
+                else if (xabs >= 0x34) traffic_frame = 3;
+                break;
+            case 3:
+                if (xabs < 0x2C)   traffic_frame = 2;  // drop to 2 only when clearly below 0x30
+                break;
+        }
+    }
+    sprite->last_traffic_frame = traffic_frame;
 
     if (x < 0)
     {
