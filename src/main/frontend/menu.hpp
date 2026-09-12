@@ -548,9 +548,8 @@ protected:
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
 
-        // ASPECT RATIO is handled here so DX can extend the preserved SE range
-        // without changing the legacy meaning of value 3 (STRETCHED). Value 4
-        // is the new 16:10 mode used by Steam Deck-class displays.
+        // Keep the visible order intuitive without changing the persisted
+        // numeric values: 0=4:3, 1=16:9, 4=16:10, 2=21:9, 3=STRETCHED.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_video &&
             cursor >= 0 &&
@@ -566,11 +565,20 @@ protected:
             const bool selected = direction == 0 && select_pressed();
             if (direction != 0 || selected)
             {
-                int next = config.video.widescreen + (direction < 0 ? -1 : 1);
-                if (next < 0)
-                    next = 4;
-                else if (next > 4)
-                    next = 0;
+                static const int ASPECT_ORDER[5] = { 0, 1, 4, 2, 3 };
+                int order_index = 0;
+                for (int i = 0; i < 5; ++i)
+                {
+                    if (ASPECT_ORDER[i] == config.video.widescreen)
+                    {
+                        order_index = i;
+                        break;
+                    }
+                }
+
+                const int step = direction < 0 ? -1 : 1;
+                order_index = (order_index + step + 5) % 5;
+                const int next = ASPECT_ORDER[order_index];
 
                 if (next != config.video.widescreen)
                 {
