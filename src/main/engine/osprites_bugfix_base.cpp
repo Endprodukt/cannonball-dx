@@ -755,19 +755,12 @@ std::exit(9);
         uint16_t size_to_use = ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
         uint16_t orig_size   = ZOOM_LOOKUP_HIRES[index+3]; // original sprite size
 
-        // Traffic sprites: use the largest available sprite tier that still fits
-        // within the hardware zoom limit (12-bit, max 0xFFF).  The HIRES table
-        // already substitutes one SIZE step up (e.g. SIZE5→SIZE4).  We can go
-        // one further step (zoom × 2) without exceeding the 12-bit cap in most
-        // rows, giving us two steps total (e.g. SIZE5→SIZE3).  Rows where even
-        // one extra step would overflow 0xFFF are left unchanged.
-        //
-        // This is a hardware-limited compromise: the original arcade sprite
-        // scaler stores zoom in 12 bits, so we can't push beyond ~0xFFF.
-        // Going from the table's one-step-up to two-steps-up still improves
-        // sharpness and reduces the visibility of shared generic sprites at
-        // far distances.
-        if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
+        // Use one additional SIZE step beyond what the HIRES table provides
+        // (2 steps total instead of 1) for ALL sprites, staying within the
+        // hardware's 12-bit zoom cap (max 0xFFF).  This gives every sprite —
+        // traffic, scenery, signs — access to a larger/sharper ROM graphic
+        // than the table's default one-step-up substitution.
+        if (size_to_use != SIZE1)
         {
             uint32_t candidate_zoom = (uint32_t)zoom << 1;
             uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
