@@ -755,12 +755,12 @@ std::exit(9);
         uint16_t size_to_use = ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
         uint16_t orig_size   = ZOOM_LOOKUP_HIRES[index+3]; // original sprite size
 
-        // Use one additional SIZE step beyond what the HIRES table provides
-        // (2 steps total instead of 1) for ALL sprites, staying within the
-        // hardware's 12-bit zoom cap (max 0xFFF).  This gives every sprite —
-        // traffic, scenery, signs — access to a larger/sharper ROM graphic
-        // than the table's default one-step-up substitution.
-        if (size_to_use != SIZE1)
+        // Traffic sprites only: use one additional SIZE step beyond what the
+        // HIRES table provides (2 steps total), staying within the 12-bit
+        // zoom hardware cap (max 0xFFF).  Scenery sprites are left on the
+        // table's default one-step-up — their positioning/anchoring is more
+        // sensitive to dimension changes and breaks when SIZE is overridden.
+        if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
         {
             uint32_t candidate_zoom = (uint32_t)zoom << 1;
             uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
