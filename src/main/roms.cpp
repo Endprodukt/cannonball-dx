@@ -11,6 +11,23 @@
 #include "roms.hpp"
 #include <iostream>
 
+#ifdef _WIN32
+#include <SDL.h>
+
+namespace
+{
+    // Must be configured before SDL initializes the Windows video subsystem.
+    // This prevents Windows DPI virtualization from turning native desktop
+    // pixel dimensions into scaled logical coordinates in exclusive fullscreen.
+    const bool windows_dpi_awareness_requested = []()
+    {
+        SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+        SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
+        return true;
+    }();
+}
+#endif
+
 Roms roms;
 
 Roms::Roms()
