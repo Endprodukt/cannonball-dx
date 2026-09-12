@@ -139,7 +139,6 @@ const static char* ENTRY_SPRITERES          = "SPRITE RESOLUTION ";
 const static char* ENTRY_ATTRACT            = "NEW ATTRACT ";
 const static char* ENTRY_PROTOTYPE          = "PROTOTYPE STAGE 1 ";
 const static char* ENTRY_OBJECTS            = "OBJECTS ";
-const static char* ENTRY_TIMER              = "TIMING FIXES ";
 
 // Game Engine: Car Setup Sub-Menu
 const static char* ENTRY_GRIP               = "GRIPPY TYRES ";
