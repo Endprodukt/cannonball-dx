@@ -56,6 +56,37 @@ void OTraffic::init()
     spawn_location      = 0;
     // Set wheel animation reset value across all traffic (moved from spawn traffic routine)
     wheel_counter = wheel_reset = 12;
+
+    // TEMP DEBUG - dump the full traffic_data ROM table at startup, once.
+    // Shows which (type, frame, incline) combos share sprite addresses.
+    {
+        static bool dumped = false;
+        if (!dumped) {
+            dumped = true;
+            // All possible type values: TYPE[] entries << 3, unique values are 0x00..0x13 << 3
+            // i.e. type = 0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96,
+            //              104, 112, 120, 128, 136, 144, 152
+            std::cerr << "[traffic-dump] type, frame, incline -> traffic_type_idx -> addr\n";
+            for (int t = 0; t < 0x14; t++) {
+                int type = t << 3;
+                uint8_t rom_type = roms.rom0p->read8(outrun.adr.traffic_props + type + 7);
+                for (int frame = 1; frame <= 3; frame++) {
+                    for (int incline = 0; incline <= 0x10; incline += 0x10) {
+                        int16_t traffic_type_idx = (rom_type << 5) + (frame << 2) + incline;
+                        uint32_t addr = roms.rom0p->read32(outrun.adr.traffic_data + traffic_type_idx);
+                        std::cerr << "[traffic-dump] type=" << type
+                                  << " rom_type=" << (int)rom_type
+                                  << " frame=" << frame
+                                  << " incline=" << incline
+                                  << " idx=" << traffic_type_idx
+                                  << " addr=0x" << std::hex << addr << std::dec
+                                  << "\n";
+                    }
+                }
+            }
+            std::cerr << "[traffic-dump] === END ===\n";
+        }
+    }
 }
 
 // Initalize traffic in right land lane for Stage 1
