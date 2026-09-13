@@ -1,5 +1,5 @@
 <p align="center">
-<img src="screenshots/CannonballDX.png" alt="Beschreibung" width="500">
+<img src="screenshots/CannonballDX.png" alt="CannonBall DX" width="500">
 </p>
 
 # CannonBall DX (WIP)
@@ -8,7 +8,7 @@
 
 **CannonBall DX** builds on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to make CannonBall especially well suited to modern racing wheels, multi-device PC setups and dedicated arcade cabinets while keeping the original OutRun feel intact.
 
-The additional work in this fork was developed with the assistance of **ChatGPT by OpenAI, using GPT-5.6 Sol**.
+The additional work in this fork was developed with assistance from **ChatGPT by OpenAI** and **Claude by Anthropic**.
 
 > **Platform status:** CannonBall DX is currently developed and tested **only on Windows 10/11 (64-bit)**. Linux, Raspberry Pi and other platforms have **not been tested with the DX changes**. The upstream CannonBall and CannonBall-SE projects support additional platforms, but no compatibility with CannonBall DX or its added features is claimed or guaranteed outside Windows.
 
@@ -44,13 +44,21 @@ The optional **Ferrari badge / logo restoration** brings the emblem back to the 
 - **Unified binding matrix** - separate Keyboard, Gamepad and Wheel assignments
 - **Selectable Gamepad / Wheel input mode** - only the selected device family controls the car and receives its matching feedback, while both remain usable in the frontend menus
 - **Direct VIEW1 / VIEW2 / VIEW3 controls** plus the original view-cycle button
+- **Improved keyboard and D-Pad navigation** throughout the frontend
+- **Direct high-score entry navigation** with Left / Right in Original, Time Trial and Endless modes
+- **Two-dimensional Time Trial course navigation** with keyboard or D-Pad while preserving analog wheel selection
+- **Assignable in-game Radio control** - cycle through available tracks and Music Off while driving, with the selected title shown briefly on screen
 - **Expanded force feedback** - cornering, tyre slip, road texture, off-road, gears, crashes, spins and start/rev effects
+- **RPM-linked engine vibration** with configurable strength
 - **Gamepad rumble** with separate enable and strength settings
 
 ### Display & Presentation
 
 - **Ferrari badge / logo restoration** - optional visual fix for the emblem, because apparently a few pixels of prancing horse matter quite a lot
-- **4:3, 16:9 and 21:9 ultrawide support**
+- **4:3, 16:9, 16:10, 21:9 and Stretched aspect ratios**
+- **Windowed, Borderless Fullscreen and experimental Exclusive Fullscreen modes**
+- **30 FPS, Original timing, 60 FPS and experimental 120 FPS modes**
+- **Improved CannonBall-SE 2x Game Engine Resolution plus experimental 3x and 4x modes**
 - **Native 21:9 Music Select Screen** - full ultrawide presentation with correctly centred background and sprite alignment
 - **xBRZ 3x/4x/5x/6x and HQX 3x/4x pixel scalers**
 - **CRT / analogue video and NTSC filtering** inherited from CannonBall-SE
@@ -58,10 +66,11 @@ The optional **Ferrari badge / logo restoration** brings the emblem back to the 
 - **Eight Ferrari colours** - Red, Blue, Yellow, Green, Cyan, Black, White and Silver
 - **Configurable selection timers** - 15 sec, 30 sec or OFF
 - **Dedicated Time Trial and Endless results / high-score presentation**
+- **Individually configurable gameplay bug-fix options**
 
 ### Arcade Cabinet Features
 
-- **START, BRAKE, VIEW, VIEW1, VIEW2 and VIEW3 lamp outputs**
+- **START, BRAKE, VIEW, VIEW1, VIEW2, VIEW3 and RADIO lamp outputs**
 - **MAME network output** support
 - **Windows MAMEOutput / MAMEHooker** support
 - **SmartyPi** output support
@@ -121,7 +130,7 @@ The expanded force-feedback implementation and modern wheel work in CannonBall D
 
 ## ROMs
 
-CannonBall DX requires the original **OutRun Revision B** ROM data. There are now two supported ways to provide it:
+CannonBall DX requires the original **OutRun Revision B** ROM data. There are two supported ways to provide it:
 
 - Copy the traditional extracted CannonBall ROM files into `roms/`, exactly as before.
 - Place a suitable MAME ZIP archive such as a current merged `outrun.zip` into `roms/` without extracting it.
@@ -208,6 +217,21 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 - **F11** Windowed / Fullscreen
 - **Alt+Enter** Windowed / Fullscreen
 
+### Menu and Digital-Control Improvements
+
+- Keyboard and D-Pad navigation has been improved throughout the frontend.
+- High-score initials can be selected directly with **Left / Right** in Original, Time Trial and Endless modes.
+- **Start** or **Menu Accept** can be used to confirm high-score entries.
+- Time Trial course selection can be navigated in two dimensions with the keyboard or D-Pad, following the course map.
+- Analog steering / wheel-based Time Trial selection remains supported.
+
+### In-Game Radio Control
+
+- The **Radio** action can be assigned independently for Keyboard, Gamepad and Wheel.
+- While driving, Radio cycles through the available music tracks and **Music Off**.
+- The selected track is briefly shown on screen.
+- A dedicated **RADIO / `Radio_lamp`** output is available for cabinet setups.
+
 ### Force Feedback settings
 
 | XML option | Values | Description |
@@ -220,7 +244,7 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 
 The normal in-game Controls menu intentionally stays simple: **FFB Strength** is the overall master and **Spring** sets the centering reference level. Users who want more control can edit the individual values inside `controls.analog.haptic.effects` and `controls.analog.haptic.spring` in `config.xml`. There is no separate Advanced mode: the values are always available. The default configuration intentionally leaves headroom so individual effects can be increased without starting at the 100 ceiling. Effect strengths and spring percentages use a clear **0-100** range.
 
-The first-run FFB defaults are **enabled**, **FFB Strength 50** and **Spring 80**. The default engine vibration uses **strength 3** with an **engine period of 300 ms**.
+The first-run FFB defaults are **enabled**, **FFB Strength 50** and **Spring 80**. The driving engine vibration defaults to **strength 3** and uses an **RPM-linked cadence** rather than a fixed-rate rumble.
 
 #### Per-effect tuning in config.xml
 
@@ -250,7 +274,7 @@ The supplied numbers are the actual CannonBall DX defaults, not a second preset 
 
 #### Speed-dependent centering spring
 
-The normal **Spring** menu option remains the reference value. The percentage entries below use **0-100**. The two speed thresholds are different: they use the game's vehicle-speed values, with a valid range of **0-294**. The standard car's maximum is **294**.
+The normal **Spring** menu option remains the reference value. The percentage entries below use **0-100**. The two speed thresholds use the game's vehicle-speed values, with a valid range of **0-294**. The standard car's maximum is **294**.
 
 | XML value under `haptic.spring` | DX default | Valid range | Controls |
 |---|---:|---:|---|
@@ -318,7 +342,7 @@ Custom music files can still be placed in `./res/` using:
 [01-99]_Track_Display_Name.[wav|mp3|ym]
 ```
 
-Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. On supported Windows wheels, the selector uses the normal low-speed centering spring plus short FFB steps between songs.
+Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. During gameplay, the assignable **Radio** action cycles through the available tracks and **Music Off**, and the selected title is briefly shown on screen. On supported Windows wheels, the Music Select selector uses the normal low-speed centering spring plus short FFB steps between songs.
 
 ---
 
@@ -330,9 +354,32 @@ CannonBall DX exposes its lamp outputs through:
 - **Windows MAMEOutput messages / MAMEHooker**
 - **SmartyPi**
 
-Currently exposed lamps include **START**, **BRAKE**, **VIEW**, **VIEW1**, **VIEW2** and **VIEW3**.
+Currently exposed lamps include **START**, **BRAKE**, **VIEW**, **VIEW1**, **VIEW2**, **VIEW3** and **RADIO (`Radio_lamp`)**.
 
 See `EXTERNAL_OUTPUTS.md` for configuration details.
+
+---
+
+## Experimental Features & Known Limitations
+
+The following features should currently be considered experimental:
+
+- **3x and 4x Game Engine Resolution**
+- **120 FPS mode**
+- **Exclusive Fullscreen**
+
+CannonBall-SE already provided a **2x high-resolution rendering mode**. CannonBall DX builds on that work with additional rendering fixes and the new **3x and 4x** modes.
+
+Higher internal resolutions make details in the original OutRun graphics much easier to see. As a result, behaviour that was difficult to notice at the original 320x224 resolution can become more obvious, including:
+
+- distant cars using different or simplified sprite frames
+- visible transitions between sprite sizes or viewing angles
+- small road, shadow or scenery alignment differences
+- limitations inherited from the original arcade graphics
+
+Some of these issues can be improved in CannonBall DX and development is continuing. Others are simply part of how the original arcade game works.
+
+If you find a crash, graphical problem, input issue or behaviour that differs from the original arcade version, please open a GitHub Issue. Screenshots, videos, reproduction steps and comparisons with the arcade version are especially helpful.
 
 ---
 
@@ -394,8 +441,9 @@ CannonBall DX builds directly on the work of the original projects and their con
 - **Rich Geldreich and miniz contributors** - `miniz` ZIP/DEFLATE library used for direct ROM archive loading
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
-- **Endprodukt** - CannonBall DX fork, multi-device input, ultrawide, cabinet-output and modern wheel / feedback extensions
-- **ChatGPT by OpenAI - GPT-5.6 Sol** - development assistance for the additional work in CannonBall DX
+- **Endprodukt** - CannonBall DX fork, feature direction, testing and DX-specific development
+- **ChatGPT by OpenAI** - development assistance for the additional work in CannonBall DX
+- **Claude by Anthropic** - development assistance for the additional work in CannonBall DX
 - **POOTERMAN** - CannonBall DX Logo. https://www.deviantart.com/pooterman
 
 Upstream projects:
