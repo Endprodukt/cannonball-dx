@@ -243,6 +243,19 @@ namespace cannonball_logitech_range_test
         return haptic;
     }
 
+    static int set_autocenter_and_restore(SDL_Haptic* haptic, int autocenter)
+    {
+        const int result = SDL_HapticSetAutocenter(haptic, autocenter);
+
+        // The normal CannonBall backend deliberately disables SDL autocenter.
+        // Logitech's G HUB soft stop can disappear at that point, so re-apply
+        // the user's captured operating range and Logitech soft stop afterwards.
+        if (g_sdk_initialized && g_saved_range > 0)
+            restore_range_and_softstop();
+
+        return result;
+    }
+
     static void close_haptic(SDL_Haptic* haptic)
     {
         if (g_sdk_initialized)
@@ -254,6 +267,8 @@ namespace cannonball_logitech_range_test
 
 #define SDL_HapticOpenFromJoystick \
     cannonball_logitech_range_test::open_haptic_preserving_range
+#define SDL_HapticSetAutocenter \
+    cannonball_logitech_range_test::set_autocenter_and_restore
 #define SDL_HapticClose cannonball_logitech_range_test::close_haptic
 #endif
 
@@ -265,6 +280,7 @@ namespace cannonball_logitech_range_test
 
 #if defined(_WIN32)
 #undef SDL_HapticOpenFromJoystick
+#undef SDL_HapticSetAutocenter
 #undef SDL_HapticClose
 #endif
 
