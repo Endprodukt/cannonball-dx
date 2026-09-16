@@ -6,11 +6,267 @@
     the preserved backend so it can keep its own strength and timing.
 ***************************************************************************/
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <SDL.h>
+
+#include <iostream>
+#include <string>
+
+namespace cannonball_logitech_range_test
+{
+    using LogiSteeringInitializeFn = bool (__cdecl *)(bool);
+    using LogiSteeringShutdownFn = void (__cdecl *)();
+    using LogiUpdateFn = bool (__cdecl *)();
+    using LogiIsConnectedFn = bool (__cdecl *)(int);
+    using LogiGetOperatingRangeFn = bool (__cdecl *)(int, int*);
+    using LogiSetOperatingRangeFn = bool (__cdecl *)(int, int);
+    using LogiPlaySoftstopForceFn = bool (__cdecl *)(int, int);
+    using LogiStopSoftstopForceFn = bool (__cdecl *)(int);
+
+    static HMODULE g_sdk = nullptr;
+    static LogiSteeringInitializeFn g_initialize = nullptr;
+    static LogiSteeringShutdownFn g_shutdown = nullptr;
+    static LogiUpdateFn g_update = nullptr;
+    static LogiIsConnectedFn g_is_connected = nullptr;
+    static LogiGetOperatingRangeFn g_get_range = nullptr;
+    static LogiSetOperatingRangeFn g_set_range = nullptr;
+    static LogiPlaySoftstopForceFn g_play_softstop = nullptr;
+    static LogiStopSoftstopForceFn g_stop_softstop = nullptr;
+
+    static bool g_sdk_initialized = false;
+    static bool g_softstop_active = false;
+    static int g_saved_range = 0;
+    static bool g_logged_missing_sdk = false;
+
+    template <typename T>
+    static T load_symbol(const char* name)
+    {
+        return reinterpret_cast<T>(GetProcAddress(g_sdk, name));
+    }
+
+    static bool load_sdk()
+    {
+        if (g_sdk)
+            return true;
+
+#ifdef _WIN64
+        const wchar_t* dll_name = L"logi_steering_wheel_x64.dll";
+#else
+        const wchar_t* dll_name = L"logi_steering_wheel_x86.dll";
+#endif
+
+        wchar_t program_files[MAX_PATH] = {};
+        DWORD length = GetEnvironmentVariableW(
+            L"ProgramW6432", program_files, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            length = GetEnvironmentVariableW(
+                L"ProgramFiles", program_files, MAX_PATH);
+        }
+
+        if (length > 0 && length < MAX_PATH)
+        {
+            std::wstring sdk_path(program_files);
+            sdk_path += L"\\Logi\\wheel_sdk\\9_1_0\\";
+            sdk_path += dll_name;
+            g_sdk = LoadLibraryW(sdk_path.c_str());
+        }
+
+        // Also allow a local SDK DLL for developers or older G HUB layouts.
+        if (!g_sdk)
+            g_sdk = LoadLibraryW(dll_name);
+
+        if (!g_sdk)
+        {
+            if (!g_logged_missing_sdk)
+            {
+                std::cout
+                    << "SDL FFB: Logitech wheel SDK not found; "
+                    << "using normal SDL haptics" << std::endl;
+                g_logged_missing_sdk = true;
+            }
+            return false;
+        }
+
+        g_initialize =
+            load_symbol<LogiSteeringInitializeFn>("LogiSteeringInitialize");
+        g_shutdown =
+            load_symbol<LogiSteeringShutdownFn>("LogiSteeringShutdown");
+        g_update = load_symbol<LogiUpdateFn>("LogiUpdate");
+        g_is_connected =
+            load_symbol<LogiIsConnectedFn>("LogiIsConnected");
+        g_get_range =
+            load_symbol<LogiGetOperatingRangeFn>("LogiGetOperatingRange");
+        g_set_range =
+            load_symbol<LogiSetOperatingRangeFn>("LogiSetOperatingRange");
+        g_play_softstop =
+            load_symbol<LogiPlaySoftstopForceFn>("LogiPlaySoftstopForce");
+        g_stop_softstop =
+            load_symbol<LogiStopSoftstopForceFn>("LogiStopSoftstopForce");
+
+        if (!g_initialize || !g_shutdown || !g_update || !g_is_connected ||
+            !g_get_range || !g_set_range || !g_play_softstop ||
+            !g_stop_softstop)
+        {
+            std::cout
+                << "SDL FFB: Logitech wheel SDK is missing required exports; "
+                << "using normal SDL haptics" << std::endl;
+            FreeLibrary(g_sdk);
+            g_sdk = nullptr;
+            return false;
+        }
+
+        return true;
+    }
+
+    static void shutdown_sdk()
+    {
+        if (g_softstop_active && g_stop_softstop)
+            g_stop_softstop(0);
+
+        g_softstop_active = false;
+        g_saved_range = 0;
+
+        if (g_sdk_initialized && g_shutdown)
+            g_shutdown();
+
+        g_sdk_initialized = false;
+
+        if (g_sdk)
+        {
+            FreeLibrary(g_sdk);
+            g_sdk = nullptr;
+        }
+
+        g_initialize = nullptr;
+        g_shutdown = nullptr;
+        g_update = nullptr;
+        g_is_connected = nullptr;
+        g_get_range = nullptr;
+        g_set_range = nullptr;
+        g_play_softstop = nullptr;
+        g_stop_softstop = nullptr;
+    }
+
+    static bool capture_current_range(SDL_Joystick* joystick)
+    {
+        if (!joystick ||
+            SDL_JoystickGetType(joystick) != SDL_JOYSTICK_TYPE_WHEEL ||
+            SDL_JoystickGetVendor(joystick) != 0x046d)
+        {
+            return false;
+        }
+
+        if (!load_sdk())
+            return false;
+
+        if (!g_initialize(false))
+        {
+            std::cout
+                << "SDL FFB: Logitech SDK initialization failed; "
+                << "using normal SDL haptics" << std::endl;
+            shutdown_sdk();
+            return false;
+        }
+
+        g_sdk_initialized = true;
+        g_update();
+
+        // This test branch targets the common single Logitech-wheel setup.
+        // The public SDK uses controller index 0 for the first connected wheel.
+        if (!g_is_connected(0))
+        {
+            std::cout
+                << "SDL FFB: Logitech SDK did not report controller 0; "
+                << "using normal SDL haptics" << std::endl;
+            shutdown_sdk();
+            return false;
+        }
+
+        int range = 0;
+        if (!g_get_range(0, &range) || range < 40 || range > 2700)
+        {
+            std::cout
+                << "SDL FFB: unable to read Logitech operating range; "
+                << "using normal SDL haptics" << std::endl;
+            shutdown_sdk();
+            return false;
+        }
+
+        g_saved_range = range;
+        std::cout
+            << "SDL FFB: captured Logitech operating range: "
+            << g_saved_range << " degrees" << std::endl;
+        return true;
+    }
+
+    static void restore_range_and_softstop()
+    {
+        if (!g_sdk_initialized || g_saved_range <= 0)
+            return;
+
+        g_update();
+
+        const bool range_restored =
+            g_set_range(0, g_saved_range);
+        const bool softstop_started =
+            range_restored && g_play_softstop(0, 100);
+
+        g_softstop_active = softstop_started;
+
+        std::cout
+            << "SDL FFB: Logitech range restore "
+            << (range_restored ? "OK" : "FAILED")
+            << ", soft stop "
+            << (softstop_started ? "OK" : "FAILED")
+            << ", range=" << g_saved_range << " degrees"
+            << std::endl;
+    }
+
+    static SDL_Haptic* open_haptic_preserving_range(SDL_Joystick* joystick)
+    {
+        const bool preserve_logitech_range =
+            capture_current_range(joystick);
+
+        SDL_Haptic* haptic = SDL_HapticOpenFromJoystick(joystick);
+        if (!haptic)
+        {
+            if (preserve_logitech_range)
+                shutdown_sdk();
+            return nullptr;
+        }
+
+        if (preserve_logitech_range)
+            restore_range_and_softstop();
+
+        return haptic;
+    }
+
+    static void close_haptic(SDL_Haptic* haptic)
+    {
+        if (g_sdk_initialized)
+            shutdown_sdk();
+
+        SDL_HapticClose(haptic);
+    }
+}
+
+#define SDL_HapticOpenFromJoystick \
+    cannonball_logitech_range_test::open_haptic_preserving_range
+#define SDL_HapticClose cannonball_logitech_range_test::close_haptic
+#endif
+
 // Preserve the existing backend implementation under a private periodic entry
 // point. All other forcefeedback symbols retain their original names.
 #define set_tyre_slip set_tyre_slip_base
 #include "ffeedback_base.cpp"
 #undef set_tyre_slip
+
+#if defined(_WIN32)
+#undef SDL_HapticOpenFromJoystick
+#undef SDL_HapticClose
+#endif
 
 namespace forcefeedback
 {
