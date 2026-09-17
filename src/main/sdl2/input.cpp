@@ -185,7 +185,9 @@ namespace
             return SDL_CONTROLLER_BUTTON_A;
         if (action == Config::SYSTEM_ACTION_BACK)
             return SDL_CONTROLLER_BUTTON_B;
-        return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+        if (action == Config::SYSTEM_ACTION_PAUSE)
+            return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+        return -1;
     }
 
     int system_action_state_for_event(
@@ -200,6 +202,18 @@ namespace
         if (signature.empty())
             return -1;
 
+        // Every physical system-action event already probes Pause. Reuse that
+        // event to probe the independently bindable Exit action as well, so no
+        // second device-event system is introduced.
+        if (action == Config::SYSTEM_ACTION_PAUSE)
+        {
+            const int exit_state = system_action_state_for_event(
+                Config::SYSTEM_ACTION_EXIT, signature, type, index, value,
+                button_pressed, group);
+            if (exit_state > 0)
+                cannonball::state = cannonball::STATE_QUIT;
+        }
+
         // Presses are context-sensitive, but the matching release must always
         // clear the logical state even if the press changed frontend/game state.
         // ACCEPT is also exposed during gameplay so score-entry screens can use
@@ -207,7 +221,8 @@ namespace
         const bool in_menu = cannonball::state == cannonball::STATE_MENU;
         const bool in_game = cannonball::state == cannonball::STATE_GAME;
         const bool press_allowed =
-            action == Config::SYSTEM_ACTION_PAUSE
+            (action == Config::SYSTEM_ACTION_PAUSE ||
+             action == Config::SYSTEM_ACTION_EXIT)
                 ? in_game && group == config.input_mode()
                 : action == Config::SYSTEM_ACTION_ACCEPT
                     ? in_menu || in_game
@@ -1155,6 +1170,13 @@ void Input::handle_key_down(SDL_Keysym* keysym)
             display_toggle_key = keysym->sym;
             toggle_display_mode();
         }
+        return;
+    }
+
+    if (cannonball::state == cannonball::STATE_GAME &&
+        keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_EXIT))
+    {
+        cannonball::state = cannonball::STATE_QUIT;
         return;
     }
 

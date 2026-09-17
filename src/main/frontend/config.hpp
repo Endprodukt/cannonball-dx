@@ -36,10 +36,12 @@
     static constexpr int SYSTEM_ACTION_PAUSE = 0; \
     static constexpr int SYSTEM_ACTION_ACCEPT = 1; \
     static constexpr int SYSTEM_ACTION_BACK = 2; \
+    static constexpr int SYSTEM_ACTION_EXIT = 3; \
     const char* system_action_name(int action) \
     { \
         if (action == SYSTEM_ACTION_ACCEPT) return "accept"; \
         if (action == SYSTEM_ACTION_BACK) return "back"; \
+        if (action == SYSTEM_ACTION_EXIT) return "exit"; \
         return "pause"; \
     } \
     int system_action_key(int action) \

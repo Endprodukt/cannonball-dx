@@ -173,11 +173,8 @@ void Config::load()
         std::cout << " config.xml will be created in current directory.\n";
     }
 
-    // ------------------------------------------------------------------------
-    // Master Settings
-    // ------------------------------------------------------------------------
-    int F10Escape    = cfg.get_int("F10Escape", 0); // default is to use ESCAPE
-    master_break_key = F10Escape ? SDLK_F10 : SDLK_ESCAPE;
+    // Legacy master-break selection was replaced by the normal Exit binding.
+    cfg.erase("F10Escape");
 
     // ------------------------------------------------------------------------
     // Data Settings
@@ -447,9 +444,7 @@ bool Config::save()
 {
     // Update all the settings in the tree
 
-    // Master Settings
-    int F10Escape = (master_break_key == SDLK_F10) ? 1 : 0;
-    cfg.put_int("F10Escape", F10Escape); // default is to use ESCAPE
+    // Exit is persisted through controls.system.exit.* bindings.
 
     // JJP - CRT emulation settings
     cfg.put_int("video.mode",               video.mode);          // Video Mode: Full Screen (2)

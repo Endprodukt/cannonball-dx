@@ -167,7 +167,6 @@ void Menu::populate_for_pc()
     menu_settings.push_back(ENTRY_CONTROLS);
     menu_settings.push_back(ENTRY_ENGINE);
     menu_settings.push_back(ENTRY_SCORES);
-    menu_settings.push_back(ENTRY_MASTER_BREAK);
     menu_settings.push_back(ENTRY_SAVE);
 
     menu_video.push_back(ENTRY_FRAME_RATE);

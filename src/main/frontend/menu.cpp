@@ -39,10 +39,11 @@
 
 namespace
 {
-    const int BINDING_ROWS = 16;
+    const int BINDING_ROWS = 17;
     const int PAUSE_ROW = 8;
-    const int ACCEPT_ROW = 9;
-    const int MENU_BACK_ROW = 10;
+    const int EXIT_ROW = 9;
+    const int ACCEPT_ROW = 10;
+    const int MENU_BACK_ROW = 11;
     const int RADIO_ROW = BINDING_ROWS - 1;
     const int BACK_ROW = BINDING_ROWS;
     const int EDITOR_ROWS = BINDING_ROWS + 1;
@@ -89,11 +90,14 @@ namespace
 
     bool is_system_action_row(int row)
     {
-        return row == PAUSE_ROW || row == ACCEPT_ROW || row == MENU_BACK_ROW;
+        return row == PAUSE_ROW || row == EXIT_ROW ||
+               row == ACCEPT_ROW || row == MENU_BACK_ROW;
     }
 
     int system_action_for_row(int row)
     {
+        if (row == EXIT_ROW)
+            return Config::SYSTEM_ACTION_EXIT;
         if (row == ACCEPT_ROW)
             return Config::SYSTEM_ACTION_ACCEPT;
         if (row == MENU_BACK_ROW)
@@ -231,6 +235,7 @@ namespace
         "COIN",
         "MENU ACCESS",
         "PAUSE",
+        "EXIT",
         "MENU ACCEPT",
         "MENU BACK",
         "VIEW CHANGE",
@@ -251,6 +256,7 @@ namespace
         device_binding_t::TARGET_COIN,
         device_binding_t::TARGET_MENU,
         -1, // Pause uses the independent system-action binding store.
+        -1, // Exit uses the independent system-action binding store.
         -1, // Menu Accept uses the independent system-action binding store.
         -1, // Menu Back uses the independent system-action binding store.
         device_binding_t::TARGET_VIEW,
@@ -272,6 +278,7 @@ namespace
         8,
         9,
         10,
+        -1,
         -1,
         -1,
         -1,
@@ -444,7 +451,9 @@ namespace
                 return "A";
             if (action == Config::SYSTEM_ACTION_BACK)
                 return "B";
-            return "R3";
+            if (action == Config::SYSTEM_ACTION_PAUSE)
+                return "R3";
+            return "-";
         }
 
         return "-";

@@ -590,6 +590,11 @@ void Config::load()
     {
         set_system_action_key(SYSTEM_ACTION_BACK, SDLK_ESCAPE);
     }
+    if (first_run ||
+        cfg.get_int("controls.system.exit.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)
+    {
+        set_system_action_key(SYSTEM_ACTION_EXIT, SDLK_ESCAPE);
+    }
 
     // CannonBall DX stores every score table in one physical file. Keep the
     // old mode-specific paths as logical selectors, but make Original World

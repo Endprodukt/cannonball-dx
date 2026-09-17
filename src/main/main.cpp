@@ -249,17 +249,7 @@ static void process_events(void)
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
             case SDL_KEYDOWN:
-                // The master-break key remains a gameplay-only emergency quit.
-                // Frontend Back is a normal configurable logical action.
-                if (event.key.keysym.sym == config.master_break_key &&
-                    cannonball::state == STATE_GAME)
-                {
-                    cannonball::state = STATE_QUIT;
-                }
-                else
-                {
-                    input.handle_key_down(&event.key.keysym);
-                }
+                input.handle_key_down(&event.key.keysym);
                 break;
 
             case SDL_KEYUP:
