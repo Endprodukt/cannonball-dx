@@ -1,0 +1,69 @@
+name: Apply Menu Cleanup
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/apply-menu-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove System submenu and promote score deletion
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/main/frontend/menu_legacy.hpp.inc')
+          s = p.read_text(encoding='utf-8')
+
+          s = s.replace(
+              '            menu_settings.push_back("ENHANCEMENTS");\n            menu_settings.push_back("SYSTEM");\n            menu_settings.push_back(ENTRY_BACK);',
+              '            menu_settings.push_back("ENHANCEMENTS");\n            menu_settings.push_back(ENTRY_SCORES);\n            menu_settings.push_back(ENTRY_BACK);',
+              1)
+
+          s = s.replace(
+              '    std::vector<std::string> menu_system;\n',
+              '',
+              1)
+
+          system_adjust = '''        else if (menu_selected == &menu_system)\n        {\n            if (selected(ENTRY_MASTER_BREAK))\n            {\n                handled = true;\n                const int target = direction > 0 ? SDLK_F10 : SDLK_ESCAPE;\n                if (config.master_break_key != target)\n                {\n                    config.master_break_key = target;\n                    menu_system[cursor] =\n                        std::string(ENTRY_MASTER_BREAK) +\n                        (target == SDLK_ESCAPE ? "ESC" : "F10");\n                    changed = true;\n                }\n            }\n        }\n'''
+          if system_adjust not in s:
+              raise SystemExit('menu_system adjust block not found')
+          s = s.replace(system_adjust, '', 1)
+
+          system_route = '''            else if (option == "SYSTEM")\n            {\n                menu_system.clear();\n                menu_system.push_back(\n                    std::string(ENTRY_MASTER_BREAK) +\n                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10"));\n                menu_system.push_back(ENTRY_SCORES);\n                menu_system.push_back(ENTRY_BACK);\n                set_menu(&menu_system);\n            }\n'''
+          if system_route not in s:
+              raise SystemExit('SYSTEM route block not found')
+          s = s.replace(
+              system_route,
+              '''            else if (option.rfind(ENTRY_SCORES, 0) == 0)\n            {\n                display_message(\n                    config.clear_scores()\n                        ? "SCORES CLEARED"\n                        : "NO SAVED SCORES FOUND!");\n            }\n''',
+              1)
+
+          system_menu = '''        if (!config.smartypi.enabled && menu_selected == &menu_system)\n        {\n            if (!select_pressed())\n            {\n                MenuBase::tick_menu();\n                return;\n            }\n\n            const std::string& option = menu_system[cursor];\n\n            if (option.rfind(ENTRY_MASTER_BREAK, 0) == 0)\n            {\n                config.master_break_key =\n                    config.master_break_key == SDLK_ESCAPE ? SDLK_F10 : SDLK_ESCAPE;\n                menu_system[cursor] =\n                    std::string(ENTRY_MASTER_BREAK) +\n                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10");\n            }\n            else if (option.rfind(ENTRY_SCORES, 0) == 0)\n            {\n                display_message(\n                    config.clear_scores()\n                        ? "SCORES CLEARED"\n                        : "NO SAVED SCORES FOUND!");\n            }\n            else if (option.rfind(ENTRY_BACK, 0) == 0)\n            {\n                menu_back();\n            }\n\n            refresh_menu();\n            return;\n        }\n\n'''
+          if system_menu not in s:
+              raise SystemExit('menu_system handler block not found')
+          s = s.replace(system_menu, '', 1)
+
+          p.write_text(s, encoding='utf-8', newline='')
+          PY
+
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "Endprodukt"
+          git config user.email "o.carell@kabelmail.de"
+          git rm .github/workflows/apply-menu-cleanup.yml
+          git add src/main/frontend/menu_legacy.hpp.inc
+          git commit -m "ui: remove obsolete system submenu"
+          git push origin HEAD:master
