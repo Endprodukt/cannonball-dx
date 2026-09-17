@@ -27,143 +27,128 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='')
 
           def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8', newline='')
+              text = read(path)
+              if old not in text:
+                  raise SystemExit(f'{path}: missing marker: {old[:100]!r}')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: marker not unique ({text.count(old)} matches): {old[:100]!r}')
+              write(path, text.replace(old, new, 1))
 
-          # Remove the hard-coded Escape/F10 gameplay exit interception.
-          replace_once(
+          def regex_once(path, pattern, repl, flags=0):
+              text = read(path)
+              new, count = re.subn(pattern, repl, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{path}: regex matched {count}: {pattern[:100]!r}')
+              write(path, new)
+
+          # 1) The event loop no longer owns a special Escape/F10 exit path.
+          regex_once(
               'src/main/main.cpp',
-              '''            case SDL_KEYDOWN:\n                // The master-break key remains a gameplay-only emergency quit.\n                // Frontend Back is a normal configurable logical action.\n                if (event.key.keysym.sym == config.master_break_key &&\n                    cannonball::state == STATE_GAME)\n                {\n                    cannonball::state = STATE_QUIT;\n                }\n                else\n                {\n                    input.handle_key_down(&event.key.keysym);\n                }\n                break;\n''',
+              r'''            case SDL_KEYDOWN:\n(?:                .*\n)*?                if \(event\.key\.keysym\.sym == config\.master_break_key &&\n                    cannonball::state == STATE_GAME\)\n                \{\n                    cannonball::state = STATE_QUIT;\n                \}\n                else\n                \{\n                    input\.handle_key_down\(&event\.key\.keysym\);\n                \}\n                break;\n''',
               '''            case SDL_KEYDOWN:\n                input.handle_key_down(&event.key.keysym);\n                break;\n''')
 
-          # Add Exit to the existing independent system-action binding store.
+          # 2) Exit is a first-class system action in the existing binding store.
           replace_once(
               'src/main/frontend/config.hpp',
-              '''    static constexpr int SYSTEM_ACTION_PAUSE = 0; \\\n    static constexpr int SYSTEM_ACTION_ACCEPT = 1; \\\n    static constexpr int SYSTEM_ACTION_BACK = 2; \\\n    const char* system_action_name(int action) \\\n    { \\\n        if (action == SYSTEM_ACTION_ACCEPT) return "accept"; \\\n        if (action == SYSTEM_ACTION_BACK) return "back"; \\\n        return "pause"; \\\n    } \\\n''',
-              '''    static constexpr int SYSTEM_ACTION_PAUSE = 0; \\\n    static constexpr int SYSTEM_ACTION_ACCEPT = 1; \\\n    static constexpr int SYSTEM_ACTION_BACK = 2; \\\n    static constexpr int SYSTEM_ACTION_EXIT = 3; \\\n    const char* system_action_name(int action) \\\n    { \\\n        if (action == SYSTEM_ACTION_ACCEPT) return "accept"; \\\n        if (action == SYSTEM_ACTION_BACK) return "back"; \\\n        if (action == SYSTEM_ACTION_EXIT) return "exit"; \\\n        return "pause"; \\\n    } \\\n''')
-
-          # Existing configs receive the same Escape default as fresh installs.
+              '    static constexpr int SYSTEM_ACTION_BACK = 2; \\\n',
+              '    static constexpr int SYSTEM_ACTION_BACK = 2; \\\n    static constexpr int SYSTEM_ACTION_EXIT = 3; \\\n')
           replace_once(
-              'src/main/frontend/config.cpp',
-              '''    if (first_run ||\n        cfg.get_int("controls.system.back.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)\n    {\n        set_system_action_key(SYSTEM_ACTION_BACK, SDLK_ESCAPE);\n    }\n''',
-              '''    if (first_run ||\n        cfg.get_int("controls.system.back.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)\n    {\n        set_system_action_key(SYSTEM_ACTION_BACK, SDLK_ESCAPE);\n    }\n    if (first_run ||\n        cfg.get_int("controls.system.exit.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)\n    {\n        set_system_action_key(SYSTEM_ACTION_EXIT, SDLK_ESCAPE);\n    }\n''')
+              'src/main/frontend/config.hpp',
+              '        if (action == SYSTEM_ACTION_BACK) return "back"; \\\n        return "pause"; \\\n',
+              '        if (action == SYSTEM_ACTION_BACK) return "back"; \\\n        if (action == SYSTEM_ACTION_EXIT) return "exit"; \\\n        return "pause"; \\\n')
 
-          # Stop loading and writing the legacy F10Escape setting. Erasing it
-          # from the tree means old configs lose it on their next normal save.
-          replace_once(
+          # 3) Missing Exit bindings in old and new configs default to Escape.
+          path = 'src/main/frontend/config.cpp'
+          text = read(path)
+          if 'controls.system.exit.keyboard' not in text:
+              marker = '''    if (first_run ||\n        cfg.get_int("controls.system.back.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)\n    {\n        set_system_action_key(SYSTEM_ACTION_BACK, SDLK_ESCAPE);\n    }\n'''
+              addition = marker + '''    if (first_run ||\n        cfg.get_int("controls.system.exit.keyboard", KEY_SETTING_MISSING) == KEY_SETTING_MISSING)\n    {\n        set_system_action_key(SYSTEM_ACTION_EXIT, SDLK_ESCAPE);\n    }\n'''
+              if marker not in text:
+                  raise SystemExit(f'{path}: back-action default marker missing')
+              write(path, text.replace(marker, addition, 1))
+
+          # 4) Remove legacy F10Escape persistence. Existing nodes are erased on load.
+          regex_once(
               'src/main/frontend/config_base.cpp',
-              '''    // ------------------------------------------------------------------------\n    // Master Settings\n    // ------------------------------------------------------------------------\n    int F10Escape    = cfg.get_int("F10Escape", 0); // default is to use ESCAPE\n    master_break_key = F10Escape ? SDLK_F10 : SDLK_ESCAPE;\n\n''',
+              r'''    // ------------------------------------------------------------------------\n    // Master Settings\n    // ------------------------------------------------------------------------\n    int F10Escape\s*= cfg\.get_int\("F10Escape", 0\);[^\n]*\n    master_break_key = F10Escape \? SDLK_F10 : SDLK_ESCAPE;\n\n''',
               '''    // Legacy master-break selection was replaced by the normal Exit binding.\n    cfg.erase("F10Escape");\n\n''')
-          replace_once(
+          regex_once(
               'src/main/frontend/config_base.cpp',
-              '''    // Master Settings\n    int F10Escape = (master_break_key == SDLK_F10) ? 1 : 0;\n    cfg.put_int("F10Escape", F10Escape); // default is to use ESCAPE\n\n''',
+              r'''    // Master Settings\n    int F10Escape = \(master_break_key == SDLK_F10\) \? 1 : 0;\n    cfg\.put_int\("F10Escape", F10Escape\);[^\n]*\n\n''',
               '''    // Exit is persisted through controls.system.exit.* bindings.\n\n''')
 
-          # Remove the old Settings submenu toggle itself.
+          # 5) Remove the old Settings submenu entry.
           replace_once(
               'src/main/frontend/menu_base.cpp',
-              '''    menu_settings.push_back(ENTRY_SCORES);\n    menu_settings.push_back(ENTRY_MASTER_BREAK);\n    menu_settings.push_back(ENTRY_SAVE);\n''',
-              '''    menu_settings.push_back(ENTRY_SCORES);\n    menu_settings.push_back(ENTRY_SAVE);\n''')
+              '    menu_settings.push_back(ENTRY_MASTER_BREAK);\n',
+              '')
 
-          # Add Exit as a regular row in the unified KEYBOARD/GAMEPAD/WHEEL editor.
+          # 6) Add Exit to the normal KEYBOARD / GAMEPAD / WHEEL matrix.
           replace_once(
               'src/main/frontend/menu.cpp',
               '''    const int BINDING_ROWS = 16;\n    const int PAUSE_ROW = 8;\n    const int ACCEPT_ROW = 9;\n    const int MENU_BACK_ROW = 10;\n''',
               '''    const int BINDING_ROWS = 17;\n    const int PAUSE_ROW = 8;\n    const int EXIT_ROW = 9;\n    const int ACCEPT_ROW = 10;\n    const int MENU_BACK_ROW = 11;\n''')
           replace_once(
               'src/main/frontend/menu.cpp',
-              '''    bool is_system_action_row(int row)\n    {\n        return row == PAUSE_ROW || row == ACCEPT_ROW || row == MENU_BACK_ROW;\n    }\n    int system_action_for_row(int row)\n    {\n        if (row == ACCEPT_ROW)\n            return Config::SYSTEM_ACTION_ACCEPT;\n        if (row == MENU_BACK_ROW)\n            return Config::SYSTEM_ACTION_BACK;\n        return Config::SYSTEM_ACTION_PAUSE;\n    }\n''',
-              '''    bool is_system_action_row(int row)\n    {\n        return row == PAUSE_ROW || row == EXIT_ROW ||\n               row == ACCEPT_ROW || row == MENU_BACK_ROW;\n    }\n    int system_action_for_row(int row)\n    {\n        if (row == EXIT_ROW)\n            return Config::SYSTEM_ACTION_EXIT;\n        if (row == ACCEPT_ROW)\n            return Config::SYSTEM_ACTION_ACCEPT;\n        if (row == MENU_BACK_ROW)\n            return Config::SYSTEM_ACTION_BACK;\n        return Config::SYSTEM_ACTION_PAUSE;\n    }\n''')
+              '        return row == PAUSE_ROW || row == ACCEPT_ROW || row == MENU_BACK_ROW;\n',
+              '        return row == PAUSE_ROW || row == EXIT_ROW ||\n               row == ACCEPT_ROW || row == MENU_BACK_ROW;\n')
           replace_once(
               'src/main/frontend/menu.cpp',
-              '''        "MENU ACCESS",\n        "PAUSE",\n        "MENU ACCEPT",\n        "MENU BACK",\n''',
-              '''        "MENU ACCESS",\n        "PAUSE",\n        "EXIT",\n        "MENU ACCEPT",\n        "MENU BACK",\n''')
+              '''    int system_action_for_row(int row)\n    {\n        if (row == ACCEPT_ROW)\n''',
+              '''    int system_action_for_row(int row)\n    {\n        if (row == EXIT_ROW)\n            return Config::SYSTEM_ACTION_EXIT;\n        if (row == ACCEPT_ROW)\n''')
           replace_once(
               'src/main/frontend/menu.cpp',
-              '''        device_binding_t::TARGET_MENU,\n        -1, // Pause uses the independent system-action binding store.\n        -1, // Menu Accept uses the independent system-action binding store.\n        -1, // Menu Back uses the independent system-action binding store.\n        device_binding_t::TARGET_VIEW,\n''',
-              '''        device_binding_t::TARGET_MENU,\n        -1, // Pause uses the independent system-action binding store.\n        -1, // Exit uses the independent system-action binding store.\n        -1, // Menu Accept uses the independent system-action binding store.\n        -1, // Menu Back uses the independent system-action binding store.\n        device_binding_t::TARGET_VIEW,\n''')
+              '        "PAUSE",\n        "MENU ACCEPT",\n',
+              '        "PAUSE",\n        "EXIT",\n        "MENU ACCEPT",\n')
+          replace_once(
+              'src/main/frontend/menu.cpp',
+              '''        -1, // Pause uses the independent system-action binding store.\n        -1, // Menu Accept uses the independent system-action binding store.\n''',
+              '''        -1, // Pause uses the independent system-action binding store.\n        -1, // Exit uses the independent system-action binding store.\n        -1, // Menu Accept uses the independent system-action binding store.\n''')
           replace_once(
               'src/main/frontend/menu.cpp',
               '''        10,\n        -1,\n        -1,\n        -1,\n        11,\n''',
               '''        10,\n        -1,\n        -1,\n        -1,\n        -1,\n        11,\n''')
           replace_once(
               'src/main/frontend/menu.cpp',
-              '''            if (action == Config::SYSTEM_ACTION_ACCEPT)\n                return "A";\n            if (action == Config::SYSTEM_ACTION_BACK)\n                return "B";\n            return "R3";\n''',
-              '''            if (action == Config::SYSTEM_ACTION_ACCEPT)\n                return "A";\n            if (action == Config::SYSTEM_ACTION_BACK)\n                return "B";\n            if (action == Config::SYSTEM_ACTION_PAUSE)\n                return "R3";\n            return "-";\n''')
+              '''            if (action == Config::SYSTEM_ACTION_BACK)\n                return "B";\n            return "R3";\n''',
+              '''            if (action == Config::SYSTEM_ACTION_BACK)\n                return "B";\n            if (action == Config::SYSTEM_ACTION_PAUSE)\n                return "R3";\n            return "-";\n''')
 
-          # Route keyboard/gamepad/wheel Exit bindings through the same system
-          # action plumbing. Escape remains a frontend-only raw Back fallback
-          # because Exit is honored only while STATE_GAME is active.
+          # 7) Runtime: keyboard exits immediately in gameplay. Device Exit is
+          # evaluated alongside Pause for every button/HAT event, but only the
+          # currently active input family may exit during gameplay.
           replace_once(
               'src/main/sdl2/input.cpp',
-              '''    int default_system_gamepad_button(int action)\n    {\n        if (action == Config::SYSTEM_ACTION_ACCEPT)\n            return SDL_CONTROLLER_BUTTON_A;\n        if (action == Config::SYSTEM_ACTION_BACK)\n            return SDL_CONTROLLER_BUTTON_B;\n        return SDL_CONTROLLER_BUTTON_RIGHTSTICK;\n    }\n''',
-              '''    int default_system_gamepad_button(int action)\n    {\n        if (action == Config::SYSTEM_ACTION_ACCEPT)\n            return SDL_CONTROLLER_BUTTON_A;\n        if (action == Config::SYSTEM_ACTION_BACK)\n            return SDL_CONTROLLER_BUTTON_B;\n        if (action == Config::SYSTEM_ACTION_PAUSE)\n            return SDL_CONTROLLER_BUTTON_RIGHTSTICK;\n        return -1;\n    }\n''')
+              '''        if (action == Config::SYSTEM_ACTION_BACK)\n            return SDL_CONTROLLER_BUTTON_B;\n        return SDL_CONTROLLER_BUTTON_RIGHTSTICK;\n''',
+              '''        if (action == Config::SYSTEM_ACTION_BACK)\n            return SDL_CONTROLLER_BUTTON_B;\n        if (action == Config::SYSTEM_ACTION_PAUSE)\n            return SDL_CONTROLLER_BUTTON_RIGHTSTICK;\n        return -1;\n''')
           replace_once(
               'src/main/sdl2/input.cpp',
-              '''        const bool press_allowed =\n            action == Config::SYSTEM_ACTION_PAUSE\n                ? in_game && group == config.input_mode()\n                : action == Config::SYSTEM_ACTION_ACCEPT\n                    ? in_menu || in_game\n                    : in_menu;\n''',
-              '''        const bool press_allowed =\n            (action == Config::SYSTEM_ACTION_PAUSE ||\n             action == Config::SYSTEM_ACTION_EXIT)\n                ? in_game && group == config.input_mode()\n                : action == Config::SYSTEM_ACTION_ACCEPT\n                    ? in_menu || in_game\n                    : in_menu;\n''')
+              '''        const bool press_allowed =\n            action == Config::SYSTEM_ACTION_PAUSE\n                ? in_game && group == config.input_mode()\n''',
+              '''        const bool press_allowed =\n            (action == Config::SYSTEM_ACTION_PAUSE ||\n             action == Config::SYSTEM_ACTION_EXIT)\n                ? in_game && group == config.input_mode()\n''')
+          replace_once(
+              'src/main/sdl2/input.cpp',
+              '''        if (signature.empty())\n            return -1;\n\n        // Presses are context-sensitive, but the matching release must always\n''',
+              '''        if (signature.empty())\n            return -1;\n\n        // Every physical system-action event already probes Pause. Reuse that\n        // event to probe the independently bindable Exit action as well, so no\n        // second device-event system is introduced.\n        if (action == Config::SYSTEM_ACTION_PAUSE)\n        {\n            const int exit_state = system_action_state_for_event(\n                Config::SYSTEM_ACTION_EXIT, signature, type, index, value,\n                button_pressed, group);\n            if (exit_state > 0)\n                cannonball::state = cannonball::STATE_QUIT;\n        }\n\n        // Presses are context-sensitive, but the matching release must always\n''')
           replace_once(
               'src/main/sdl2/input.cpp',
               '''    handle_key_down_base(keysym);\n\n    if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);\n''',
               '''    if (cannonball::state == cannonball::STATE_GAME &&\n        keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_EXIT))\n    {\n        cannonball::state = cannonball::STATE_QUIT;\n        return;\n    }\n\n    handle_key_down_base(keysym);\n\n    if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);\n''')
 
-          # Wheel button down.
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_WHEEL);\n        const int accept_state = system_action_state_for_event(\n''',
-              '''        const int exit_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_EXIT, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_WHEEL);\n        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_WHEEL);\n        const int accept_state = system_action_state_for_event(\n''')
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n\n    if (!controller_side && wheel_runtime)\n''',
-              '''        if (exit_state > 0) cannonball::state = cannonball::STATE_QUIT;\n        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n\n    if (!controller_side && wheel_runtime)\n''')
-
-          # Wheel HAT motion.
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,\n            BINDING_WHEEL);\n        const int accept_state = system_action_state_for_event(\n''',
-              '''        const int exit_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_EXIT, signature,\n            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,\n            BINDING_WHEEL);\n        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_HAT, evt->hat, evt->value, false,\n            BINDING_WHEEL);\n        const int accept_state = system_action_state_for_event(\n''')
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n}\nvoid Input::handle_controller_down''',
-              '''        if (exit_state > 0) cannonball::state = cannonball::STATE_QUIT;\n        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n}\nvoid Input::handle_controller_down''')
-
-          # GameController button down.
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_GAMEPAD);\n        const int accept_state = system_action_state_for_event(\n''',
-              '''        const int exit_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_EXIT, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_GAMEPAD);\n        const int pause_state = system_action_state_for_event(\n            Config::SYSTEM_ACTION_PAUSE, signature,\n            device_binding_t::TYPE_BUTTON, evt->button, 0, true,\n            BINDING_GAMEPAD);\n        const int accept_state = system_action_state_for_event(\n''')
-          replace_once(
-              'src/main/sdl2/input.cpp',
-              '''        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n\n    if (gamepad_runtime)\n''',
-              '''        if (exit_state > 0) cannonball::state = cannonball::STATE_QUIT;\n        if (pause_state >= 0) set_key_state(PAUSE, pause_state != 0);\n        if (accept_state >= 0) set_key_state(ACCEPT, accept_state != 0);\n        if (back_state >= 0) set_key_state(BACK, back_state != 0);\n    }\n\n    if (gamepad_runtime)\n''')
-
-          # Sanity checks for the requested behavior.
-          checks = {
-              'src/main/main.cpp': ['config.master_break_key'],
-              'src/main/frontend/menu_base.cpp': ['menu_settings.push_back(ENTRY_MASTER_BREAK);'],
-          }
-          for path, forbidden in checks.items():
-              text = Path(path).read_text(encoding='utf-8')
-              for token in forbidden:
-                  if token in text:
-                      raise SystemExit(f'{path}: legacy token still active: {token}')
-
-          required = {
-              'src/main/frontend/menu.cpp': ['"EXIT"', 'SYSTEM_ACTION_EXIT'],
-              'src/main/sdl2/input.cpp': ['SYSTEM_ACTION_EXIT', 'STATE_QUIT'],
-              'src/main/frontend/config.cpp': ['controls.system.exit.keyboard'],
-          }
-          for path, tokens in required.items():
-              text = Path(path).read_text(encoding='utf-8')
-              for token in tokens:
-                  if token not in text:
-                      raise SystemExit(f'{path}: missing expected token: {token}')
+          # Requested invariants.
+          assert 'config.master_break_key' not in read('src/main/main.cpp')
+          assert 'menu_settings.push_back(ENTRY_MASTER_BREAK);' not in read('src/main/frontend/menu_base.cpp')
+          assert '"EXIT"' in read('src/main/frontend/menu.cpp')
+          assert 'SYSTEM_ACTION_EXIT' in read('src/main/sdl2/input.cpp')
+          assert 'controls.system.exit.keyboard' in read('src/main/frontend/config.cpp')
+          assert 'input.key_press == SDLK_ESCAPE' in read('src/main/frontend/menu.cpp')
           PY
 
       - name: Configure Windows Release
