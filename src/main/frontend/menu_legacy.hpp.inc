@@ -212,7 +212,7 @@ public:
 #endif
             menu_settings.push_back("GAMEPLAY");
             menu_settings.push_back("ENHANCEMENTS");
-            menu_settings.push_back("SYSTEM");
+            menu_settings.push_back(ENTRY_SCORES);
             menu_settings.push_back(ENTRY_BACK);
 
             menu_video.clear();
@@ -289,7 +289,6 @@ protected:
     };
 
     // DX-only submenus.
-    std::vector<std::string> menu_system;
     std::vector<std::string> menu_video_enhancements;
     std::vector<std::string> menu_video_emulation;
 
@@ -1508,22 +1507,6 @@ protected:
                 }
             }
         }
-        else if (menu_selected == &menu_system)
-        {
-            if (selected(ENTRY_MASTER_BREAK))
-            {
-                handled = true;
-                const int target = direction > 0 ? SDLK_F10 : SDLK_ESCAPE;
-                if (config.master_break_key != target)
-                {
-                    config.master_break_key = target;
-                    menu_system[cursor] =
-                        std::string(ENTRY_MASTER_BREAK) +
-                        (target == SDLK_ESCAPE ? "ESC" : "F10");
-                    changed = true;
-                }
-            }
-        }
 
         if (changed)
             directional_save_pending = true;
@@ -1618,15 +1601,12 @@ protected:
             {
                 set_menu(&menu_enhancements);
             }
-            else if (option == "SYSTEM")
+            else if (option.rfind(ENTRY_SCORES, 0) == 0)
             {
-                menu_system.clear();
-                menu_system.push_back(
-                    std::string(ENTRY_MASTER_BREAK) +
-                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10"));
-                menu_system.push_back(ENTRY_SCORES);
-                menu_system.push_back(ENTRY_BACK);
-                set_menu(&menu_system);
+                display_message(
+                    config.clear_scores()
+                        ? "SCORES CLEARED"
+                        : "NO SAVED SCORES FOUND!");
             }
             else if (option.rfind(ENTRY_BACK, 0) == 0)
             {
@@ -1660,40 +1640,6 @@ protected:
 
             populate_ffb_tuning();
             set_menu(&menu_ffb_tuning);
-            refresh_menu();
-            return;
-        }
-
-        if (!config.smartypi.enabled && menu_selected == &menu_system)
-        {
-            if (!select_pressed())
-            {
-                MenuBase::tick_menu();
-                return;
-            }
-
-            const std::string& option = menu_system[cursor];
-
-            if (option.rfind(ENTRY_MASTER_BREAK, 0) == 0)
-            {
-                config.master_break_key =
-                    config.master_break_key == SDLK_ESCAPE ? SDLK_F10 : SDLK_ESCAPE;
-                menu_system[cursor] =
-                    std::string(ENTRY_MASTER_BREAK) +
-                    (config.master_break_key == SDLK_ESCAPE ? "ESC" : "F10");
-            }
-            else if (option.rfind(ENTRY_SCORES, 0) == 0)
-            {
-                display_message(
-                    config.clear_scores()
-                        ? "SCORES CLEARED"
-                        : "NO SAVED SCORES FOUND!");
-            }
-            else if (option.rfind(ENTRY_BACK, 0) == 0)
-            {
-                menu_back();
-            }
-
             refresh_menu();
             return;
         }
