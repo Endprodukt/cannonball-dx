@@ -13,6 +13,17 @@
 
 #pragma once
 
+// windows.h defines min/max macros unless NOMINMAX is set before including it.
+// The Logitech G29 test wrapper loads the vendor SDK through Win32 and therefore
+// includes windows.h before the normal FFB backend. Remove those macros here so
+// existing std::min/std::max calls keep compiling unchanged.
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <source_location>
 
 namespace forcefeedback
