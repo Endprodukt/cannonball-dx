@@ -375,8 +375,11 @@ void OTraffic::move_spawned_sprite(oentry* sprite)
             traffic_proximity ^= 3;
         
             // use_traffic_speed:
-            // Sprite hemmed in on left + right. Resort to average traffic speed.
-            if (!traffic_proximity)
+            // Only inherit a nearby car's speed when traffic_logic() has
+            // explicitly marked another traffic car as close on the z axis.
+            // Player proximity also sets the side bits, so using them alone
+            // can otherwise make a traffic car brake sharply to 0x70.
+            if (!traffic_proximity && (sprite->traffic_proximity & BIT_2))
             {
                 sprite->traffic_speed = sprite->traffic_near_speed < 0x70 ? 0x70 : sprite->traffic_near_speed;
                 update_props(sprite);
