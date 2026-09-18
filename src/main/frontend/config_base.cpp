@@ -57,8 +57,8 @@ Config::Config(void)
     sound.music.push_back(magical); // 1st slot
     sound.music.push_back(breeze);  // 2nd slot
     sound.music.push_back(splash);  // 3rd slot
-    // Users can replace these with custom music via .wav, .mp3, or .ym files in the res/ folder,
-    // and/or add additional tracks.
+    // Users can replace these with custom music via .wav, .mp3, .ym, or native
+    // 3DS/Switch .bin files in the res/ folder, and/or add additional tracks.
     sound.custom_tracks_loaded = 0;
 }
 
@@ -73,12 +73,14 @@ void Config::get_custom_music(const std::string& respath)
     static const std::map<std::string,int> ext_priority = {
         { "WAV", 0 },
         { "MP3", 1 },
-        { "YM", 2 }
+        { "YM", 2 },
+        { "BIN", 3 }
     };
 #else
     static const std::map<std::string,int> ext_priority = {
         { "WAV", 0 },
-        { "YM",  1 }
+        { "YM",  1 },
+        { "BIN", 2 }
     };
 #endif
 
@@ -118,8 +120,9 @@ void Config::get_custom_music(const std::string& respath)
         std::replace(raw.begin(), raw.end(), '-', ' ');
         std::transform(raw.begin(), raw.end(), raw.begin(), ::toupper);
 
-        // pick type based on extension
-        int track_type = (ext == "YM")
+        // Native CannonBall/OutRun engine data from the 3DS/Switch ports uses
+        // the same Z80 music-data path as external .ym files.
+        int track_type = (ext == "YM" || ext == "BIN")
             ? music_t::IS_YM_EXT
             : music_t::IS_WAV;   // WAV & MP3 both map to IS_WAV
 
