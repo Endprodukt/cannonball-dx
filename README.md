@@ -20,11 +20,11 @@ The additional work in this fork was developed with assistance from **ChatGPT by
 
 ## CannonBall DX Features
 
-### 🐎 Yes, the Ferrari Badge Is Back
+### 🐎 Yes, the Ferrari Badge doesn't flip!
 
 Of all the technically important changes in CannonBall DX, this somehow became one of the most popular.
 
-The optional **Ferrari badge / logo restoration** brings the emblem back to the car and fixes its presentation so it looks the way it should. Is this the most important engineering work in the project? Probably not. Did people notice immediately? Absolutely.
+The optional **Ferrari badge / logo restoration** brings the emblem back the way we remember and fixes its presentation so it looks the way it should. Is this the most important engineering work in the project? Probably not. Did people notice immediately? Absolutely.
 
 **The tiny horse has returned. We regret nothing.**
 
