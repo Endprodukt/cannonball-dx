@@ -824,10 +824,26 @@ namespace forcefeedback
         return false;
     }
 
+    static bool use_logitech_cartesian_haptics()
+    {
+        // FFBArcadePlugin uses Cartesian directions successfully with Logitech
+        // wheels. Avoid SDL_HAPTIC_STEERING_AXIS for Logitech while keeping the
+        // established steering-axis path unchanged for every other wheel.
+        return
+            g_is_wheel &&
+            g_joystick &&
+            SDL_JoystickGetVendor(g_joystick) == 0x046d;
+    }
+
     static SDL_HapticDirection steering_direction()
     {
         SDL_HapticDirection direction{};
-        direction.type = g_is_wheel ? SDL_HAPTIC_STEERING_AXIS : SDL_HAPTIC_CARTESIAN;
+        direction.type =
+            use_logitech_cartesian_haptics()
+                ? SDL_HAPTIC_CARTESIAN
+                : (g_is_wheel
+                    ? SDL_HAPTIC_STEERING_AXIS
+                    : SDL_HAPTIC_CARTESIAN);
         direction.dir[0] = 1;
         return direction;
     }
@@ -867,9 +883,13 @@ namespace forcefeedback
         SDL_HapticEffect effect{};
         effect.type = SDL_HAPTIC_SPRING;
 
-        // Centering is always a steering-axis condition effect. Virtual wheel
-        // interfaces such as vJoy may be exposed by SDL as a generic joystick.
-        effect.condition.direction.type = SDL_HAPTIC_STEERING_AXIS;
+        // Keep the existing steering-axis Spring for all non-Logitech wheels.
+        // Logitech follows the Cartesian path used successfully by
+        // FFBArcadePlugin so the driver can retain its configured soft lock.
+        effect.condition.direction.type =
+            use_logitech_cartesian_haptics()
+                ? SDL_HAPTIC_CARTESIAN
+                : SDL_HAPTIC_STEERING_AXIS;
         effect.condition.direction.dir[0] = 1;
         effect.condition.length = SDL_HAPTIC_INFINITY;
 
