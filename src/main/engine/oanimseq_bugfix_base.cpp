@@ -13,6 +13,7 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <cstdio>
 #include "frontend/config.hpp"
 
 #include "engine/obonus.hpp"
@@ -535,6 +536,45 @@ void OAnimSeq::anim_seq_outro(oanimsprite* anim, int pal_override)
     // Process Animation Data
     uint32_t index = anim->anim_addr_curr + (anim->anim_frame << 3);
 
+    // DEBUG BUILD ONLY: Trace the trophy presenter/hand-off animation without
+    // flooding the log every rendered frame. A line is emitted only when the
+    // animation index or logical sprite id changes.
+    if (anim == &anim_obj6)
+    {
+        static int debug_last_end = -1;
+        static int debug_last_id = -1;
+        static uint32_t debug_last_index = 0xFFFFFFFF;
+
+        if (debug_last_end != end_seq ||
+            debug_last_id != anim->sprite->id ||
+            debug_last_index != index)
+        {
+            std::printf(
+                "[ENDING DEBUG] TROPHY END=%c POS=%d ID=%u FRAME=%u "
+                "BLOCK=%06X INDEX=%06X PAL=%02X "
+                "BYTES=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+                static_cast<char>('A' + end_seq),
+                static_cast<int>(seq_pos),
+                static_cast<unsigned>(anim->sprite->id),
+                static_cast<unsigned>(anim->anim_frame),
+                static_cast<unsigned>(anim->anim_addr_curr),
+                static_cast<unsigned>(index),
+                static_cast<unsigned>(roms.rom0p->read8(index)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 0)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 1)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 2)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 3)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 4)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 5)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 6)),
+                static_cast<unsigned>(roms.rom0p->read8(index + 7)));
+
+            debug_last_end = end_seq;
+            debug_last_id = anim->sprite->id;
+            debug_last_index = index;
+        }
+    }
+
     anim->sprite->addr          = roms.rom0p->read32(index) & 0xFFFFF;   
     // Override palette to overcome bugs / recolour Ferrari
     anim->sprite->pal_src       = pal_override != -1 ? pal_override : roms.rom0p->read8(index); 
@@ -683,12 +723,37 @@ bool OAnimSeq::read_anim_data(oanimsprite* anim)
         // End Of Animation Data
         if (anim->sprite->id == 8) // Trophy person
         {
+            const uint32_t debug_old_index =
+                anim->anim_addr_curr + (anim->anim_frame << 3);
+            const uint8_t debug_old_palette =
+                roms.rom0p->read8(debug_old_index);
+            const uint32_t debug_new_curr =
+                roms.rom0p->read32(
+                    outrun.adr.anim_endseq_obj8 + (end_seq << 3));
+            const uint32_t debug_new_next =
+                roms.rom0p->read32(
+                    outrun.adr.anim_endseq_obj8 + (end_seq << 3) + 4);
+            const uint8_t debug_new_palette =
+                debug_new_curr ? roms.rom0p->read8(debug_new_curr) : 0;
+
+            std::printf(
+                "[ENDING DEBUG] TROPHY HANDOFF END=%c POS=%d "
+                "ID=8->11 OLD_INDEX=%06X OLD_PAL=%02X "
+                "NEW_BLOCK=%06X NEXT_BLOCK=%06X NEW_PAL=%02X\n",
+                static_cast<char>('A' + end_seq),
+                static_cast<int>(seq_pos),
+                static_cast<unsigned>(debug_old_index),
+                static_cast<unsigned>(debug_old_palette),
+                static_cast<unsigned>(debug_new_curr),
+                static_cast<unsigned>(debug_new_next),
+                static_cast<unsigned>(debug_new_palette));
+
             anim->sprite->id = 11;
             if (end_seq >= 2)
                 anim->sprite->shadow = 7;
 
-            anim->anim_addr_curr = roms.rom0p->read32(outrun.adr.anim_endseq_obj8 + (end_seq << 3));
-            anim->anim_addr_next = roms.rom0p->read32(outrun.adr.anim_endseq_obj8 + (end_seq << 3) + 4);
+            anim->anim_addr_curr = debug_new_curr;
+            anim->anim_addr_next = debug_new_next;
             anim->anim_frame = 0;
             return DO_NOTHING;
         }
