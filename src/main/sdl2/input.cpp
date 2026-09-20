@@ -9,6 +9,8 @@
 #include "sdl2/input.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "engine/oinitengine.hpp"
+#include "engine/oanimseq.hpp"
+#include "engine/obonus.hpp"
 
 #define scan_joysticks        scan_joysticks_base
 #define add_joystick          add_joystick_base
@@ -1184,10 +1186,30 @@ void Input::handle_key_down(SDL_Keysym* keysym)
 
         if (debug_ending >= 0)
         {
+            const bool ceremony_only = (keysym->mod & KMOD_SHIFT) != 0;
+
             std::cout << "[ENDING DEBUG] Jump to ending "
                       << static_cast<char>('A' + debug_ending)
-                      << " (" << debug_ending << ")" << std::endl;
+                      << " (" << debug_ending << ")"
+                      << (ceremony_only ? " ceremony" : " full bonus road")
+                      << std::endl;
+
+            // Always initialize the real ending road first so all ending-
+            // specific data is loaded. With Shift held, skip the drive and
+            // start the award animation immediately.
             oinitengine.init_bonus(static_cast<int16_t>(debug_ending));
+
+            if (ceremony_only)
+            {
+                // GS_INIT_BONUS would overwrite bonus_control on the next
+                // engine tick. Move straight to the active bonus state and
+                // seed the exact stage that normally calls init_end_seq().
+                outrun.game_state = GS_BONUS;
+                obonus.bonus_control = OBonus::BONUS_SEQ0;
+                obonus.bonus_timer = 3600;
+                oanimseq.init_end_seq();
+            }
+
             return;
         }
     }
