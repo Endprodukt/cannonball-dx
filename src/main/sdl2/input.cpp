@@ -8,6 +8,7 @@
 
 #include "sdl2/input.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
+#include "engine/oinitengine.hpp"
 
 #define scan_joysticks        scan_joysticks_base
 #define add_joystick          add_joystick_base
@@ -1163,6 +1164,33 @@ void Input::capture_raw_axis_motion(
 
 void Input::handle_key_down(SDL_Keysym* keysym)
 {
+    // DEBUG BUILD ONLY: Ctrl+F1..F5 jump directly to ending A..E.
+    // Use the normal bonus-road initialization so ending-specific scenery
+    // (including the special sand strip in ending C) is reproduced as well.
+    if (keysym && cannonball::state == cannonball::STATE_GAME &&
+        (keysym->mod & KMOD_CTRL) != 0)
+    {
+        int debug_ending = -1;
+
+        switch (keysym->sym)
+        {
+            case SDLK_F1: debug_ending = 0; break;
+            case SDLK_F2: debug_ending = 1; break;
+            case SDLK_F3: debug_ending = 2; break;
+            case SDLK_F4: debug_ending = 3; break;
+            case SDLK_F5: debug_ending = 4; break;
+            default: break;
+        }
+
+        if (debug_ending >= 0)
+        {
+            std::cout << "[ENDING DEBUG] Jump to ending "
+                      << static_cast<char>('A' + debug_ending)
+                      << " (" << debug_ending << ")" << std::endl;
+            oinitengine.init_bonus(static_cast<int16_t>(debug_ending));
+            return;
+        }
+    }
     if (is_display_toggle(keysym))
     {
         if (display_toggle_key == SDLK_UNKNOWN)
