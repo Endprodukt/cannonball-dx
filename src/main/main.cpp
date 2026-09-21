@@ -241,6 +241,53 @@ static void quit_func(int code)
     //exit(code);
 }
 
+static void show_rom_load_error()
+{
+    const char* message =
+        "CannonBall DX couldn't find a complete supported OutRun ROM set.\n\n"
+        "Make sure to provide the required OutRun Revision B ROM data in the configured ROM folder.\n\n"
+        "Supported setups:\n"
+        "- A suitable MAME outrun.zip (a current merged set is recommended)\n"
+        "- Traditional extracted CannonBall / OutRun Revision B ROM files\n\n"
+        "Optional early/Japanese program ROMs and corrected PCM ROM data are also supported when present.\n\n"
+        "See roms/roms.txt for details. Please use ROM data you legally own.";
+
+    // ROM validation happens before the normal SDL/video startup. Bring up only
+    // the minimum SDL subsystems needed for a friendly native error dialog, then
+    // shut them down again because the application exits immediately afterwards.
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
+    {
+        std::cerr << "Game cannot launch: " << message << std::endl;
+        std::cerr << "Unable to show ROM warning dialog: " << SDL_GetError() << std::endl;
+        return;
+    }
+
+    const SDL_MessageBoxButtonData buttons[] = {
+        {
+            SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT |
+            SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
+            0,
+            "Close"
+        }
+    };
+
+    const SDL_MessageBoxData data = {
+        SDL_MESSAGEBOX_WARNING,
+        nullptr,
+        "Game cannot launch",
+        message,
+        1,
+        buttons,
+        nullptr
+    };
+
+    int button_id = -1;
+    if (SDL_ShowMessageBox(&data, &button_id) < 0)
+        std::cerr << "Unable to show ROM warning dialog: " << SDL_GetError() << std::endl;
+
+    SDL_Quit();
+}
+
 static void process_events(void)
 {
     SDL_Event event;
@@ -994,7 +1041,11 @@ int main(int argc, char* argv[]) {
         config.load();
 
         std::cout << "DEBUG: AFTER CONFIG LOAD" << std::endl;
-        ok = roms.load_revb_roms(config.sound.fix_samples);
+
+        if (!roms.load_revb_roms(config.sound.fix_samples)) {
+            show_rom_load_error();
+            return 1;
+        }
 
         if (cannonball::singlecore_detect || cannonball::singlecore_mode) {
             if (singleCorePi() || cannonball::singlecore_mode) {
