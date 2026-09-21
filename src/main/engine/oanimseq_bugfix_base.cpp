@@ -357,7 +357,20 @@ void OAnimSeq::tick_end_seq()
             anim_seq_shadow(&anim_ferrari, &anim_obj3);         // Car Shadow
                                                                 // Man Sprite
             // Fix Wrong Palette Bug: Only occurs on 3 of the 5 possible end sequences (0 and 3 are ok)
-            anim_seq_outro(&anim_pass1, config.engine.fix_bugs ? 10 : -1);                        
+            //
+            // DEBUG BUILD ONLY:
+            // In endings A and C the award is handed to the driver and becomes
+            // part of anim_pass1. The legacy blanket palette-10 override then
+            // recolours the award as well. Keep the existing fix before the
+            // hand-off, but once object 6 has switched from ID 8 to ID 11 let
+            // the driver's animation use its ROM-authored palette again.
+            const bool debug_driver_has_award =
+                (end_seq == 0 || end_seq == 2) &&
+                anim_obj6.sprite->id == 11;
+
+            anim_seq_outro(
+                &anim_pass1,
+                config.engine.fix_bugs && !debug_driver_has_award ? 10 : -1);
             anim_seq_shadow(&anim_pass1, &anim_obj4);           // Man Shadow
             anim_seq_outro(&anim_pass2);                        // Female Sprite
             anim_seq_shadow(&anim_pass2, &anim_obj5);           // Female Shadow
@@ -535,6 +548,35 @@ void OAnimSeq::anim_seq_outro(oanimsprite* anim, int pal_override)
 
     // Process Animation Data
     uint32_t index = anim->anim_addr_curr + (anim->anim_frame << 3);
+
+    // DEBUG BUILD ONLY: Trace the ROM palette requested by the driver
+    // animation. This is especially useful after the award becomes part of
+    // anim_pass1 in endings A and C.
+    if (anim == &anim_pass1)
+    {
+        static int debug_driver_last_end = -1;
+        static uint32_t debug_driver_last_index = 0xFFFFFFFF;
+
+        if (debug_driver_last_end != end_seq ||
+            debug_driver_last_index != index)
+        {
+            const uint8_t rom_pal = roms.rom0p->read8(index);
+            std::printf(
+                "[ENDING DEBUG] DRIVER END=%c POS=%d FRAME=%u "
+                "INDEX=%06X ROM_PAL=%02X OVERRIDE=%d AWARD=%d\n",
+                static_cast<char>('A' + end_seq),
+                static_cast<int>(seq_pos),
+                static_cast<unsigned>(anim->anim_frame),
+                static_cast<unsigned>(index),
+                static_cast<unsigned>(rom_pal),
+                pal_override,
+                ((end_seq == 0 || end_seq == 2) &&
+                 anim_obj6.sprite->id == 11) ? 1 : 0);
+
+            debug_driver_last_end = end_seq;
+            debug_driver_last_index = index;
+        }
+    }
 
     // DEBUG BUILD ONLY: Trace the trophy presenter/hand-off animation without
     // flooding the log every rendered frame. A line is emitted only when the
