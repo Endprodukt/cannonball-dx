@@ -575,24 +575,9 @@ void OAnimSeq::anim_seq_outro(oanimsprite* anim, int pal_override)
         }
     }
 
-    anim->sprite->addr          = roms.rom0p->read32(index) & 0xFFFFF;
-
-    // DEBUG BUILD ONLY: A/C palette experiment.
-    // After the trophy/prop hand-off (ID 8 -> 11), force the original
-    // presenter palette on endings A and C only. B, D and E remain untouched.
-    int debug_pal_override = pal_override;
-    if (anim == &anim_obj6 &&
-        anim->sprite->id == 11 &&
-        (end_seq == 0 || end_seq == 2))
-    {
-        debug_pal_override = 0x41;
-    }
-
+    anim->sprite->addr          = roms.rom0p->read32(index) & 0xFFFFF;   
     // Override palette to overcome bugs / recolour Ferrari
-    anim->sprite->pal_src       =
-        debug_pal_override != -1
-            ? debug_pal_override
-            : roms.rom0p->read8(index); 
+    anim->sprite->pal_src       = pal_override != -1 ? pal_override : roms.rom0p->read8(index); 
     anim->sprite->zoom          = roms.rom0p->read8(6 + index) >> 1;
     anim->sprite->road_priority = roms.rom0p->read8(6 + index) << 1;
     anim->sprite->priority      = anim->sprite->road_priority - ((roms.rom0p->read16(index) & 0x70) >> 4); // (bits 4-6)
