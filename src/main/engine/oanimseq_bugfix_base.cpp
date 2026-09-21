@@ -356,7 +356,19 @@ void OAnimSeq::tick_end_seq()
             anim_seq_shadow(&anim_ferrari, &anim_obj3);         // Car Shadow
                                                                 // Man Sprite
             // Fix Wrong Palette Bug: Only occurs on 3 of the 5 possible end sequences (0 and 3 are ok)
-            anim_seq_outro(&anim_pass1, config.engine.fix_bugs ? 10 : -1);                        
+            //
+            // In endings A and C the award becomes part of the driver's
+            // animation after the presenter hands it over. At that point the
+            // blanket palette-10 override recolours the trophy/lamp. Keep the
+            // existing palette fix before the hand-off, then use the ROM-authored
+            // palette once the driver is holding the award.
+            const bool driver_holds_award =
+                (end_seq == 0 || end_seq == 2) &&
+                anim_obj6.sprite->id == 11;
+
+            anim_seq_outro(
+                &anim_pass1,
+                config.engine.fix_bugs && !driver_holds_award ? 10 : -1);
             anim_seq_shadow(&anim_pass1, &anim_obj4);           // Man Shadow
             anim_seq_outro(&anim_pass2);                        // Female Sprite
             anim_seq_shadow(&anim_pass2, &anim_obj5);           // Female Shadow
