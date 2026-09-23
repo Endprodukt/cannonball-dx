@@ -94,6 +94,7 @@ void OSprites::init()
     jump_table[SPRITE_CRASH_PASS1_S].addr       = outrun.adr.shadow_data;
     jump_table[SPRITE_CRASH_PASS2_S].shadow     = 7;
     jump_table[SPRITE_CRASH_PASS2_S].draw_props = oentry::BOTTOM;
+    jump_table[SPRITE_CRASH_PASS2_S].addr       = outrun.adr.shadow_data;
     
     jump_table[SPRITE_CRASH_SHADOW].shadow     = 7;
     jump_table[SPRITE_CRASH_SHADOW].zoom       = 0x80;
@@ -170,7 +171,7 @@ void OSprites::tick()
 //
 // - This second table in memory specifies the frequency and number of sprites in the sequence. 
 //  
-// - The second table also contains the actual sprite info (x,y,type,palette etc.). This can be multipled sprites.
+// - The second table also contains the actual sprite info (x,y,palette,type). This can be multipled sprites.
 //
 // ----------------------------------
 //
@@ -217,7 +218,7 @@ void OSprites::sprite_control()
     if (pos <= oroad.road_pos >> 16)
     {
         seg_pos = pos;                                                          // Position In Level Data [Word]
-        seg_total_sprites = trackloader.read_total_sprites();                   // Number Of Sprites In Segment
+        seg_total_sprites = trackloader.read_total_sprites();                   // Number of Sprites In Segment
         uint8_t pattern_index = trackloader.read_sprite_pattern_index();        // Block Of Sprites
         trackloader.scenery_offset += 4;                                        // Advance to next scenery point
         
@@ -719,7 +720,9 @@ std::exit(9);
         const uint32_t standard_hires_zoom = ZOOM_LOOKUP_HIRES[index];
         const uint16_t standard_hires_size = ZOOM_LOOKUP_HIRES[index+2];
         const uint16_t orig_size = ZOOM_LOOKUP_HIRES[index+3];
-        const bool lock_traffic_size_frame = (input->control & TRAFFIC_SPRITE) != 0;
+        const bool lock_traffic_size_frame =
+            (input->control & TRAFFIC_SPRITE) != 0 &&
+            input->addr != outrun.adr.sprite_shadow_small;
 
         zoom = standard_hires_zoom;
         uint16_t size_to_use = standard_hires_size;
@@ -1043,7 +1046,7 @@ void OSprites::hide_hwsprite(oentry* input, osprite* output)
 // Sets Sprite Render Point
 // 
 // Source Address: 0x967C
-// Input:          Jump Table Entry, Output Sprite Entry
+// Input:          Jump Table Entry, Output Sprite Entry, Width & Height
 // Output:         Updated Sprite Output Entry
 //
 
