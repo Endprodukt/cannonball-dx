@@ -372,14 +372,15 @@ The following features should currently be considered experimental:
 
 CannonBall-SE already provided a **2x high-resolution rendering mode**. CannonBall DX builds on that work with additional rendering fixes and the new **3x and 4x** modes.
 
-Higher internal resolutions make details in the original OutRun graphics much easier to see. As a result, behaviour that was difficult to notice at the original 320x224 resolution can become more obvious, including:
+### The Downsides of High Resolutions
 
-- distant cars using different or simplified sprite frames
-- visible transitions between sprite sizes or viewing angles
-- small road, shadow or scenery alignment differences
-- limitations inherited from the original arcade graphics
+Running the original OutRun engine at resolutions far above its intended **320x224** output also makes some of its original shortcuts and limitations much easier to see. These are not necessarily rendering bugs; many were simply hidden by the low native resolution, sprite scale and softness of an arcade CRT.
 
-Some of these issues can be improved in CannonBall DX and development is continuing. Others are simply part of how the original arcade game works.
+Traffic is one of the clearest examples. At long distances, the original engine does not maintain a fully unique, high-detail representation for every visible car. It works with a much more limited set of distant sprite states and changes to more specific sprites as traffic approaches the player. At the original resolution this transition is difficult to notice. At 3x or 4x resolution on a sharp modern display, it can become obvious enough that a distant vehicle appears to change into a different car as it gets closer.
+
+The same principle applies to some sprite LOD transitions, scenery details and small road or shadow alignments. CannonBall DX can and does fix genuine rendering issues where possible, but removing every visible transition would eventually mean changing the behaviour of the original OutRun engine rather than simply rendering it more accurately.
+
+Higher resolutions therefore provide a much cleaner image, but they can also expose details of how the original arcade game achieved its look that were never intended to be examined this closely.
 
 If you find a crash, graphical problem, input issue or behaviour that differs from the original arcade version, please open a GitHub Issue. Screenshots, videos, reproduction steps and comparisons with the arcade version are especially helpful.
 
