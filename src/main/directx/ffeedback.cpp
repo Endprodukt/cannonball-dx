@@ -4,7 +4,41 @@
     Keep the established backend in ffeedback_base.cpp and layer the driving
     engine sine behaviour on top. The original start-grid rev shake stays on
     the preserved backend so it can keep its own strength and timing.
+
+    Linux note:
+    The modern DX backend is implemented with SDL2 Haptics rather than native
+    DirectInput calls. Reuse that backend on Linux as well so both desktop
+    platforms share the same constant-force, spring and periodic-effect model.
+    The legacy evdev backend remains preserved in ffeedback_base.cpp for now.
 ***************************************************************************/
+
+// ffeedback_base.cpp historically selects the simple evdev implementation when
+// __linux__ is defined and the modern SDL Haptics implementation when _WIN32 is
+// defined. The SDL implementation itself is platform-neutral. Pre-include its
+// dependencies with the real Linux platform macros, then select that backend
+// only while the preserved implementation is compiled. This keeps platform
+// macros correct everywhere outside this one legacy selection point and lets us
+// prove Linux parity without duplicating the large tuned FFB implementation.
+#if defined(__linux__)
+#include "ffeedback.hpp"
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <SDL.h>
+#include "main.hpp"
+#include "engine/ocrash.hpp"
+#include "engine/oferrari.hpp"
+#include "engine/oinitengine.hpp"
+#include "engine/outrun.hpp"
+#include "frontend/config.hpp"
+
+#define CANNONBALL_DX_LINUX_SDL_FFB 1
+#undef __linux__
+#define _WIN32 1
+#endif
 
 // Preserve the existing backend implementation under a private periodic entry
 // point. All other forcefeedback symbols retain their original names.
@@ -12,9 +46,14 @@
 #include "ffeedback_base.cpp"
 #undef set_tyre_slip
 
+#if defined(CANNONBALL_DX_LINUX_SDL_FFB)
+#undef _WIN32
+#define __linux__ 1
+#endif
+
 namespace forcefeedback
 {
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(CANNONBALL_DX_LINUX_SDL_FFB)
     static bool start_rev_source(
         const std::source_location& source)
     {
