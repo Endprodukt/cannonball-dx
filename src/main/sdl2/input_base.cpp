@@ -678,7 +678,9 @@ void Input::handle_key(const int key, const bool is_pressed)
 
         case SDLK_F7:
             // JJP - switches between sprite rendering (original/hi-res)
+            // Hi-res sprites are only valid while the hi-res engine is active.
             if (!is_pressed) break;
+            if (!config.video.hires) break;
             config.video.hiresprites ^= 1;
             break;
 
