@@ -98,7 +98,10 @@ bool RenderSurface::init(int source_width, int source_height,
     init_overlay();       // CRT curved edge mask (applied as a mask by GPU rendering)
     create_buffers();     // used for working space processing image from [game output]->[blargg-filtered]->[renderer input]
     FrameCounter = 0;
-    last_config  = 0;
+    // A recreated GL program starts with zeroed uniforms. Force the first
+    // finalize_frame() after every (re)init to send the complete shader state.
+    last_config  = -1;
+    ticks        = 3;
 
     // signal to workers we're running (e.g. after a video restart)
     shutting_down.store(false, std::memory_order_release);
@@ -932,8 +935,9 @@ bool RenderSurface::finalize_frame()
 
     /* == Configure shader options ('uniforms') == */
 
-    static long last_config = 0;
-    static int  ticks = 3;
+    // last_config/ticks are members reset by init(). Function-statics survive
+    // a GL-context teardown and can otherwise suppress the mandatory uniform
+    // upload against the newly linked shader program.
     // check for any settings changes
     if (1)
     {

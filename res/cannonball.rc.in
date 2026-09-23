@@ -1,0 +1,36 @@
+#include <winver.h>
+
+IDI_ICON1 ICON DISCARDABLE "@CB_ICON_PATH@"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @CB_VERSION_MAJOR@,@CB_VERSION_MINOR@,@CB_VERSION_PATCH@,0
+ PRODUCTVERSION @CB_VERSION_MAJOR@,@CB_VERSION_MINOR@,@CB_VERSION_PATCH@,0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS      VS_FF_DEBUG
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080904B0"
+        BEGIN
+            VALUE "CompanyName",      "CannonBall DX Project"
+            VALUE "FileDescription",  "CannonBall DX - enhanced OutRun engine"
+            VALUE "FileVersion",      "@CB_VERSION_STRING@"
+            VALUE "InternalName",     "cannonball-dx"
+            VALUE "LegalCopyright",   "Based on CannonBall by Chris White and CannonBall-SE by James Pearce."
+            VALUE "OriginalFilename", "cannonball-dx.exe"
+            VALUE "ProductName",      "CannonBall DX"
+            VALUE "ProductVersion",   "@CB_VERSION_STRING@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x809, 1200
+    END
+END

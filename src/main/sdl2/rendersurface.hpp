@@ -128,6 +128,7 @@ protected:
     // keep track of UI settings changes
     int  last_blargg_config    = 0;
     long last_config           = 0;
+    int  ticks                 = 3;   // reset on renderer init so a fresh GL program receives all uniforms
     int  last_vignette         = 0;
     int  last_crt_shape_config = 0;
 

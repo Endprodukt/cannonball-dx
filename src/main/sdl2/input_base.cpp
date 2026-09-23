@@ -677,8 +677,11 @@ void Input::handle_key(const int key, const bool is_pressed)
             break;
 
         case SDLK_F7:
-            // JJP - switches between sprite rendering (original/hi-res)
+            // Hi-res sprites rely on the hi-res engine coordinate/zoom path.
+            // Keep the hotkey consistent with the menu and reject the invalid
+            // low-res + hi-res-sprites combination.
             if (!is_pressed) break;
+            if (config.video.hires == 0) break;
             config.video.hiresprites ^= 1;
             break;
 

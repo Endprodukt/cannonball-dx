@@ -280,8 +280,39 @@ set(src_directx
     )
 
 if(WIN32)
+    # Keep Explorer's executable metadata tied to the same version string the
+    # game itself reports. Do not duplicate the DX version in the .rc file.
+    file(READ "${main_cpp_base}/globals.hpp" _cb_globals_hpp)
+    string(REGEX MATCH "CANNONBALL_DX_VERSION[ \t]+\"([^\"]+)\"" _cb_unused "${_cb_globals_hpp}")
+    if(NOT CMAKE_MATCH_1)
+        message(FATAL_ERROR "Could not parse CANNONBALL_DX_VERSION from globals.hpp")
+    endif()
+    set(CB_VERSION_STRING "${CMAKE_MATCH_1}")
+
+    string(REPLACE "." ";" _cb_version_parts "${CB_VERSION_STRING}")
+    list(LENGTH _cb_version_parts _cb_version_count)
+    list(GET _cb_version_parts 0 CB_VERSION_MAJOR)
+    if(_cb_version_count GREATER 1)
+        list(GET _cb_version_parts 1 CB_VERSION_MINOR)
+    else()
+        set(CB_VERSION_MINOR 0)
+    endif()
+    if(_cb_version_count GREATER 2)
+        list(GET _cb_version_parts 2 CB_VERSION_PATCH)
+    else()
+        set(CB_VERSION_PATCH 0)
+    endif()
+
+    set(CB_ICON_PATH "${CMAKE_SOURCE_DIR}/res/cannonball.ico")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/res/cannonball.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/cannonball.rc"
+        @ONLY
+    )
+    message(STATUS "CannonBall DX version ${CB_VERSION_STRING} (resource ${CB_VERSION_MAJOR},${CB_VERSION_MINOR},${CB_VERSION_PATCH},0)")
+
     list(APPEND src_directx
-        "${CMAKE_SOURCE_DIR}/res/cannonball.rc"
+        "${CMAKE_CURRENT_BINARY_DIR}/cannonball.rc"
     )
 endif()
 
