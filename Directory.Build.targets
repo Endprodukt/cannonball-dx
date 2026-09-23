@@ -1,0 +1,46 @@
+<Project>
+  <!--
+    Keep a normal Visual Studio/CMake Windows build runnable and distributable
+    without manually collecting CannonBall DX runtime files afterwards.
+
+    This deliberately copies only roms.txt from roms/. User-provided ROM data
+    must never be bundled automatically.
+  -->
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'cannonball-dx'">
+    <CannonBallRes Include="$(MSBuildThisFileDirectory)res\**\*" />
+    <CannonBallDocs Include="$(MSBuildThisFileDirectory)docs\**\*" />
+    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)README.md" />
+    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)README.txt" />
+    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)CHANGELOG" />
+    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)EXTERNAL_OUTPUTS.md" />
+  </ItemGroup>
+
+  <Target Name="CannonBallDxAssembleRuntime"
+          AfterTargets="Build"
+          Condition="'$(MSBuildProjectName)' == 'cannonball-dx' and '$(Configuration)' == 'Release'">
+    <Message Text="Assembling CannonBall DX Windows runtime package in $(TargetDir)" Importance="high" />
+
+    <Copy SourceFiles="@(CannonBallRes)"
+          DestinationFiles="@(CannonBallRes->'$(TargetDir)res\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="@(CannonBallDocs)"
+          DestinationFiles="@(CannonBallDocs->'$(TargetDir)docs\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="@(CannonBallRootDocs)"
+          DestinationFolder="$(TargetDir)"
+          SkipUnchangedFiles="true" />
+
+    <MakeDir Directories="$(TargetDir)roms" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)roms\roms.txt"
+          DestinationFolder="$(TargetDir)roms"
+          SkipUnchangedFiles="true" />
+
+    <!-- These three files are also expected directly beside the executable. -->
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)res\tilemap.bin;$(MSBuildThisFileDirectory)res\tilepatch.bin;$(MSBuildThisFileDirectory)res\gamecontrollerdb.txt"
+          DestinationFolder="$(TargetDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>
