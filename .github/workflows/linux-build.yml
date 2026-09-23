@@ -44,3 +44,33 @@ jobs:
 
       - name: Smoke-check executable
         run: test -x build-linux/cannonball-dx
+
+      - name: Show runtime dependencies
+        run: ldd build-linux/cannonball-dx
+
+      - name: Assemble test package
+        run: |
+          mkdir -p dist/cannonball-dx/roms
+          cp build-linux/cannonball-dx dist/cannonball-dx/
+          cp build-linux/tilemap.bin dist/cannonball-dx/
+          cp build-linux/tilepatch.bin dist/cannonball-dx/
+          cp build-linux/gamecontrollerdb.txt dist/cannonball-dx/
+          cp -a res dist/cannonball-dx/
+          cp roms/roms.txt dist/cannonball-dx/roms/
+          cp README.md dist/cannonball-dx/
+          cp -a docs dist/cannonball-dx/
+          cat > dist/cannonball-dx/run.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          cd "$(dirname "$0")"
+          exec ./cannonball-dx "$@"
+          EOF
+          chmod +x dist/cannonball-dx/run.sh
+
+      - name: Upload Linux test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cannonball-dx-linux-x86_64
+          path: dist/cannonball-dx
+          if-no-files-found: error
+          retention-days: 14
