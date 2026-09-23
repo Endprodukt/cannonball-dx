@@ -64,7 +64,35 @@ namespace detail_menu_predicates {
 #endif
 #define SELECTED(X) detail_menu_predicates::istarts_with(OPTION, X)
 
+// The System 16 font supports a deliberately small character set. Sanitise
+// external SDL device names before displaying them in menu rows.
+static std::string font_safe(const std::string& source)
+{
+    std::string out;
+    out.reserve(source.size());
+    bool previous_space = false;
+    for (unsigned char c : source)
+    {
+        char u = static_cast<char>(std::toupper(c));
+        const bool supported =
+            (u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') ||
+            u == '-' || u == '.' || u == '%' || u == '!' || u == ',' || u == '/';
 
+        if (supported)
+        {
+            out += u;
+            previous_space = false;
+        }
+        else if (u == ' ' && !out.empty() && !previous_space)
+        {
+            out += ' ';
+            previous_space = true;
+        }
+    }
+    while (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    return out;
+}
 
 // Logo Y Position
 const static int16_t LOGO_Y = -60;
@@ -224,6 +252,7 @@ void Menu::populate_for_pc()
     menu_blargg_filter.push_back(ENTRY_BACK);
 
     menu_sound.push_back(ENTRY_MUTE);
+    menu_sound.push_back(ENTRY_OUTPUT_DEVICE);
     menu_sound.push_back(ENTRY_ADVERTISE);
     menu_sound.push_back(ENTRY_PREVIEWSND);
     menu_sound.push_back(ENTRY_FIXSAMPLES);
@@ -1110,6 +1139,51 @@ void Menu::tick_menu()
                 else
                     cannonball::audio.stop_audio();
             }
+            else if (SELECTED(ENTRY_OUTPUT_DEVICE))
+            {
+                cannonball::audio.refresh_playback_devices();
+                const auto& devices = cannonball::audio.playback_devices();
+
+                int current = 0; // 0 = DEFAULT
+                const std::string wanted = !config.sound.playback_device_name.empty()
+                    ? config.sound.playback_device_name
+                    : cannonball::audio.active_device_name();
+
+                if (!wanted.empty())
+                {
+                    for (size_t i = 0; i < devices.size(); ++i)
+                    {
+                        if (devices[i] == wanted)
+                        {
+                            current = static_cast<int>(i) + 1;
+                            break;
+                        }
+                    }
+                }
+
+                int next = current + 1;
+                if (next > static_cast<int>(devices.size()))
+                    next = 0;
+
+                if (next == 0)
+                {
+                    config.sound.playback_device = -1;
+                    config.sound.playback_device_name.clear();
+                }
+                else
+                {
+                    config.sound.playback_device = next - 1;
+                    config.sound.playback_device_name = devices[next - 1];
+                }
+
+                if (config.sound.enabled)
+                {
+                    cannonball::audio.stop_audio();
+                    cannonball::audio.start_audio();
+                    if (!cannonball::audio.device_open())
+                        display_message("AUDIO DEVICE FAILED TO OPEN");
+                }
+            }
             else if (SELECTED(ENTRY_ADVERTISE))
                 config.sound.advertise ^= 1;
             else if (SELECTED(ENTRY_PREVIEWSND))
@@ -1446,6 +1520,16 @@ void Menu::refresh_menu()
         else if (menu_selected == &menu_sound)
         {
             if (SELECTED(ENTRY_MUTE))               set_menu_text(ENTRY_MUTE, config.sound.enabled ? "ON" : "OFF");
+            else if (SELECTED(ENTRY_OUTPUT_DEVICE))
+            {
+                std::string text = config.sound.playback_device_name.empty()
+                    ? "DEFAULT" : font_safe(config.sound.playback_device_name);
+                const size_t label_len = std::string(ENTRY_OUTPUT_DEVICE).size();
+                const size_t max_len = label_len < 40 ? 40 - label_len : 0;
+                if (text.size() > max_len)
+                    text.resize(max_len);
+                set_menu_text(ENTRY_OUTPUT_DEVICE, text);
+            }
             else if (SELECTED(ENTRY_ADVERTISE))     set_menu_text(ENTRY_ADVERTISE, config.sound.advertise ? "ON" : "OFF");
             else if (SELECTED(ENTRY_PREVIEWSND))    set_menu_text(ENTRY_PREVIEWSND, config.sound.preview ? "ON" : "OFF");
             else if (SELECTED(ENTRY_FIXSAMPLES))    set_menu_text(ENTRY_FIXSAMPLES, config.sound.fix_samples ? "ON" : "OFF");

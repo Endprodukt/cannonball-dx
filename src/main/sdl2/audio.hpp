@@ -28,6 +28,7 @@
 #include <condition_variable>
 #include <array>
 #include <string>
+#include <vector>
 #include <SDL.h>
 #include <semaphore>
 
@@ -96,6 +97,12 @@ public:
     void tick();
     void fill_and_mix(uint8_t *stream, int len);
 
+    // Stable playback-device discovery/selection, shared with the SOUND menu.
+    void refresh_playback_devices();
+    const std::vector<std::string>& playback_devices() const { return playback_devices_; }
+    const std::string& active_device_name() const { return active_device_name_; }
+    bool device_open() const { return dev != 0; }
+
 private:
     // Stereo. Could be changed, requires some recoding.
     static const uint32_t CHANNELS = 2;
@@ -108,6 +115,11 @@ private:
     uint32_t mix_buffer_bytes; // Each frame is 250 samples and 8ms at 31250kHz sample rate.
     int audio_paused;
     SDL_AudioDeviceID dev;
+
+    std::vector<std::string> playback_devices_;
+    std::string active_device_name_;
+    enum { RULE_DEFAULT = 0, RULE_BY_NAME, RULE_BY_INDEX };
+    int active_device_rule_ = RULE_DEFAULT;
 
     void clear_buffers();
 

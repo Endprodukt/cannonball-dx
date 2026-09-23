@@ -130,6 +130,27 @@ void Audio::init()
 }
 
 
+void Audio::refresh_playback_devices()
+{
+    playback_devices_.clear();
+
+    // The SOUND menu can be opened while sound is disabled, so ensure SDL's
+    // audio subsystem exists before asking it for device names. start_audio()
+    // performs the normal platform-specific initialization afterwards.
+    if ((SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) == 0)
+        SDL_InitSubSystem(SDL_INIT_AUDIO);
+
+    int count = SDL_GetNumAudioDevices(0);
+    if (count < 0) count = 0;
+    if (count > 32) count = 32;
+
+    for (int i = 0; i < count; ++i)
+    {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        playback_devices_.emplace_back(name ? name : "");
+    }
+}
+
 void Audio::start_audio(bool list_devices_only)
 {
     if (!sound_enabled)
@@ -160,26 +181,17 @@ void Audio::start_audio(bool list_devices_only)
             }
         }
 
-        // Display available devices, user may wish to use a particular device e.g. external DAC
-        printf("Available audio devices:\n");
-        int numDevices = SDL_GetNumAudioDevices(0); // 0 requests playback devices
-        if (numDevices > 32) {
-            // clamp to 32 max, probably way more than any setup will have
-            numDevices = 32;
-        }
-        const char* device_name[32];
-        memset(device_name, 0, sizeof(device_name));
-
-        for (int i = 0; i < numDevices; i++) {
-            device_name[i] = SDL_GetAudioDeviceName(i, 0);
-            printf("   %d: %s\n", i, device_name[i]);
-        }
+        // Keep a stable process-local list for startup resolution and the SOUND menu.
+        refresh_playback_devices();
+        const int numDevices = static_cast<int>(playback_devices_.size());
 
         if (list_devices_only)
-            // request was to list the available SDL devices only, this is used in the main program
-            // with command-line option -list-sound-devices to help the user chose the sound device
-            // during the build process.
+        {
+            printf("Available audio devices:\n");
+            for (int i = 0; i < numDevices; ++i)
+                printf("   %d: %s\n", i, playback_devices_[i].c_str());
             return;
+        }
 
         // SDL Audio Properties
         SDL_AudioSpec desired, obtained;
@@ -197,11 +209,73 @@ void Audio::start_audio(bool list_devices_only)
         desired.callback = Audio::sdl_callback_trampoline;
         desired.userdata = this;
 
+        // Prefer the stable device name. If it disappeared, retain the old
+        // numeric index as a compatibility fallback, then finally use SDL's
+        // system default. Exact name match wins; substring match helps with
+        // backends that decorate an otherwise stable device name.
         const char* playback_device = NULL;
-        if (config.sound.playback_device != -1 && config.sound.playback_device < numDevices) {
-            // User has configured a particular output device; find its name
-            playback_device = device_name[config.sound.playback_device];
+        active_device_name_.clear();
+        active_device_rule_ = RULE_DEFAULT;
+
+        if (!config.sound.playback_device_name.empty())
+        {
+            int match = -1;
+            for (int i = 0; i < numDevices; ++i)
+            {
+                if (playback_devices_[i] == config.sound.playback_device_name)
+                {
+                    match = i;
+                    break;
+                }
+            }
+            if (match < 0)
+            {
+                for (int i = 0; i < numDevices; ++i)
+                {
+                    if (playback_devices_[i].find(config.sound.playback_device_name) != std::string::npos)
+                    {
+                        match = i;
+                        break;
+                    }
+                }
+            }
+
+            if (match >= 0)
+            {
+                active_device_name_ = playback_devices_[match];
+                active_device_rule_ = RULE_BY_NAME;
+            }
+            else if (config.sound.playback_device >= 0 && config.sound.playback_device < numDevices)
+            {
+                std::cerr << "Warning: audio device \"" << config.sound.playback_device_name
+                          << "\" not found; using saved index " << config.sound.playback_device
+                          << " instead." << std::endl;
+                active_device_name_ = playback_devices_[config.sound.playback_device];
+                active_device_rule_ = RULE_BY_INDEX;
+            }
+            else
+            {
+                std::cerr << "Warning: audio device \"" << config.sound.playback_device_name
+                          << "\" not found; using system default." << std::endl;
+            }
         }
+        else if (config.sound.playback_device >= 0)
+        {
+            if (config.sound.playback_device < numDevices)
+            {
+                active_device_name_ = playback_devices_[config.sound.playback_device];
+                active_device_rule_ = RULE_BY_INDEX;
+            }
+            else
+            {
+                std::cerr << "Warning: configured audio device index "
+                          << config.sound.playback_device << " is out of range; using system default."
+                          << std::endl;
+            }
+        }
+
+        if (active_device_rule_ != RULE_DEFAULT)
+            playback_device = active_device_name_.c_str();
 
         // SDL2 block
         dev = SDL_OpenAudioDevice(playback_device, 0, &desired, &obtained, /*SDL_AUDIO_ALLOW_FORMAT_CHANGE*/0);
@@ -270,6 +344,9 @@ void Audio::stop_audio()
     clear_wav();
     SDL_UnlockAudioDevice(dev);
     SDL_CloseAudioDevice(dev);
+    dev = 0;
+    active_device_name_.clear();
+    active_device_rule_ = RULE_DEFAULT;
     sound_enabled = false;
 }
 

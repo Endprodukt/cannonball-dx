@@ -28,6 +28,7 @@
 #include <limits>
 #include <cctype>
 
+#include <SDL.h>
 #include <miniz.h>
 
 #include "stdint.hpp"
@@ -63,6 +64,54 @@ inline uint32_t crc32(const void* data, std::size_t n)
     for (std::size_t i = 0; i < n; ++i)
         c = T[(c ^ p[i]) & 0xFFu] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
+}
+
+// Loose ROM candidates larger than this are never read into memory. No
+// supported OutRun chip is remotely this large; the generous cap simply
+// prevents unrelated files in the ROM directory from being slurped in.
+constexpr uintmax_t kMaxLooseFileSize = 0x100000;
+
+static const char* const kKnownZipNames[] = {
+    "outrun.zip", "outrunra.zip", "outrundx.zip", "outrundxa.zip",
+    "outrundxj.zip", "outruneh.zip", "outruneha.zip", "outrundxeh.zip",
+    "outrundxeha.zip", "outrunb.zip"
+};
+
+std::string lower_copy(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool is_known_zip_name(const std::filesystem::path& path)
+{
+    const std::string filename = lower_copy(path.filename().string());
+    for (const char* known : kKnownZipNames)
+        if (filename == known)
+            return true;
+    return false;
+}
+
+std::vector<std::filesystem::path> list_regular_files_sorted(const std::filesystem::path& dir)
+{
+    namespace fs = std::filesystem;
+    std::vector<fs::path> files;
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    const fs::directory_iterator end;
+    while (!ec && it != end)
+    {
+        std::error_code entry_ec;
+        if (it->is_regular_file(entry_ec) && !entry_ec)
+            files.push_back(it->path());
+        it.increment(ec);
+    }
+    std::sort(files.begin(), files.end(),
+        [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() < b.filename().string();
+        });
+    return files;
 }
 
 struct RomKey
@@ -300,37 +349,37 @@ int RomLoader::load_rom(const char* filename, const int offset, const int length
     const fs::path base(config.data.rom_path);
     const fs::path path = base / filename;
 
-    // Preserve the original filename-based loose-ROM behaviour when the file
-    // exists. If it does not, transparently fall back to the CRC index so ZIP
-    // archives also work when data.crc32 is disabled.
-    if (!fs::exists(path))
-        return load_crc32(filename, offset, length, expected_crc, interleave, verbose);
-
-    std::vector<uint8_t> buffer;
-    if (!read_exact_file(path, length, buffer))
+    std::error_code ec;
+    const bool exists = fs::exists(path, ec) && !ec;
+    if (exists)
     {
-        if (verbose)
-            std::cout << "cannot read rom or unexpected size: " << path.string() << std::endl;
-        loaded = false;
-        return 1;
+        std::vector<uint8_t> buffer;
+        if (read_exact_file(path, length, buffer))
+        {
+            const uint32_t crc = crc32(buffer.data(), buffer.size());
+            if (static_cast<uint32_t>(expected_crc) == crc)
+            {
+                copy_interleaved(rom, buffer, offset, interleave);
+                loaded = true;
+                return 0;
+            }
+
+            if (verbose)
+                std::cout << std::hex << filename
+                          << " has incorrect checksum. Expected: "
+                          << static_cast<uint32_t>(expected_crc) << " Found: " << crc
+                          << std::dec << ". Trying the ROM index instead." << std::endl;
+        }
+        else if (verbose)
+        {
+            std::cout << "cannot read rom or unexpected size: " << path.string()
+                      << ". Trying the ROM index instead." << std::endl;
+        }
     }
 
-    const uint32_t crc = crc32(buffer.data(), buffer.size());
-
-    if (static_cast<uint32_t>(expected_crc) != crc)
-    {
-        if (verbose)
-            std::cout << std::hex
-                      << filename << " has incorrect checksum.\nExpected: "
-                      << static_cast<uint32_t>(expected_crc) << " Found: " << crc
-                      << std::dec << std::endl;
-        loaded = false;
-        return 1;
-    }
-
-    copy_interleaved(rom, buffer, offset, interleave);
-    loaded = true;
-    return 0;
+    // Missing/stale/wrong loose file: do not let it mask a correct ROM inside
+    // a MAME archive or another searched location.
+    return load_crc32(filename, offset, length, expected_crc, interleave, verbose);
 }
 
 int RomLoader::create_map()
@@ -341,46 +390,88 @@ int RomLoader::create_map()
     mapped_rom_path = config.data.rom_path;
     map_created = true;
 
+    std::error_code ec;
     const fs::path source_path(config.data.rom_path);
 
-    // Also accept data.rompath pointing directly at a ZIP file. The normal and
-    // documented form remains a directory such as roms/.
-    if (fs::exists(source_path) && fs::is_regular_file(source_path) && is_zip_path(source_path))
+    // DX feature retained: data.rompath may point directly at a ZIP archive.
+    if (fs::is_regular_file(source_path, ec) && !ec && is_zip_path(source_path))
     {
         add_zip_to_map(source_path);
         return rom_map.empty() ? 1 : 0;
     }
 
-    if (!fs::exists(source_path) || !fs::is_directory(source_path))
-    {
+    ec.clear();
+    const bool have_rom_dir = fs::is_directory(source_path, ec) && !ec;
+    if (!have_rom_dir)
         std::cout << "Warning: Could not open ROM directory - " << config.data.rom_path << std::endl;
-        return 1;
+
+    std::vector<fs::path> scanned_dirs;
+
+    if (have_rom_dir)
+    {
+        scanned_dirs.push_back(source_path);
+        std::vector<fs::path> archives;
+
+        // Loose files first so they keep DX's established tie priority.
+        for (const fs::path& entry : list_regular_files_sorted(source_path))
+        {
+            if (is_zip_path(entry))
+            {
+                archives.push_back(entry);
+                continue;
+            }
+
+            std::error_code size_ec;
+            const uintmax_t size = fs::file_size(entry, size_ec);
+            if (size_ec || size > kMaxLooseFileSize)
+                continue;
+
+            add_loose_file_to_map(entry);
+        }
+
+        for (const fs::path& archive : archives)
+            add_zip_to_map(archive);
     }
 
-    std::vector<fs::path> archives;
+    // Also accept known OutRun MAME archive names in the current working
+    // directory and beside the executable. Do not scan arbitrary ZIPs there.
+    std::vector<fs::path> extra_dirs;
+    fs::path cwd = fs::current_path(ec);
+    if (!ec)
+        extra_dirs.push_back(cwd);
 
-    // First index extracted ROMs. They win ties over identical archive entries
-    // for maximum backwards compatibility with existing CannonBall installs.
-    for (const auto& entry : fs::directory_iterator(source_path))
+    char* base_path = SDL_GetBasePath();
+    if (base_path)
     {
-        if (!entry.is_regular_file())
+        extra_dirs.emplace_back(base_path);
+        SDL_free(base_path);
+    }
+
+    for (const fs::path& dir : extra_dirs)
+    {
+        bool duplicate = false;
+        for (const fs::path& previous : scanned_dirs)
+        {
+            std::error_code eq_ec;
+            if (fs::equivalent(dir, previous, eq_ec) && !eq_ec)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate)
             continue;
 
-        if (is_zip_path(entry.path()))
-            archives.push_back(entry.path());
-        else
-            add_loose_file_to_map(entry.path());
+        scanned_dirs.push_back(dir);
+        for (const fs::path& entry : list_regular_files_sorted(dir))
+            if (is_known_zip_name(entry))
+                add_zip_to_map(entry);
     }
-
-    // Then index ZIP central directories. No ROM data is decompressed here;
-    // miniz exposes CRC32 and uncompressed size directly from each entry.
-    for (const fs::path& archive : archives)
-        add_zip_to_map(archive);
 
     if (rom_map.empty())
     {
-        std::cout << "Warning: Could not create CRC32 ROM map. "
-                  << "Did you copy the ROM files or a MAME ZIP into the directory?" << std::endl;
+        std::cout << "Warning: Could not create CRC32 ROM map. Did you copy the ROM files "
+                  << "or an OutRun MAME ZIP into a searched location?" << std::endl;
         return 1;
     }
 

@@ -102,6 +102,7 @@ const static char* ENTRY_HUE                = "HUE ";
 
 // Sound Menu
 const static char* ENTRY_MUTE               = "SOUND ";
+const static char* ENTRY_OUTPUT_DEVICE      = "OUTPUT DEVICE ";
 const static char* ENTRY_BGM                = "BGM VOL ";
 const static char* ENTRY_SFX                = "SFX VOL ";
 const static char* ENTRY_ADVERTISE          = "ATTRACT SOUND ";
