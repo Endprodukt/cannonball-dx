@@ -156,7 +156,9 @@ bool Roms::load_ym_data(const char* filename)
     RomLoader data;
     if (data.load_binary(filename) == 0)
     {
-        if (data.length < 0x8000)
+        // External YM data and native CannonBall/3DS/Switch .bin music are
+        // loaded into the upper 32K of the emulated Z80 ROM.
+        if (data.length <= 0x8000)
         {
             memcpy(z80.rom + 0x8000, data.rom, data.length);
             data.unload();
@@ -164,7 +166,8 @@ bool Roms::load_ym_data(const char* filename)
         }
         else
         {
-            std::cout << "YM Data is too large: " << filename << std::endl;
+            std::cout << "External music data is too large (max 32K): "
+                      << filename << std::endl;
         }
     }
     return false;

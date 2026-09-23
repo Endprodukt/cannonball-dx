@@ -100,7 +100,7 @@ The optional **Ferrari badge / logo restoration** brings the emblem back the way
 - Gameplay fixes and enhancements
 - Automatic 30/60 fps operation
 - Multi-threaded rendering for low-power hardware
-- WAV, MP3 and YM custom music support
+- WAV, MP3, YM and native 3DS/Switch BIN custom music support
 - Machine play-count and runtime statistics
 - Raspberry Pi watchdog support
 - Numerous performance and stability improvements
@@ -339,10 +339,10 @@ Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**.
 Custom music files can still be placed in `./res/` using:
 
 ```text
-[01-99]_Track_Display_Name.[wav|mp3|ym]
+[01-99]_Track_Display_Name.[wav|mp3|ym|bin]
 ```
 
-Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. During gameplay, the assignable **Radio** action cycles through the available tracks and **Music Off**, and the selected title is briefly shown on screen. On supported Windows wheels, the Music Select selector uses the normal low-speed centering spring plus short FFB steps between songs.
+Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. Native `.bin` music ripped from the 3DS/Switch ports uses CannonBall's original Z80 custom-music format and is limited to **32K per file**. During gameplay, the assignable **Radio** action cycles through the available tracks and **Music Off**, and the selected title is briefly shown on screen. On supported Windows wheels, the Music Select selector uses the normal low-speed centering spring plus short FFB steps between songs.
 
 ---
 

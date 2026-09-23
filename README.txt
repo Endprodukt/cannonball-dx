@@ -57,6 +57,7 @@ Key features available in CannonBall DX include:
 - Eight selectable Ferrari colours
 - Dedicated Time Trial and Endless records / results
 - Assignable in-game Radio control for changing music while driving
+- WAV, MP3, YM and native 3DS/Switch BIN custom music support
 - Individually configurable gameplay bug-fix options
 - START, BRAKE, VIEW, VIEW1, VIEW2, VIEW3 and RADIO cabinet outputs
 - MAME network output, Windows MAMEOutput / MAMEHooker and SmartyPi output
@@ -218,6 +219,14 @@ In-game Radio control:
 - While driving, Radio cycles through the available music tracks and Music Off.
 - The selected track is briefly shown on screen.
 - A dedicated Radio_lamp output is available for cabinet setups.
+
+Custom music:
+
+- Place custom music files in the res directory using:
+  [01-99]_Track_Display_Name.[wav|mp3|ym|bin]
+- Tracks 01-03 replace the original songs. Tracks 04+ add new entries.
+- Native .bin tracks use CannonBall's original Z80 music-data format as used by
+  the 3DS/Switch ports and must be 32K or smaller.
 
 -------------------------------------
 5. Experimental Features & Known Limitations
