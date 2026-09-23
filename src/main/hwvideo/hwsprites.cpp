@@ -545,6 +545,13 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         uint8_t shadow    =  (ramBuff[data+3] >> 14) & 1;
 //        int32_t  zoom     =   ramBuff[data+3] & 0x7ff;
         int32_t  zoom     =   ramBuff[data+3] & 0x0fff;
+        // DX software zoom override. The original hardware field is only
+        // 12-bit because its upper bits share priority/shadow flags. Word 14
+        // is spare in CannonBall's expanded sprite entry and lets hi-res
+        // traffic continuously scale the largest ROM frame at long distance.
+        const uint16_t software_zoom = ramBuff[data+14];
+        if (software_zoom != 0)
+            zoom = software_zoom;
         int32_t ydelta    = ((ramBuff[data+4] & 0x8000) != 0) ? 1 : -1;
         int32_t flip      = (~ramBuff[data+4] >> 14) & 1;
         int32_t xdelta    = ((ramBuff[data+4] & 0x2000) != 0) ? 1 : -1;

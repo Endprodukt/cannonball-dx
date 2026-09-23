@@ -632,6 +632,12 @@ void OSprites::do_sprite(oentry* input)
     // todo: pass pointer?
     output->scratch = input->jump_index;
 
+    // DX-only word 14: optional full software-renderer zoom. This lets the
+    // renderer use the largest ROM sprite even when the equivalent zoom step
+    // exceeds the original hardware's 12-bit zoom field. Always clear it when
+    // a hardware sprite entry is reused.
+    output->data[14] = 0;
+
     // Hide Sprite if zoom lookup not set
     if (input->zoom == 0)
     {
@@ -671,6 +677,7 @@ std::exit(9);
     int16_t offset = 0;
     uint32_t zoom = 0;
     uint32_t src_offsets = 0;
+    bool fullres_traffic = false;
     const uint32_t original_zoom = ZOOM_LOOKUP[index];
 
     if (config.video.hiresprites == 0)
@@ -720,22 +727,21 @@ std::exit(9);
         const uint32_t standard_hires_zoom = ZOOM_LOOKUP_HIRES[index];
         const uint16_t standard_hires_size = ZOOM_LOOKUP_HIRES[index+2];
         const uint16_t orig_size = ZOOM_LOOKUP_HIRES[index+3];
-        const bool lock_traffic_size_frame =
+        fullres_traffic =
             (input->control & TRAFFIC_SPRITE) != 0 &&
             input->addr != outrun.adr.sprite_shadow_small;
 
         zoom = standard_hires_zoom;
         uint16_t size_to_use = standard_hires_size;
 
-        // Traffic identity test: SIZE3 is the largest single ROM size frame
-        // that can be used over the complete distance range without exceeding
-        // the 12-bit sprite zoom field at the horizon. Keeping this descriptor
-        // fixed removes the original SIZE5/SIZE4/SIZE3/SIZE2/SIZE1 source swaps.
-        // The zoom value is compensated by powers of two so logical road size
-        // and collision geometry remain unchanged.
-        if (lock_traffic_size_frame)
+        // Traffic identity test: always use SIZE1, the largest/highest-detail
+        // ROM frame, from the horizon all the way to the camera. Older OutRun
+        // rendering swaps between five separately drawn size frames; those
+        // frames are not guaranteed to depict an identical silhouette. DX can
+        // avoid that swap and scale one source continuously in software.
+        if (fullres_traffic)
         {
-            constexpr uint16_t TRAFFIC_LOCKED_SIZE = SIZE3;
+            constexpr uint16_t TRAFFIC_LOCKED_SIZE = SIZE1;
             const int32_t step_delta =
                 (static_cast<int32_t>(size_to_use) -
                  static_cast<int32_t>(TRAFFIC_LOCKED_SIZE)) / 0x0A;
@@ -751,8 +757,14 @@ std::exit(9);
             size_to_use = TRAFFIC_LOCKED_SIZE;
         }
 
-        output->set_vzoom(zoom);
-        output->set_hzoom(zoom);
+        // data[3] shares its upper four bits with priority/shadow flags, so it
+        // cannot carry a >12-bit zoom without corrupting those flags. Word 14
+        // is DX-only scratch and carries the full value to hwsprites instead.
+        const uint32_t packed_zoom = zoom > 0x0FFF ? 0x0FFF : zoom;
+        output->set_vzoom(packed_zoom);
+        output->set_hzoom(packed_zoom);
+        if (fullres_traffic)
+            output->data[14] = static_cast<uint16_t>(zoom);
 
         src_offsets = input->addr + size_to_use;
         const uint32_t size_offset = input->addr + orig_size;
@@ -819,7 +831,7 @@ std::exit(9);
                    abs_i32(n_candidate - scale * n_orig) <= width_tolerance;
         };
 
-        if (!lock_traffic_size_frame &&
+        if (!fullres_traffic &&
             src_offsets != size_offset &&
             !candidate_matches(src_offsets, zoom))
         {
@@ -883,8 +895,11 @@ std::exit(9);
         if (render_zoom == 0)
             render_zoom = 1;
 
-        output->set_vzoom(render_zoom);
-        output->set_hzoom(render_zoom);
+        const uint32_t packed_render_zoom = render_zoom > 0x0FFF ? 0x0FFF : render_zoom;
+        output->set_vzoom(packed_render_zoom);
+        output->set_hzoom(packed_render_zoom);
+        if (fullres_traffic)
+            output->data[14] = static_cast<uint16_t>(render_zoom);
     }
 
     const int32_t geometry_width  = traffic_sprite ? width  : calc_width;
