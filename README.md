@@ -370,16 +370,6 @@ The following features should currently be considered experimental:
 
 CannonBall-SE already provided a **2x high-resolution rendering mode**. CannonBall DX builds on that work with additional rendering fixes and the new **3x and 4x** modes.
 
-### The Downsides of High Resolutions
-
-Running the original OutRun engine at resolutions far above its intended **320x224** output also makes some of its original shortcuts and limitations much easier to see. These are not necessarily rendering bugs; many were simply hidden by the low native resolution, sprite scale and softness of an arcade CRT.
-
-Traffic is one of the clearest examples. At long distances, the original engine does not maintain a fully unique, high-detail representation for every visible car. It works with a much more limited set of distant sprite states and changes to more specific sprites as traffic approaches the player. At the original resolution this transition is difficult to notice. At 3x or 4x resolution on a sharp modern display, it can become obvious enough that a distant vehicle appears to change into a different car as it gets closer.
-
-The same principle applies to some sprite LOD transitions, scenery details and small road or shadow alignments. CannonBall DX can and does fix genuine rendering issues where possible, but removing every visible transition would eventually mean changing the behaviour of the original OutRun engine rather than simply rendering it more accurately.
-
-Higher resolutions therefore provide a much cleaner image, but they can also expose details of how the original arcade game achieved its look that were never intended to be examined this closely.
-
 If you find a crash, graphical problem, input issue or behaviour that differs from the original arcade version, please open a GitHub Issue. Screenshots, videos, reproduction steps and comparisons with the arcade version are especially helpful.
 
 ---
@@ -460,7 +450,7 @@ Upstream projects:
 - **Upstream CannonBall license:** non-commercial use; modified redistributions must include full source; warranty disclaimer. See `docs/license.txt`.
 - **CannonBall-SE additional terms:** SE enhancements © 2020-2025 James Pearce; provided "as is"; not for sale / monetisation; preserve notices. See `docs/CannonBall-SE-license.txt`.
 - **xBRZ:** Copyright © Zenju; the HqMAME-derived implementation used by CannonBall DX is distributed under the **GNU GPL v3** with the exception text retained in the upstream source.
-- **HQx:** Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek; licensed under the **GNU LGPL v2.1 or later**.
+- **HQx:** Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek; licensed under **GNU LGPL v2.1 or later**.
 - **Blargg `snes_ntsc`:** licensed under **GNU LGPL v2.1**.
 - **miniz:** public-domain / Unlicense terms.
 - **Third-party notices:** see `docs/THIRD-PARTY-NOTICES.md`. The LGPL v2.1 text is included at `docs/LGPL-2.1.txt`.
