@@ -233,6 +233,10 @@ private:
 
     std::vector<AxisCaptureBaseline> axis_capture_baseline;
 
+    // Direction of the movement that selected the current axis: -1 / +1.
+    // This is capture metadata only. It is never used as calibration data.
+    int axis_capture_direction = 0;
+
     void bind_axis(SDL_GameControllerAxis ax, int offset);
     void bind_button(SDL_GameControllerButton button, int offset);
     void handle_key(const int, const bool);

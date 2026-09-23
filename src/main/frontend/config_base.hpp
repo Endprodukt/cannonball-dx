@@ -163,6 +163,13 @@ struct device_binding_t
         TYPE_HAT    = 2,
     };
 
+    enum AxisDirection
+    {
+        AXIS_DIRECTION_LEGACY = 0,
+        AXIS_DIRECTION_NORMAL = 1,
+        AXIS_DIRECTION_INVERTED = 2,
+    };
+
     enum Target
     {
         TARGET_STEER = 0,
@@ -182,7 +189,7 @@ struct device_binding_t
     int target = TARGET_STEER;
     int type = TYPE_BUTTON;
     int index = -1;
-    int value = 0;              // HAT direction; unused for buttons/axes
+    int value = 0;              // HAT direction; TYPE_AXIS uses AxisDirection
     std::string device;         // persistent SDL device signature, or "*" for legacy any-device binding
 };
 

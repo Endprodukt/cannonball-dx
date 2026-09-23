@@ -49,6 +49,47 @@ namespace
     const char* WHEEL_PREFIX = "W:";
     const int CONTROLLER_AXIS_BASE = 0x100;
 
+    // Binding capture deliberately needs a large movement so idle noise or a
+    // slightly off-centre/resting axis cannot win the assignment. The captured
+    // distance is detection only; it is never stored as calibration.
+    const int AXIS_CAPTURE_MIN_DELTA = SDL_JOYSTICK_AXIS_MAX / 5;
+
+    // Pedals often rest a little short of their electrical endpoint. Treat the
+    // first 5% of the expected rest end as zero, then rescale the remaining
+    // travel back to the full 0..255 range. No min/max learned while binding.
+    const int PEDAL_REST_DEADZONE_PERCENT = 5;
+
+    int scale_controller_pedal(int value)
+    {
+        const int max_value = SDL_JOYSTICK_AXIS_MAX;
+        const int deadzone =
+            (max_value * PEDAL_REST_DEADZONE_PERCENT + 50) / 100;
+        const int clamped = std::max(0, std::min(max_value, value));
+
+        if (clamped <= deadzone)
+            return 0;
+
+        const int span = max_value - deadzone;
+        return ((clamped - deadzone) * 0xFF + span / 2) / span;
+    }
+
+    int scale_raw_pedal(int value)
+    {
+        const int min_value = SDL_JOYSTICK_AXIS_MIN;
+        const int max_value = SDL_JOYSTICK_AXIS_MAX;
+        const int full_span = max_value - min_value;
+        const int deadzone =
+            (full_span * PEDAL_REST_DEADZONE_PERCENT + 50) / 100;
+        const int zero_end = min_value + deadzone;
+        const int clamped = std::max(min_value, std::min(max_value, value));
+
+        if (clamped <= zero_end)
+            return 0;
+
+        const int span = max_value - zero_end;
+        return ((clamped - zero_end) * 0xFF + span / 2) / span;
+    }
+
     SDL_Keycode display_toggle_key = SDLK_UNKNOWN;
     int last_fullscreen_mode = video_settings_t::MODE_FULL;
 
@@ -754,8 +795,26 @@ void Input::set_device_binding(
     binding.type = type;
     binding.index = index;
     binding.value = value;
+
+    // ACCEL/BRAKE remember only the direction in which the user moved away
+    // from rest. The amount moved is intentionally discarded: binding is not
+    // calibration, so a half press can never become a learned maximum.
+    if (type == device_binding_t::TYPE_AXIS &&
+        (target == device_binding_t::TARGET_ACCEL ||
+         target == device_binding_t::TARGET_BRAKE) &&
+        axis_capture_direction != 0)
+    {
+        binding.value =
+            axis_capture_direction < 0
+                ? device_binding_t::AXIS_DIRECTION_INVERTED
+                : device_binding_t::AXIS_DIRECTION_NORMAL;
+    }
+
     binding.device = stored_device;
     bindings.push_back(binding);
+
+    if (type == device_binding_t::TYPE_AXIS)
+        axis_capture_direction = 0;
 
     if (target == device_binding_t::TARGET_STEER &&
         type == device_binding_t::TYPE_AXIS &&
@@ -1027,16 +1086,20 @@ void Input::apply_device_axis(
             const int invert_slot =
                 binding.target == device_binding_t::TARGET_ACCEL ? 1 : 2;
 
-            int working = invert[invert_slot] ? -value : value;
-            int scaled =
-                group == BINDING_GAMEPAD && !raw_gamepad_axis
-                    ? working / 0x80
-                    : (working + 0x8000) / 0x100;
+            // New matrix bindings carry their own detected direction. Old
+            // bindings keep value==LEGACY and therefore retain the historical
+            // global accel/brake invert flags for backwards compatibility.
+            bool invert_axis = invert[invert_slot];
+            if (binding.value == device_binding_t::AXIS_DIRECTION_NORMAL)
+                invert_axis = false;
+            else if (binding.value == device_binding_t::AXIS_DIRECTION_INVERTED)
+                invert_axis = true;
 
-            if (scaled < 0)
-                scaled = 0;
-            else if (scaled > 0xFF)
-                scaled = 0xFF;
+            const int working = invert_axis ? -value : value;
+            const int scaled =
+                group == BINDING_GAMEPAD && !raw_gamepad_axis
+                    ? scale_controller_pedal(working)
+                    : scale_raw_pedal(working);
 
             if (binding.target == device_binding_t::TARGET_ACCEL)
                 a_accel = scaled;
@@ -1049,8 +1112,11 @@ void Input::apply_device_axis(
 void Input::reset_axis_config()
 {
     reset_axis_config_base();
+    axis_capture_direction = 0;
 
-    // Snapshot every raw axis at the moment a new cell starts listening. Axis
+    // Snapshot every raw axis at the moment a new cell starts listening. The
+    // snapshot is only a noise-tolerant reference for choosing an axis and its
+    // direction; it is never retained as a pedal calibration endpoint. Axis
     // detection is then based on movement away from that position instead of
     // assuming a particular centre/rest value. This is important for pedals.
     axis_capture_baseline.clear();
@@ -1133,20 +1199,20 @@ void Input::capture_raw_axis_motion(
         return;
     }
 
-    const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
-
     for (const auto& baseline : axis_capture_baseline)
     {
         if (baseline.device != device || baseline.axis != ax)
             continue;
 
-        if (std::abs(static_cast<int>(value) - baseline.value) >= threshold)
+        const int delta = static_cast<int>(value) - baseline.value;
+        if (std::abs(delta) >= AXIS_CAPTURE_MIN_DELTA)
         {
             axis_config =
                 raw_gamepad_fallback
                     ? RAW_GAMEPAD_AXIS_BASE + ax
                     : ax;
             axis_config_device = device;
+            axis_capture_direction = delta < 0 ? -1 : 1;
             axis_counter = 2;
         }
         return;
@@ -1310,7 +1376,6 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 
     if (capture_group == BINDING_GAMEPAD && axis_counter != 2)
     {
-        const int threshold = SDL_JOYSTICK_AXIS_MAX / 5;
         const int encoded_axis = CONTROLLER_AXIS_BASE + evt->axis;
         bool baseline_found = false;
 
@@ -1321,10 +1386,13 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
 
             baseline_found = true;
 
-            if (std::abs(static_cast<int>(evt->value) - baseline.value) >= threshold)
+            const int delta =
+                static_cast<int>(evt->value) - baseline.value;
+            if (std::abs(delta) >= AXIS_CAPTURE_MIN_DELTA)
             {
                 axis_config = evt->axis;
                 axis_config_device = evt->which;
+                axis_capture_direction = delta < 0 ? -1 : 1;
                 axis_counter = 2;
             }
             break;
