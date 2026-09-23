@@ -257,6 +257,16 @@ void OTraffic::spawn_car(oentry* sprite)
     };
 
     sprite->type = TYPE[spawn_index] << 3;
+
+    // A reused traffic slot still carries the previous vehicle's sprite address
+    // and palette. update_props() intentionally skips the full frame lookup while
+    // z16 <= 8, so initialize a type-correct straight/flat frame here before the
+    // new vehicle becomes visible on the horizon.
+    sprite->pal_src = roms.rom0p->read8(outrun.adr.traffic_props + sprite->type + 4) + traffic_pal_cycle;
+    const int16_t initial_traffic_type =
+        (roms.rom0p->read8(outrun.adr.traffic_props + sprite->type + 7) << 5) + (1 << 2) + 0x10;
+    sprite->addr = roms.rom0p->read32(outrun.adr.traffic_data + initial_traffic_type);
+
     sprite->function_holder = TRAFFIC_TICK;
 
     // JJP ghost car fix
