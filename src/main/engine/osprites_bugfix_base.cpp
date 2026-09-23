@@ -367,6 +367,60 @@ void OSprites::do_spr_order_shadows(oentry* input)
 {
     if (input->hidden) return;  // JJP ghost car related safety-net check
 
+    // DX: de-overlap far traffic visually. At the horizon all three lane
+    // positions collapse into only a few screen pixels, so several perfectly
+    // valid traffic objects can sit on top of each other. As their projected
+    // positions separate, the topmost object changes and looks like one car
+    // morphing into another. Keep all traffic simulation intact, but while a
+    // far group is visually coincident render only the nearest member. Cars
+    // behind it become visible naturally once their screen positions separate.
+    if (input->control & TRAFFIC_SPRITE)
+    {
+        constexpr uint16_t FAR_TRAFFIC_Z = 0x70;
+        constexpr int16_t FAR_TRAFFIC_X_OVERLAP = 8;
+        constexpr int16_t FAR_TRAFFIC_Y_OVERLAP = 5;
+
+        const uint16_t input_z = static_cast<uint16_t>(input->z >> 16);
+        if (input_z > 0 && input_z < FAR_TRAFFIC_Z)
+        {
+            for (uint8_t i = SPRITE_TRAFF1; i <= SPRITE_TRAFF8; i++)
+            {
+                oentry* other = &jump_table[i];
+                if (other == input ||
+                    !(other->control & ENABLE) ||
+                    !(other->control & TRAFFIC_SPRITE) ||
+                    other->hidden)
+                {
+                    continue;
+                }
+
+                const uint16_t other_z = static_cast<uint16_t>(other->z >> 16);
+                if (other_z == 0 || other_z >= 0x200)
+                    continue;
+
+                // Higher z is nearer the camera. Equal-depth traffic uses the
+                // jump-table index as a stable tie-breaker so the representative
+                // cannot flicker from frame to frame.
+                const bool other_wins =
+                    other_z > input_z ||
+                    (other_z == input_z && other->jump_index < input->jump_index);
+                if (!other_wins)
+                    continue;
+
+                int16_t dx = other->x - input->x;
+                int16_t dy = other->y - input->y;
+                if (dx < 0) dx = -dx;
+                if (dy < 0) dy = -dy;
+
+                if (dx <= FAR_TRAFFIC_X_OVERLAP &&
+                    dy <= FAR_TRAFFIC_Y_OVERLAP)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
     // LayOut specific fix to avoid memory crash on over populated scenery segments
     if (spr_cnt_main + spr_cnt_shadow >= JUMP_ENTRIES_TOTAL)
         return;
