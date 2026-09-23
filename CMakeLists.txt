@@ -684,7 +684,6 @@ endif()
 # Copy out config files
 configure_file(res/tilemap.bin ${CMAKE_CURRENT_BINARY_DIR}/tilemap.bin COPYONLY)
 configure_file(res/tilepatch.bin ${CMAKE_CURRENT_BINARY_DIR}/tilepatch.bin COPYONLY)
-configure_file(res/gamecontrollerdb.txt ${CMAKE_CURRENT_BINARY_DIR}/gamecontrollerdb.txt COPYONLY)
 
 # -----------------------------
 # Install: man page & licenses
