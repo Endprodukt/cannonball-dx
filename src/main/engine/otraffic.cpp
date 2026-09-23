@@ -122,6 +122,13 @@ void OTraffic::tick()
                 continue;
             }
             sprite->traffic_orig_speed = 0xD4;
+
+            // Combined DX/SE brake-check fix: the stage 1 pre-placed cars do
+            // not pass through spawn_car(), so initialise their cached leader
+            // speed here as well. Missing config entries default to ON.
+            if (config.bugfix_read_setting("traffic_brake_check", true))
+                sprite->traffic_near_speed = sprite->traffic_orig_speed;
+
             sprite->function_holder = TRAFFIC_ENTRY;
         }
 
@@ -244,6 +251,13 @@ void OTraffic::spawn_car(oentry* sprite)
     // hack////////////////////////////////////////////////////////////////////////////
 
     sprite->traffic_speed = traffic_speed_avg;
+
+    // CannonBall-SE's stale-value half of the brake-check fix. A recycled
+    // traffic slot can otherwise retain the previous car's near speed. Starting
+    // from this car's own cruise speed makes the cached value safe until
+    // traffic_logic() finds and writes a real leader speed.
+    if (config.bugfix_read_setting("traffic_brake_check", true))
+        sprite->traffic_near_speed = sprite->traffic_orig_speed;
 
     // Randomize Type of traffic to spawn
     uint8_t spawn_index = (rnd >> 2) + 0x20;
@@ -385,11 +399,14 @@ void OTraffic::move_spawned_sprite(oentry* sprite)
             traffic_proximity ^= 3;
         
             // use_traffic_speed:
-            // Only inherit a nearby car's speed when traffic_logic() has
-            // explicitly marked another traffic car as close on the z axis.
-            // Player proximity also sets the side bits, so using them alone
-            // can otherwise make a traffic car brake sharply to 0x70.
-            if (!traffic_proximity && (sprite->traffic_proximity & BIT_2))
+            // DX only inherits another car's cached speed when traffic_logic()
+            // has marked real traffic nearby (BIT_2). With the fix disabled we
+            // deliberately restore the original arcade condition, where the two
+            // side bits alone are enough to enter this branch.
+            const bool brake_check_fix =
+                config.bugfix_read_setting("traffic_brake_check", true);
+            if (!traffic_proximity &&
+                (!brake_check_fix || (sprite->traffic_proximity & BIT_2)))
             {
                 sprite->traffic_speed = sprite->traffic_near_speed < 0x70 ? 0x70 : sprite->traffic_near_speed;
                 update_props(sprite);
