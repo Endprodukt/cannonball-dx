@@ -50,6 +50,7 @@ public:
     void set_shadow_intensity(float);
     void prepare_frame();
     void render_frame(int fastpass);
+    void advance_blargg_phase();
     void present_frame();
     bool supports_window();
     bool supports_vsync();

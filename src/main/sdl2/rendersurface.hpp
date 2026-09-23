@@ -46,6 +46,7 @@ public:
     bool start_frame() {return true;};
     bool finalize_frame();
     void draw_frame(uint16_t* pixels, int fastpass);
+    void advance_blargg_phase() override;
 
 protected:
     // SDL2 window

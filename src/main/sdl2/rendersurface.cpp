@@ -257,6 +257,16 @@ void RenderSurface::init_blargg_filter()
 }
 
 
+void RenderSurface::advance_blargg_phase()
+{
+    // draw_frame() can run concurrently for the top and bottom halves. Advance
+    // the shared NTSC phase on the main thread before either worker is released.
+    if (!blargg) return;
+    if (config.fps == 60) phase = (phase + 1) % 3;
+    else                  phase = (phase + 2) % 3;
+}
+
+
 // ----------------------------------------------------------------------------------
 // set_scaling - determines the X and Y parameters and image position
 // ----------------------------------------------------------------------------------
@@ -1039,6 +1049,12 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
     if (!blargg)
         return;
 
+    // A continuous Blargg pass advances the 3-phase NTSC burst once per row.
+    // When two workers split the frame, the bottom half must begin at the phase
+    // the top half would have reached, rather than restarting at the seam.
+    const int section_phase =
+        section == 1 ? (phase + block_height) % 3 : phase;
+
     for (int row = 0; row < block_height; ++row)
     {
         const int y = start_y + row;
@@ -1083,7 +1099,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
                 ntsc,
                 filter_input,
                 long(filter_input_width),
-                phase,
+                section_phase,
                 filter_input_width,
                 block_height,
                 filter_output,
@@ -1094,7 +1110,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
                 ntsc,
                 filter_input,
                 long(filter_input_width),
-                phase,
+                section_phase,
                 filter_input_width,
                 block_height,
                 filter_output,
@@ -1108,7 +1124,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
             ntsc,
             filter_input,
             long(filter_input_width),
-            phase,
+            section_phase,
             filter_input_width,
             block_height,
             filter_output,
@@ -1415,10 +1431,8 @@ void RenderSurface::draw_frame(uint16_t* pixels, int fastpass)
     if (blargg) {
         pixels = (uint16_t*)__builtin_assume_aligned(pixels, 4);
         uint32_t* writePixels = (uint32_t*)__builtin_assume_aligned(current_writePixels, 4);
-        if (fastpass!=1) {
-            if (config.fps == 60) phase = (phase + 1) % 3; // cycle through 0/1/2
-            else                  phase = (phase + 2) % 3; // cycle through 0/1/2, but at twice the rate
-        }
+        // Phase is advanced once per frame on the main thread before render
+        // workers are released; blargg_filter() offsets the bottom half itself.
         blargg_filter(pixels, writePixels, fastpass);
         // apply scanlines, if enabled.
         if (config.video.scanlines!=0) {

@@ -823,6 +823,10 @@ static int main_loop() {
         // ---- LAUNCH WORKER TASKS & RENDERING ----
 
         if (using_threading) {
+            // Advance the NTSC burst phase while both render workers are idle.
+            // This gives top and bottom halves one stable phase for the frame.
+            video.advance_blargg_phase();
+
             // Set NTSC filter to work on the last complete frame immediately
             renderReady0.release();
             if (render_threads==2) renderReady1.release();
@@ -849,6 +853,7 @@ static int main_loop() {
             tick();
             audio.tick();
             video.prepare_frame();
+            video.advance_blargg_phase();
             video.render_frame(-1);
             video.present_frame();
         }
