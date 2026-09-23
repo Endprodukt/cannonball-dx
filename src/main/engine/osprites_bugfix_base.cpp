@@ -661,65 +661,33 @@ std::exit(9);
     // Set real h/v zoom values
     uint32_t index = (input->zoom * 4); // x4 as table is 4-words per line
 
-    // determine sprite dimensions
-    uint32_t input_index = 0;
-    uint32_t multiplier = 512;
-    int16_t  offset = 0;
+    // Use the ROM's actual WH-table geometry. The old hi-res path estimated
+    // dimensions from five unrelated anchor rows and assumed each substituted
+    // frame was an exact 2x rendition. SE 1.50 demonstrated that this is false
+    // for many animation/strip tables and is the source of black bottom rows
+    // and horizontal jumps. Keep DX's enhanced traffic-size step, but validate
+    // every substituted frame before using it.
+    int16_t offset = 0;
     uint32_t zoom = 0;
-    switch (ZOOM_LOOKUP[index+2]) {
-        case SIZE1: input_index = 127; break;  //  1:1 zoom for largest size
-        case SIZE2: input_index =  62; multiplier = 516; offset =  3; break;  // 1.008:1 (closest we have)
-        case SIZE3: input_index =  30; multiplier = 524; offset = -1; break;  // 1.023:1
-        case SIZE4: input_index =  14; multiplier = 539; offset =  3; break;  // 1.053:1
-        case SIZE5: input_index =   6; multiplier = 579; offset =  4; break;  // 1.130:1
-    }
-    uint16_t lookup_mask = ZOOM_LOOKUP[(input_index*4)+1];
-    uint32_t src_offsets = input->addr + ZOOM_LOOKUP[(input_index*4)+2];
-    lookup_mask += 0x4000; // advance as using lower half of zoom table
-    uint16_t d0 = lookup_mask;
-    d0 = (d0 & 0xFF00) + roms.rom0p->read8(src_offsets + 1);
-    uint32_t sprite_width = (roms.rom0p->read8(WH_TABLE + d0) * multiplier) >> 9; // width * multiplier / 512
-    d0 = (d0 & 0xFF00) + roms.rom0p->read8(src_offsets + 3);
-    uint32_t sprite_height = (roms.rom0p->read8(WH_TABLE + d0) * multiplier) >> 9;
+    uint32_t src_offsets = 0;
+    const uint32_t original_zoom = ZOOM_LOOKUP[index];
 
-    // now adjust for which type we actually have
-    if (input_index != 127) {
-        if (config.video.hiresprites == 1) {
-            // now adjust for difference in sprite type being used
-            uint32_t original_size = ZOOM_LOOKUP_HIRES[(index*4)+2];
-            sprite_height <<= 1;
-            sprite_width  <<= 1;
-        }
-    }
-
-    output->set_rawh(sprite_height);
-    output->set_offset(offset);
-
-    // determine output size (game logic)
-    if (config.video.hiresprites == 0) {
-        // original game resolution. Use (patched) original game sprite sizes.
-
-        zoom = ZOOM_LOOKUP[index];
+    if (config.video.hiresprites == 0)
+    {
+        zoom = original_zoom;
         output->set_vzoom(zoom);
         output->set_hzoom(zoom);
 
-        // -------------------------------------------------------------------------
-        // Set width & height values using lookup
-        // -------------------------------------------------------------------------
-        lookup_mask = ZOOM_LOOKUP[index+1]; // Width/Height lookup helper
+        uint16_t lookup_mask = ZOOM_LOOKUP[index+1];
+        src_offsets = input->addr + ZOOM_LOOKUP[index+2];
 
-        // This is the address of the frame required for the level of zoom we're using
-        // There are 5 unique frames that are typically used for zoomed sprites.
-        // which correspond to different screen sizes
-        src_offsets = input->addr + ZOOM_LOOKUP[index+2]; // sprite size e.g. SIZE1
+        uint16_t d0 = input->draw_props | (input->zoom << 8);
+        const uint16_t top_bit = d0 & 0x8000;
+        d0 &= 0x7FFF;
 
-        d0 = input->draw_props | (input->zoom << 8);
-        uint16_t top_bit = d0 & 0x8000; // set if zoom >= 0x80
-        d0 &= 0x7FFF; // Clear top bit
-
-        if (top_bit == 0) // zoom < 0x80
+        if (top_bit == 0)
         {
-            if (ZOOM_LOOKUP[index+2] != SIZE1) // Not largest sized sprite
+            if (ZOOM_LOOKUP[index+2] != SIZE1)
             {
                 lookup_mask += 0x4000;
                 d0 = lookup_mask;
@@ -730,7 +698,6 @@ std::exit(9);
             d0 = (d0 & 0xFF00) + roms.rom0p->read8(src_offsets + 3);
             height = roms.rom0p->read8(WH_TABLE + d0);
         }
-        // loc_9560:
         else
         {
             d0 &= 0x7C00;
@@ -746,25 +713,25 @@ std::exit(9);
             h &= 0xFF;
             height += h;
         }
-    } else {
-        // hires path. Use larger sprites to improve image quality.
-        zoom = ZOOM_LOOKUP_HIRES[index];
-        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1]; // Width/Height lookup helper
-        uint16_t size_to_use = ZOOM_LOOKUP_HIRES[index+2]; // sprite size e.g. SIZE1
-        uint16_t orig_size   = ZOOM_LOOKUP_HIRES[index+3]; // original sprite size
+    }
+    else
+    {
+        const uint32_t standard_hires_zoom = ZOOM_LOOKUP_HIRES[index];
+        const uint16_t standard_hires_size = ZOOM_LOOKUP_HIRES[index+2];
+        const uint16_t orig_size = ZOOM_LOOKUP_HIRES[index+3];
 
-        // Traffic sprites only: use one additional SIZE step beyond what the
-        // HIRES table provides (2 steps total), staying within the 12-bit
-        // zoom hardware cap (max 0xFFF).  Scenery sprites are left on the
-        // table's default one-step-up — their positioning/anchoring is more
-        // sensitive to dimension changes and breaks when SIZE is overridden.
+        zoom = standard_hires_zoom;
+        uint16_t size_to_use = standard_hires_size;
+
+        // DX enhancement retained: traffic may use one further size step when
+        // the 12-bit hardware zoom field still has room.
         if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
         {
-            uint32_t candidate_zoom = (uint32_t)zoom << 1;
-            uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
+            const uint32_t candidate_zoom = zoom << 1;
+            const uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
             if (candidate_zoom <= 0x0FFF && next_size != size_to_use)
             {
-                zoom = (uint16_t)candidate_zoom;
+                zoom = candidate_zoom;
                 size_to_use = next_size;
             }
         }
@@ -773,61 +740,121 @@ std::exit(9);
         output->set_hzoom(zoom);
 
         src_offsets = input->addr + size_to_use;
-        // original sprite size entry from which rendered size will be determined.
-        // this is different, because we are using "the next size up" sprites to improve hi-res fidelity
-        // index+3 was previously an unused field
-        uint32_t size_offset = input->addr + orig_size;
+        const uint32_t size_offset = input->addr + orig_size;
 
+        uint16_t lookup_mask = ZOOM_LOOKUP_HIRES[index+1];
         uint16_t d0 = input->draw_props | (input->zoom << 8);
-        uint16_t top_bit = d0 & 0x8000; // set if zoom >= 0x80
-        d0 &= 0x7FFF; // Clear top bit
+        const uint16_t top_bit = d0 & 0x8000;
+        d0 &= 0x7FFF;
 
-        if (top_bit == 0) {
-            // zoom < 0x80
-            if (ZOOM_LOOKUP_HIRES[index+3] != SIZE1) {
-                // Not largest sized sprite
+        const int32_t n_orig = roms.rom0p->read8(size_offset + 1);
+        const int32_t rows_orig = roms.rom0p->read8(size_offset + 3) + 1;
+
+        if (top_bit == 0)
+        {
+            if (orig_size != SIZE1)
+            {
                 lookup_mask += 0x4000;
                 d0 = lookup_mask;
             }
 
-            d0 = (d0 & 0xFF00) + roms.rom0p->read8(size_offset + 1);
+            d0 = (d0 & 0xFF00) + n_orig;
             width = roms.rom0p->read8(WH_TABLE + d0);
-            d0 = (d0 & 0xFF00) + roms.rom0p->read8(size_offset + 3);
+            d0 = (d0 & 0xFF00) + (rows_orig - 1);
             height = roms.rom0p->read8(WH_TABLE + d0);
-
-        } else {
-
+        }
+        else
+        {
             d0 &= 0x7C00;
             uint16_t h = d0;
 
-            d0 = (d0 & 0xFF00) + roms.rom0p->read8(size_offset + 1);
+            d0 = (d0 & 0xFF00) + n_orig;
             width = roms.rom0p->read8(WH_TABLE + d0);
             d0 &= 0xFF;
             width += d0;
 
-            h |= roms.rom0p->read8(size_offset + 3);
+            h |= (rows_orig - 1);
             height = roms.rom0p->read8(WH_TABLE + h);
             h &= 0xFF;
             height += h;
         }
+
+        auto abs_i32 = [](int32_t value) { return value < 0 ? -value : value; };
+
+        // Validate a candidate against the original frame. This generalises
+        // SE's 2x guard so DX's optional second traffic step (normally 4x the
+        // original frame/zoom pair) can survive when the ROM really contains
+        // the expected larger art.
+        auto candidate_matches = [&](uint32_t candidate_addr, uint32_t candidate_zoom)
+        {
+            if (candidate_addr == size_offset)
+                return true;
+
+            const int32_t n_candidate = roms.rom0p->read8(candidate_addr + 1);
+            const int32_t rows_candidate = roms.rom0p->read8(candidate_addr + 3) + 1;
+
+            int32_t scale = 1;
+            if (original_zoom > 0)
+                scale = static_cast<int32_t>((candidate_zoom + (original_zoom >> 1)) / original_zoom);
+            if (scale < 2)
+                scale = 2;
+
+            const int32_t row_tolerance = scale;
+            const int32_t width_tolerance = 8 * scale;
+            return abs_i32(rows_candidate - scale * rows_orig) <= row_tolerance &&
+                   abs_i32(n_candidate - scale * n_orig) <= width_tolerance;
+        };
+
+        if (src_offsets != size_offset && !candidate_matches(src_offsets, zoom))
+        {
+            // If DX's extra traffic step is the part that failed validation,
+            // first fall back to SE's normal one-step hi-res frame. Only fall
+            // all the way back to the original frame if that is invalid too.
+            const uint32_t standard_addr = input->addr + standard_hires_size;
+            if (standard_addr != size_offset &&
+                candidate_matches(standard_addr, standard_hires_zoom))
+            {
+                src_offsets = standard_addr;
+                zoom = standard_hires_zoom;
+                output->set_vzoom(zoom);
+                output->set_hzoom(zoom);
+            }
+            else
+            {
+                src_offsets = size_offset;
+                zoom = original_zoom;
+                output->set_vzoom(zoom);
+                output->set_hzoom(zoom);
+            }
+        }
+
+        if (src_offsets != size_offset)
+        {
+            const int32_t n_big = roms.rom0p->read8(src_offsets + 1);
+            const int32_t z_big = static_cast<int32_t>(zoom >> 1) > 0
+                ? static_cast<int32_t>(zoom >> 1) : 1;
+            const int32_t z_orig = static_cast<int32_t>(original_zoom >> 1) > 0
+                ? static_cast<int32_t>(original_zoom >> 1) : 1;
+            const int32_t w_big = (512 * n_big + z_big - 1) / z_big;
+            const int32_t w_orig = (512 * n_orig + z_orig - 1) / z_orig;
+            offset = static_cast<int16_t>((w_orig - w_big) / 2);
+        }
     }
 
-    //int32_t sprite_width = (roms.rom0p->read8(src_offsets + 5)) * 8; // pitch, 8 pixels per 32-bit word
-    int32_t calc_width   = ceil((0x200 * sprite_width)  / zoom);
-    int32_t calc_height  = ceil((0x200 * sprite_height) / zoom);
+    // Width/height now stay in the arcade's exact logical geometry. The larger
+    // source art only improves sampling detail; it must not move collision or
+    // anchoring. Bumper View may still enlarge the render geometry below.
+    int32_t calc_width = width;
+    int32_t calc_height = height;
+    if (config.video.hiresprites == 0)
+        offset = 0;
+
+    // int16_t overload writes the DX/SE hi-res centering offset to word 15.
+    output->set_offset(offset);
+
     const bool traffic_sprite = (input->control & TRAFFIC_SPRITE) != 0;
     const bool hardware_shadow_sprite = input->shadow != 0;
 
-/*
-{
-if ((calc_width < width) || (calc_height < height)) {
-    std::cout << "\rGame Width/Height: " << width << "/" << height <<
-      "\t\tDetermined: " << sprite_width << "/" << sprite_height <<
-      "\t\tCalculated: " << ((0x200 * sprite_width) / zoom) << "/" << ((0x200 * sprite_height) / zoom) <<
-      "\t\t(zoom: " << std::hex << zoom << std::dec << ")\n";
-    }
-}
-*/
     // Traffic keeps the original OutRun logical size for road geometry and
     // collision bounds. The optimized renderer may calculate a slightly
     // different sampled size, which is only a drawing concern.
@@ -859,8 +886,13 @@ if ((calc_width < width) || (calc_height < height)) {
     set_sprite_xy(input, output, geometry_width, geometry_height);
 
     // Here we need the entire value set by above routine, not just top 0x1FF mask!
-    int16_t sprite_x1 = output->get_x() + offset;
-    int16_t sprite_x2 = sprite_x1 + calc_width + offset;
+    // offset centres the substituted frame; it is not a translation. Convert
+    // from hi-res canvas pixels to logical pixels and apply opposite signs to
+    // the two edges, matching SE 1.50's corrected clip/cull model.
+    const int16_t offset_lores = static_cast<int16_t>(
+        offset >= 0 ? (offset + 1) / 2 : -((-offset + 1) / 2));
+    int16_t sprite_x1 = output->get_x() + offset_lores;
+    int16_t sprite_x2 = output->get_x() + calc_width - offset_lores;
     int16_t sprite_y1 = output->get_y();
     int16_t sprite_y2 = sprite_y1 + geometry_height;
 
