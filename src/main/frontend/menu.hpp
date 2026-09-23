@@ -392,6 +392,9 @@ protected:
         menu_bugfixes.push_back(
             std::string("WHEEL SLIP DETECTION ") +
             (config.bugfix_wheel_slip_se() ? "SE" : "ORIGINAL"));
+        menu_bugfixes.push_back(bool_text(
+            "TRAFFIC BRAKE CHECK",
+            config.bugfix_read_setting("traffic_brake_check", true)));
         menu_bugfixes.push_back("RESET TO DEFAULTS");
         menu_bugfixes.push_back(ENTRY_BACK);
     }
@@ -407,6 +410,7 @@ protected:
             case 4: config.set_bugfix_menu_map_road_line(enabled); break;
             case 5: config.set_bugfix_crash_engine_sound(enabled); break;
             case 6: config.set_bugfix_wheel_slip_se(enabled); break;
+            case 7: config.bugfix_write_setting("traffic_brake_check", enabled); break;
             default: return false;
         }
 
@@ -427,6 +431,9 @@ protected:
             case 4: return set_bugfix_value(row, !config.bugfix_menu_map_road_line());
             case 5: return set_bugfix_value(row, !config.bugfix_crash_engine_sound());
             case 6: return set_bugfix_value(row, !config.bugfix_wheel_slip_se());
+            case 7: return set_bugfix_value(
+                row,
+                !config.bugfix_read_setting("traffic_brake_check", true));
             default: return false;
         }
     }
@@ -644,7 +651,7 @@ protected:
             else if (input.has_pressed(Input::LEFT))
                 direction = -1;
 
-            if (direction && cursor >= 0 && cursor <= 6)
+            if (direction && cursor >= 0 && cursor <= 7)
             {
                 if (set_bugfix_value(cursor, direction > 0))
                 {
@@ -660,7 +667,7 @@ protected:
                 return;
             }
 
-            if (cursor >= 0 && cursor <= 6)
+            if (cursor >= 0 && cursor <= 7)
             {
                 if (toggle_bugfix_value(cursor))
                 {
@@ -670,17 +677,18 @@ protected:
                 return;
             }
 
-            if (cursor == 7)
+            if (cursor == 8)
             {
                 config.reset_bugfix_settings();
+                config.bugfix_write_setting("traffic_brake_check", true);
                 config.save();
                 populate_bugfix_settings();
-                cursor = 7;
+                cursor = 8;
                 osoundint.queue_sound(sound::BEEP1);
                 return;
             }
 
-            if (cursor == 8)
+            if (cursor == 9)
             {
                 menu_back();
                 refresh_menu();
