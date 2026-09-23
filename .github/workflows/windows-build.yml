@@ -84,9 +84,7 @@ jobs:
           Copy-Item "docs" "$dist\docs" -Recurse
           Copy-Item "roms\roms.txt" "$dist\roms\roms.txt"
 
-          Copy-Item "README.md" $dist
           Copy-Item "README.txt" $dist
-          Copy-Item "CHANGELOG" $dist
           Copy-Item "EXTERNAL_OUTPUTS.md" $dist
 
           Write-Host "Windows package contents:"
