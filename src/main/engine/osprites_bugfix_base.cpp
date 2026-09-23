@@ -94,7 +94,6 @@ void OSprites::init()
     jump_table[SPRITE_CRASH_PASS1_S].addr       = outrun.adr.shadow_data;
     jump_table[SPRITE_CRASH_PASS2_S].shadow     = 7;
     jump_table[SPRITE_CRASH_PASS2_S].draw_props = oentry::BOTTOM;
-    jump_table[SPRITE_CRASH_PASS2_S].addr       = outrun.adr.shadow_data;
     
     jump_table[SPRITE_CRASH_SHADOW].shadow     = 7;
     jump_table[SPRITE_CRASH_SHADOW].zoom       = 0x80;
@@ -171,7 +170,7 @@ void OSprites::tick()
 //
 // - This second table in memory specifies the frequency and number of sprites in the sequence. 
 //  
-// - The second table also contains the actual sprite info (x,y,palette,type). This can be multipled sprites.
+// - The second table also contains the actual sprite info (x,y,type,palette etc.). This can be multipled sprites.
 //
 // ----------------------------------
 //
@@ -218,7 +217,7 @@ void OSprites::sprite_control()
     if (pos <= oroad.road_pos >> 16)
     {
         seg_pos = pos;                                                          // Position In Level Data [Word]
-        seg_total_sprites = trackloader.read_total_sprites();                   // Number of Sprites In Segment
+        seg_total_sprites = trackloader.read_total_sprites();                   // Number Of Sprites In Segment
         uint8_t pattern_index = trackloader.read_sprite_pattern_index();        // Block Of Sprites
         trackloader.scenery_offset += 4;                                        // Advance to next scenery point
         
@@ -665,8 +664,9 @@ std::exit(9);
     // dimensions from five unrelated anchor rows and assumed each substituted
     // frame was an exact 2x rendition. SE 1.50 demonstrated that this is false
     // for many animation/strip tables and is the source of black bottom rows
-    // and horizontal jumps. Keep DX's enhanced traffic-size step, but validate
-    // every substituted frame before using it.
+    // and horizontal jumps. DX keeps those fixes and, for hi-res traffic,
+    // deliberately locks the ROM source to one stable size frame so a car
+    // cannot visually morph merely because it crossed a zoom-size boundary.
     int16_t offset = 0;
     uint32_t zoom = 0;
     uint32_t src_offsets = 0;
@@ -719,21 +719,33 @@ std::exit(9);
         const uint32_t standard_hires_zoom = ZOOM_LOOKUP_HIRES[index];
         const uint16_t standard_hires_size = ZOOM_LOOKUP_HIRES[index+2];
         const uint16_t orig_size = ZOOM_LOOKUP_HIRES[index+3];
+        const bool lock_traffic_size_frame = (input->control & TRAFFIC_SPRITE) != 0;
 
         zoom = standard_hires_zoom;
         uint16_t size_to_use = standard_hires_size;
 
-        // DX enhancement retained: traffic may use one further size step when
-        // the 12-bit hardware zoom field still has room.
-        if ((input->control & TRAFFIC_SPRITE) && size_to_use != SIZE1)
+        // Traffic identity test: SIZE3 is the largest single ROM size frame
+        // that can be used over the complete distance range without exceeding
+        // the 12-bit sprite zoom field at the horizon. Keeping this descriptor
+        // fixed removes the original SIZE5/SIZE4/SIZE3/SIZE2/SIZE1 source swaps.
+        // The zoom value is compensated by powers of two so logical road size
+        // and collision geometry remain unchanged.
+        if (lock_traffic_size_frame)
         {
-            const uint32_t candidate_zoom = zoom << 1;
-            const uint16_t next_size = size_to_use >= 0x0A ? (size_to_use - 0x0A) : 0;
-            if (candidate_zoom <= 0x0FFF && next_size != size_to_use)
-            {
-                zoom = candidate_zoom;
-                size_to_use = next_size;
-            }
+            constexpr uint16_t TRAFFIC_LOCKED_SIZE = SIZE3;
+            const int32_t step_delta =
+                (static_cast<int32_t>(size_to_use) -
+                 static_cast<int32_t>(TRAFFIC_LOCKED_SIZE)) / 0x0A;
+
+            if (step_delta > 0)
+                zoom <<= step_delta;
+            else if (step_delta < 0)
+                zoom >>= -step_delta;
+
+            if (zoom == 0)
+                zoom = 1;
+
+            size_to_use = TRAFFIC_LOCKED_SIZE;
         }
 
         output->set_vzoom(zoom);
@@ -781,10 +793,9 @@ std::exit(9);
 
         auto abs_i32 = [](int32_t value) { return value < 0 ? -value : value; };
 
-        // Validate a candidate against the original frame. This generalises
-        // SE's 2x guard so DX's optional second traffic step (normally 4x the
-        // original frame/zoom pair) can survive when the ROM really contains
-        // the expected larger art.
+        // Validate ordinary hi-res substitutions against the original frame.
+        // The locked traffic source is intentional and can be smaller than the
+        // original near the camera, so it deliberately bypasses this fallback.
         auto candidate_matches = [&](uint32_t candidate_addr, uint32_t candidate_zoom)
         {
             if (candidate_addr == size_offset)
@@ -805,11 +816,10 @@ std::exit(9);
                    abs_i32(n_candidate - scale * n_orig) <= width_tolerance;
         };
 
-        if (src_offsets != size_offset && !candidate_matches(src_offsets, zoom))
+        if (!lock_traffic_size_frame &&
+            src_offsets != size_offset &&
+            !candidate_matches(src_offsets, zoom))
         {
-            // If DX's extra traffic step is the part that failed validation,
-            // first fall back to SE's normal one-step hi-res frame. Only fall
-            // all the way back to the original frame if that is invalid too.
             const uint32_t standard_addr = input->addr + standard_hires_size;
             if (standard_addr != size_offset &&
                 candidate_matches(standard_addr, standard_hires_zoom))
@@ -1033,7 +1043,7 @@ void OSprites::hide_hwsprite(oentry* input, osprite* output)
 // Sets Sprite Render Point
 // 
 // Source Address: 0x967C
-// Input:          Jump Table Entry, Output Sprite Entry, Width & Height
+// Input:          Jump Table Entry, Output Sprite Entry
 // Output:         Updated Sprite Output Entry
 //
 
