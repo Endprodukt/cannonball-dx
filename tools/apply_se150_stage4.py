@@ -60,7 +60,8 @@ replace_once(
     "        blargg_filter(pixels, writePixels, fastpass);\n",
 )
 
-# Pass the safe-point hook through Video.
+# Pass the safe-point hook through Video. DX keeps the preserved implementation
+# in video_bugfix_base.cpp, included by the thin video.cpp wrapper.
 replace_once(
     "src/main/video.hpp",
     "    void render_frame(int fastpass);\n    void present_frame();\n",
@@ -68,7 +69,7 @@ replace_once(
 )
 
 replace_once(
-    "src/main/video.cpp",
+    "src/main/video_bugfix_base.cpp",
     "void Video::present_frame()\n{\n\trenderer->finalize_frame();\n}\n",
     "void Video::present_frame()\n{\n\trenderer->finalize_frame();\n}\n\nvoid Video::advance_blargg_phase()\n{\n    renderer->advance_blargg_phase();\n}\n",
 )
