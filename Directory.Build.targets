@@ -20,7 +20,7 @@
 
     <!-- Remove repository-only files and old root-level resource copies left by
          earlier builds. This keeps incremental builds from preserving stale files. -->
-    <Delete Files="$(TargetDir)README.md;$(TargetDir)CHANGELOG;$(TargetDir)CHANGELOG.md;$(TargetDir)EXTERNAL_OUTPUTS.md;$(TargetDir)tilemap.bin;$(TargetDir)tilepatch.bin" />
+    <Delete Files="$(TargetDir)README.md;$(TargetDir)CHANGELOG;$(TargetDir)CHANGELOG.md;$(TargetDir)EXTERNAL_OUTPUTS.md;$(TargetDir)tilemap.bin;$(TargetDir)tilepatch.bin;$(TargetDir)gamecontrollerdb.txt" />
 
     <Copy SourceFiles="@(CannonBallRes)"
           DestinationFiles="@(CannonBallRes->'$(TargetDir)res\%(RecursiveDir)%(Filename)%(Extension)')"
@@ -37,12 +37,6 @@
     <MakeDir Directories="$(TargetDir)roms" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)roms\roms.txt"
           DestinationFolder="$(TargetDir)roms"
-          SkipUnchangedFiles="true" />
-
-    <!-- gamecontrollerdb.txt is required beside the executable. tilemap.bin and
-         tilepatch.bin stay under res only. -->
-    <Copy SourceFiles="$(MSBuildThisFileDirectory)res\gamecontrollerdb.txt"
-          DestinationFolder="$(TargetDir)"
           SkipUnchangedFiles="true" />
   </Target>
 </Project>
