@@ -1180,7 +1180,17 @@ void Input::handle_key_down(SDL_Keysym* keysym)
         return;
     }
 
+    const int hiresprites_before = config.video.hiresprites;
     handle_key_down_base(keysym);
+
+    // F7 is a runtime hotkey, so unlike the frontend it has no later menu-save
+    // latch. Persist only a real toggle (the low-res guard can leave it unchanged).
+    if (keysym->sym == SDLK_F7 &&
+        config.video.hiresprites != hiresprites_before &&
+        !config.save())
+    {
+        std::cerr << "Unable to save hi-res sprite setting." << std::endl;
+    }
 
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
