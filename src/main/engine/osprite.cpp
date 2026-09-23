@@ -161,5 +161,10 @@ void osprite::set_width(uint16_t width)
 
 void osprite::set_offset(int16_t offset)
 {
-    data[15] = offset;
+    // DX: SE's empirical per-size X correction shifts already correctly
+    // anchored hi-res sprites away from their true game position. The paused
+    // F7 A/B test shows the same sprite RAM entry is correct with this
+    // correction disabled, so keep the renderer alignment neutral.
+    (void)offset;
+    data[15] = 0;
 }
