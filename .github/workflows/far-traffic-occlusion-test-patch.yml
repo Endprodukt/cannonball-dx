@@ -1,0 +1,44 @@
+name: Apply far traffic occlusion test patch
+
+on:
+  push:
+    branches:
+      - test/se-1.50-selective-sync
+    paths:
+      - .github/workflows/far-traffic-occlusion-test-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/se-1.50-selective-sync
+
+      - name: Apply far traffic occlusion patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/main/engine/osprites_bugfix_base.cpp')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''void OSprites::do_spr_order_shadows(oentry* input)\n{\n    if (input->hidden) return;  // JJP ghost car related safety-net check\n\n    // LayOut specific fix to avoid memory crash on over populated scenery segments\n'''
+
+          new = '''void OSprites::do_spr_order_shadows(oentry* input)\n{\n    if (input->hidden) return;  // JJP ghost car related safety-net check\n\n    // DX: de-overlap far traffic visually. At the horizon all three lane\n    // positions collapse into only a few screen pixels, so several perfectly\n    // valid traffic objects can sit on top of each other. As their projected\n    // positions separate, the topmost object changes and looks like one car\n    // morphing into another. Keep all traffic simulation intact, but while a\n    // far group is visually coincident render only the nearest member. Cars\n    // behind it become visible naturally once their screen positions separate.\n    if (input->control & TRAFFIC_SPRITE)\n    {\n        constexpr uint16_t FAR_TRAFFIC_Z = 0x70;\n        constexpr int16_t FAR_TRAFFIC_X_OVERLAP = 8;\n        constexpr int16_t FAR_TRAFFIC_Y_OVERLAP = 5;\n\n        const uint16_t input_z = static_cast<uint16_t>(input->z >> 16);\n        if (input_z > 0 && input_z < FAR_TRAFFIC_Z)\n        {\n            for (uint8_t i = SPRITE_TRAFF1; i <= SPRITE_TRAFF8; i++)\n            {\n                oentry* other = &jump_table[i];\n                if (other == input ||\n                    !(other->control & ENABLE) ||\n                    !(other->control & TRAFFIC_SPRITE) ||\n                    other->hidden)\n                {\n                    continue;\n                }\n\n                const uint16_t other_z = static_cast<uint16_t>(other->z >> 16);\n                if (other_z == 0 || other_z >= 0x200)\n                    continue;\n\n                // Higher z is nearer the camera. Equal-depth traffic uses the\n                // jump-table index as a stable tie-breaker so the representative\n                // cannot flicker from frame to frame.\n                const bool other_wins =\n                    other_z > input_z ||\n                    (other_z == input_z && other->jump_index < input->jump_index);\n                if (!other_wins)\n                    continue;\n\n                int16_t dx = other->x - input->x;\n                int16_t dy = other->y - input->y;\n                if (dx < 0) dx = -dx;\n                if (dy < 0) dy = -dy;\n\n                if (dx <= FAR_TRAFFIC_X_OVERLAP &&\n                    dy <= FAR_TRAFFIC_Y_OVERLAP)\n                {\n                    return;\n                }\n            }\n        }\n    }\n\n    // LayOut specific fix to avoid memory crash on over populated scenery segments\n'''
+
+          assert old in text, 'do_spr_order_shadows insertion point not found'
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/engine/osprites_bugfix_base.cpp
+          git commit -m "Keep far traffic identities visually stable"
+          git push origin HEAD:test/se-1.50-selective-sync
