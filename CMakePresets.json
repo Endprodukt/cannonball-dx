@@ -15,16 +15,50 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_FEATURE_FLAGS": "manifests,registries,binarycaching"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [ "Windows" ]
+        }
       }
     },
     {
       "name": "windows-debug",
       "inherits": "windows-release",
       "displayName": "Windows x64 (Debug)"
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux x64 (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "WITH_MARCH_NATIVE": "OFF"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [ "Linux" ]
+        },
+        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+        }
+      }
+    },
+    {
+      "name": "linux-debug",
+      "inherits": "linux-release",
+      "displayName": "Linux x64 (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "WITH_MARCH_NATIVE": "OFF"
+      }
     }
   ],
   "buildPresets": [
     { "name": "windows-release", "configurePreset": "windows-release", "configuration": "Release" },
-    { "name": "windows-debug",   "configurePreset": "windows-debug",   "configuration": "Debug" }
+    { "name": "windows-debug",   "configurePreset": "windows-debug",   "configuration": "Debug" },
+    { "name": "linux-release",   "configurePreset": "linux-release" },
+    { "name": "linux-debug",     "configurePreset": "linux-debug" }
   ]
 }
