@@ -1180,7 +1180,26 @@ void Input::handle_key_down(SDL_Keysym* keysym)
         return;
     }
 
+    const bool f7_toggle = keysym && keysym->sym == SDLK_F7;
+    const int previous_hiresprites = config.video.hiresprites;
+
     handle_key_down_base(keysym);
+
+    if (f7_toggle)
+    {
+        // Match CannonBall-SE: hi-res sprites are only valid while the hi-res
+        // engine is active. input_base.cpp still owns the legacy F7 toggle, so
+        // restore the previous value when that combination is not allowed.
+        if (!config.video.hires)
+        {
+            config.video.hiresprites = previous_hiresprites;
+        }
+        else if (config.video.hiresprites != previous_hiresprites &&
+                 !config.save())
+        {
+            std::cerr << "Unable to save F7 hi-res sprite setting." << std::endl;
+        }
+    }
 
     if (keysym->sym == key_config[12]) set_key_state(VIEW1, true);
     if (keysym->sym == key_config[13]) set_key_state(VIEW2, true);
