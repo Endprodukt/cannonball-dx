@@ -45,11 +45,10 @@ text = p.read_text(encoding="utf-8")
 start = text.index("void RenderSurface::blargg_filter")
 end = text.index("\n\n#include <stdint.h>", start)
 body = text[start:end]
-count = body.count("                phase,\n") + body.count("            phase,\n")
+count = body.count("phase,\n")
 if count != 3:
     raise RuntimeError(f"blargg_filter: expected 3 phase arguments, found {count}")
-body = body.replace("                phase,\n", "                section_phase,\n")
-body = body.replace("            phase,\n", "            section_phase,\n")
+body = body.replace("phase,\n", "section_phase,\n")
 text = text[:start] + body + text[end:]
 p.write_text(text, encoding="utf-8")
 
