@@ -43,6 +43,7 @@ public:
     void swap_buffers();
     void disable();
     void focus_window() override;
+    void advance_blargg_phase() override;
     bool start_frame() {return true;};
     bool finalize_frame();
     void draw_frame(uint16_t* pixels, int fastpass);

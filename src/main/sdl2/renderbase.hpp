@@ -33,6 +33,7 @@ public:
     virtual bool supports_window() { return true; }
     virtual bool supports_vsync() { return false; }
     virtual void focus_window() {}
+    virtual void advance_blargg_phase() {}
 
     // S16 video hardware ladder DAC values
     alignas(ALIGNMENT) uint32_t rgb_lookup[LOOKUP_SIZE];

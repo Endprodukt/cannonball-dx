@@ -266,6 +266,11 @@ void Video::present_frame()
 	renderer->finalize_frame();
 }
 
+void Video::advance_blargg_phase()
+{
+    renderer->advance_blargg_phase();
+}
+
 bool Video::supports_window()
 {
     return renderer->supports_window();

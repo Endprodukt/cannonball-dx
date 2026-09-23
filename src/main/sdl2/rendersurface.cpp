@@ -170,6 +170,20 @@ void RenderSurface::focus_window()
     }
 }
 
+void RenderSurface::advance_blargg_phase()
+{
+    if (!blargg)
+        return;
+
+    // Keep the cadence used by DX before SE 1.50's threading fix. The only
+    // change is ownership: one main-thread update per rendered frame instead
+    // of a write from one of two concurrently running render workers.
+    if (config.fps == 60)
+        phase = (phase + 1) % 3;
+    else
+        phase = (phase + 2) % 3;
+}
+
 
 void RenderSurface::create_buffers() {
     uint32_t pixels;
@@ -1039,6 +1053,9 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
 
     const int block_height = section >= 0 ? (src_height >> 1) : src_height;
     const int start_y = section == 1 ? (src_height >> 1) : 0;
+    const int section_phase = section == 1
+        ? (phase + block_height) % 3
+        : phase;
 
     if (!blargg)
         return;
@@ -1087,7 +1104,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
                 ntsc,
                 filter_input,
                 long(filter_input_width),
-                phase,
+                section_phase,
                 filter_input_width,
                 block_height,
                 filter_output,
@@ -1098,7 +1115,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
                 ntsc,
                 filter_input,
                 long(filter_input_width),
-                phase,
+                section_phase,
                 filter_input_width,
                 block_height,
                 filter_output,
@@ -1112,7 +1129,7 @@ void RenderSurface::blargg_filter(uint16_t* gamePixels, uint32_t* outputPixels, 
             ntsc,
             filter_input,
             long(filter_input_width),
-            phase,
+            section_phase,
             filter_input_width,
             block_height,
             filter_output,
@@ -1419,10 +1436,6 @@ void RenderSurface::draw_frame(uint16_t* pixels, int fastpass)
     if (blargg) {
         pixels = (uint16_t*)__builtin_assume_aligned(pixels, 4);
         uint32_t* writePixels = (uint32_t*)__builtin_assume_aligned(current_writePixels, 4);
-        if (fastpass!=1) {
-            if (config.fps == 60) phase = (phase + 1) % 3; // cycle through 0/1/2
-            else                  phase = (phase + 2) % 3; // cycle through 0/1/2, but at twice the rate
-        }
         blargg_filter(pixels, writePixels, fastpass);
         // apply scanlines, if enabled.
         if (config.video.scanlines!=0) {
