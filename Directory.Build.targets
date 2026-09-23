@@ -10,16 +10,17 @@
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'cannonball-dx'">
     <CannonBallRes Include="$(MSBuildThisFileDirectory)res\**\*" />
     <CannonBallDocs Include="$(MSBuildThisFileDirectory)docs\**\*" />
-    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)README.md" />
     <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)README.txt" />
-    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)CHANGELOG" />
-    <CannonBallRootDocs Include="$(MSBuildThisFileDirectory)EXTERNAL_OUTPUTS.md" />
   </ItemGroup>
 
   <Target Name="CannonBallDxAssembleRuntime"
           AfterTargets="Build"
           Condition="'$(MSBuildProjectName)' == 'cannonball-dx' and '$(Configuration)' == 'Release'">
     <Message Text="Assembling CannonBall DX Windows runtime package in $(TargetDir)" Importance="high" />
+
+    <!-- Remove repository-only files and old root-level resource copies left by
+         earlier builds. This keeps incremental builds from preserving stale files. -->
+    <Delete Files="$(TargetDir)README.md;$(TargetDir)CHANGELOG;$(TargetDir)CHANGELOG.md;$(TargetDir)EXTERNAL_OUTPUTS.md;$(TargetDir)tilemap.bin;$(TargetDir)tilepatch.bin" />
 
     <Copy SourceFiles="@(CannonBallRes)"
           DestinationFiles="@(CannonBallRes->'$(TargetDir)res\%(RecursiveDir)%(Filename)%(Extension)')"
@@ -38,8 +39,9 @@
           DestinationFolder="$(TargetDir)roms"
           SkipUnchangedFiles="true" />
 
-    <!-- These three files are also expected directly beside the executable. -->
-    <Copy SourceFiles="$(MSBuildThisFileDirectory)res\tilemap.bin;$(MSBuildThisFileDirectory)res\tilepatch.bin;$(MSBuildThisFileDirectory)res\gamecontrollerdb.txt"
+    <!-- gamecontrollerdb.txt is required beside the executable. tilemap.bin and
+         tilepatch.bin stay under res only. -->
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)res\gamecontrollerdb.txt"
           DestinationFolder="$(TargetDir)"
           SkipUnchangedFiles="true" />
   </Target>
