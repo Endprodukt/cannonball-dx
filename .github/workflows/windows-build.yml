@@ -73,11 +73,8 @@ jobs:
           Copy-Item "build\Release\cannonball-dx.exe" $dist
           Copy-Item "build\Release\*.dll" $dist -ErrorAction SilentlyContinue
 
-          # Runtime data expected beside the executable.
-          Copy-Item "build\gamecontrollerdb.txt" $dist
-
-          # Ship runtime resources and documentation. tilemap.bin and tilepatch.bin
-          # belong under res only and must not be duplicated in the release root.
+          # Ship runtime resources and documentation. Resource data belongs under
+          # res only and must not be duplicated in the release root.
           Copy-Item "res" "$dist\res" -Recurse
           Copy-Item "docs" "$dist\docs" -Recurse
           Copy-Item "roms\roms.txt" "$dist\roms\roms.txt"
@@ -94,9 +91,9 @@ jobs:
             throw "Repository-only documentation was found in the Windows release package."
           }
 
-          foreach ($rootOnlyResource in @("tilemap.bin", "tilepatch.bin")) {
-            if (Test-Path (Join-Path $dist $rootOnlyResource)) {
-              throw "$rootOnlyResource must only exist under res, not in the release root."
+          foreach ($resOnlyFile in @("tilemap.bin", "tilepatch.bin", "gamecontrollerdb.txt")) {
+            if (Test-Path (Join-Path $dist $resOnlyFile)) {
+              throw "$resOnlyFile must only exist under res, not in the release root."
             }
           }
 
