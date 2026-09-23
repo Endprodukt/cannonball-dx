@@ -161,11 +161,5 @@ void osprite::set_width(uint16_t width)
 
 void osprite::set_offset(int16_t offset)
 {
-    // DX alignment test: do not carry SE's empirical per-size horizontal
-    // correction into the renderer. set_sprite_xy() already anchors the
-    // selected hi-res source from its calculated rendered dimensions; adding
-    // a second fixed shift makes otherwise identical paused sprites jump when
-    // F7 toggles hi-res sprite rendering.
-    (void)offset;
-    data[15] = 0;
+    data[15] = offset;
 }
