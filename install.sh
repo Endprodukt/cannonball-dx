@@ -1,134 +1,117 @@
 #!/usr/bin/env bash
 
-# install.sh
-# Install script for CannonBall DX, based on CannonBall-SE by James Pearce
-# CannonBall-SE revisions Copyright (c) 2025, James Pearce
-# Supports Ubuntu 24.04 and RaspberryPi OS (CLI only)
+# CannonBall DX Linux build helper
+# Tested by CI on Ubuntu 24.04. Raspberry Pi OS remains best-effort.
 
-# Exit on unset vars and errors
 set -euo pipefail
 
-# Arrays to record steps and statuses
-declare -A STATUS
-declare -a STEP_ORDER=()
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-# Print summary of all steps
-function print_summary() {
-  echo -e "\n====== Installation Summary ======"
-  for step in "${STEP_ORDER[@]}"; do
-    printf "%-40s : %s\n" "$step" "${STATUS[$step]:-Skipped}"
-  done
-}
+printf '%s\n' \
+  "CannonBall DX Linux setup" \
+  "-------------------------" \
+  "This installs build/runtime development packages, prepares input access" \
+  "and builds CannonBall DX from the current checkout." \
+  ""
 
-# Wrapper to run a step, record its status, and abort on failure
-function run_step() {
-  local name="$1"; shift
-  STEP_ORDER+=("$name")
-  echo -e "\n--> $name..."
-  if "$@"; then
-    STATUS["$name"]="Success"
-    echo "    [OK] $name completed."
-  else
-    STATUS["$name"]="Failed"
-    echo "    [ERROR] $name failed."
-    print_summary
-    exit 1
-  fi
-}
-
-# 1. Confirm with user
-echo "Install script for CannonBall DX"
-echo "Based on CannonBall-SE by James Pearce"
-echo "Supports Ubuntu 24.04 and RaspberryPi OS (CLI only)"
-echo ""
-read -rp "Do you wish to continue (you will be prompted for sudo)? [y/N] " confirm
-STEP_ORDER+=("User confirmation")
-if [[ "$confirm" =~ ^[Yy] ]]; then
-  STATUS["User confirmation"]="Accepted"
-else
-  STATUS["User confirmation"]="Aborted by user"
-  echo "Aborted. No changes made."
-  print_summary
+read -rp "Continue? sudo access will be required. [y/N] " confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  echo "Aborted."
   exit 0
 fi
 
-# 2. Determine build threads based on RAM
-STEP_ORDER+=("Determine build threads")
-{
-  mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-  mem_mb=$((mem_kb/1024))
-  if (( mem_mb <= 460 )); then threads=1
-  elif (( mem_mb <= 920 )); then threads=2
-  elif (( mem_mb <= 1380 )); then threads=3
-  else threads=4; fi
-  export NUMTHREADS=$threads
-  STATUS["Determine build threads"]="Using $NUMTHREADS threads ($mem_mb MB RAM)"
-  echo "    [INFO] Using $NUMTHREADS build thread(s) based on ${mem_mb}MB RAM."
-} || {
-  STATUS["Determine build threads"]="Failed"
-  echo "    [ERROR] Could not determine RAM size. Defaulting NUMTHREADS=1."
-  export NUMTHREADS=1
-}
-
-# 3. Update APT
-run_step "APT update" sudo apt update -y
-
-# 4. Grant input group access
-run_step "Grant input group access" sudo usermod -aG input "$USER"
-
-# 5. Configure udev rules
-run_step "Configure udev rules" bash -c '
-  sudo tee /etc/udev/rules.d/99-cannonball.rules > /dev/null <<EOF
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0666"
-KERNEL=="watchdog*", SUBSYSTEM=="watchdog", MODE="0666"
-EOF
-  sudo udevadm control --reload-rules
-  sudo udevadm trigger
-'
-
-# 6. Install dependencies
-run_step "Install dependencies" sudo apt install -y \
-  build-essential git cmake libsdl2-dev libglu1-mesa-dev libmpg123-dev pkg-config alsa-utils libtinyxml2-dev
-
-# 7. Prepare and build CannonBall DX
-run_step "Prepare build directories" mkdir -p build roms
-run_step "Configure Project with CMake" cmake -S . -B build
-run_step "Compile" cmake --build build --parallel $NUMTHREADS
-#cd build && cmake ../cmake && make -j"$NUMTHREADS"'
-run_step "Create default config file" bash -c 'cp res/config.xml .'
-
-# 8. List and select audio device
-env_command="build/cannonball-dx -list-audio-devices"
-run_step "List audio devices" bash -c "$env_command"
-read -rp "Enter the number of the audio device to use for CannonBall DX [0]: " audio_device
-audio_device=${audio_device:-0}
-run_step "Configure audio device" bash -c 'sed -i "s|<playback_device>.*</playback_device>|<playback_device>'"$audio_device"'</playback_device>|" config.xml'
-
-# 9. Final summary
-print_summary
-
-# 10. Prompt to view the man page
-read -rp "Would you like to view the man page now? [y/N] " view_man
-STEP_ORDER+=("View man page prompt")
-if [[ "$view_man" =~ ^[Yy] ]]; then
-  STATUS["View man page prompt"]="Displayed"
-  man -l docs/cannonball-dx.6
-else
-  STATUS["View man page prompt"]="Skipped"
-  echo "You can view it later with: man -l docs/cannonball-dx.6"
+if ! command -v apt-get >/dev/null 2>&1; then
+  echo "This helper currently supports Debian/Ubuntu-style systems using apt." >&2
+  echo "The CMake project itself can still be built manually on other Linux distributions." >&2
+  exit 1
 fi
-echo "****************************************************************************************"
-echo "IMPORTANT: You must reboot before running CannonBall DX, and remember to copy in the"
-echo "           ROMS. After rebooting, start CannonBall DX from this directory using:"
-echo ""
-echo "           build/cannonball-dx"
-echo ""
-echo "           If you have no audio, run 'alsa-mixer' and check the <Master> volume is not"
-echo "           at zero. Also check the SDL device order hasn't changed using:"
-echo ""
-echo "           build/cannonball-dx -list-audio-devices"
-echo ""
-echo "****************************************************************************************"
-echo ""
 
-# End of install.sh
+# Keep low-memory systems usable while allowing normal desktops to build faster.
+if [[ -r /proc/meminfo ]]; then
+  mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+  mem_mb=$((mem_kb / 1024))
+  if (( mem_mb < 768 )); then
+    build_threads=1
+  elif (( mem_mb < 1536 )); then
+    build_threads=2
+  elif (( mem_mb < 3072 )); then
+    build_threads=3
+  else
+    build_threads=$(nproc 2>/dev/null || echo 4)
+    (( build_threads > 8 )) && build_threads=8
+  fi
+else
+  build_threads=2
+fi
+
+echo "Using ${build_threads} build thread(s)."
+
+echo "Installing dependencies..."
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  git \
+  cmake \
+  ninja-build \
+  pkg-config \
+  libsdl2-dev \
+  libegl1-mesa-dev \
+  libgles2-mesa-dev \
+  libtinyxml2-dev \
+  libmpg123-dev \
+  libudev-dev \
+  alsa-utils
+
+# Wheels and some controllers expose their force-feedback/input interfaces through
+# /dev/input and hidraw. Ubuntu already gives the input group access to many event
+# devices; this rule adds the same restricted group access for hidraw without making
+# the device world-writable.
+echo "Configuring controller/wheel device access..."
+sudo groupadd -f input
+sudo usermod -aG input "$USER"
+sudo tee /etc/udev/rules.d/99-cannonball-dx-input.rules >/dev/null <<'EOF'
+SUBSYSTEM=="hidraw", KERNEL=="hidraw*", MODE="0660", GROUP="input", TAG+="uaccess"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=hidraw || true
+
+mkdir -p build roms
+
+echo "Configuring Release build..."
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DWITH_MARCH_NATIVE=ON
+
+echo "Building CannonBall DX..."
+cmake --build build --parallel "$build_threads"
+
+if [[ ! -x build/cannonball-dx ]]; then
+  echo "Build completed without producing build/cannonball-dx." >&2
+  exit 1
+fi
+
+printf '\nBuild successful.\n\n'
+printf '%s\n' \
+  "Put your supported OutRun ROM files or MAME outrun.zip in:" \
+  "  $ROOT_DIR/roms/" \
+  "" \
+  "Start CannonBall DX from this directory with:" \
+  "  ./build/cannonball-dx" \
+  "" \
+  "CannonBall DX creates config.xml automatically on first launch if it is missing." \
+  "The game currently uses paths relative to the project/package directory, so launch" \
+  "it from here (or use the packaged run.sh from the Linux CI artifact)." \
+  ""
+
+# Group membership is only refreshed at the next login. Existing uaccess permissions
+# may already be sufficient, but make the requirement explicit for wheel users.
+if ! id -nG "$USER" | tr ' ' '\n' | grep -qx input; then
+  echo "NOTE: Log out and back in (or reboot) before testing wheel force feedback."
+  echo "      Your new 'input' group membership is not active in this session yet."
+fi
+
+echo "To inspect SDL audio devices later:"
+echo "  ./build/cannonball-dx -list-audio-devices"
+echo ""
+echo "Linux build setup complete."
