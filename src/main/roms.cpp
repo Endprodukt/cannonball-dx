@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <string>
 #include "stdint.hpp"
 #include "roms.hpp"
 #include <iostream>
@@ -154,21 +155,123 @@ int Roms::load_pcm_rom(bool fixed_rom)
 bool Roms::load_ym_data(const char* filename)
 {
     RomLoader data;
-    if (data.load_binary(filename) == 0)
+    if (data.load_binary(filename) != 0)
+        return false;
+
+    if (data.length > 0x8000)
     {
-        // External YM data and native CannonBall/3DS/Switch .bin music are
-        // loaded into the upper 32K of the emulated Z80 ROM.
-        if (data.length <= 0x8000)
+        std::cout << "External music data is too large (max 32K): "
+                  << filename << std::endl;
+        data.unload();
+        return false;
+    }
+
+    // Legacy .ym files already use CannonBall's external music layout.
+    // Keep their loading behaviour completely unchanged.
+    std::string name(filename);
+    std::size_t dot = name.find_last_of('.');
+    bool is_bin = dot != std::string::npos &&
+                  (name.substr(dot) == ".bin" || name.substr(dot) == ".BIN");
+
+    if (!is_bin)
+    {
+        memset(z80.rom + 0x8000, 0, 0x8000);
+        memcpy(z80.rom + 0x8000, data.rom, data.length);
+        data.unload();
+        return true;
+    }
+
+    const uint16_t LOAD_BASE    = 0x8000;
+    const uint16_t CUSTOM_DATA  = 0x84B9;
+    const uint16_t CUSTOM_OFF   = CUSTOM_DATA - LOAD_BASE;
+
+    // Native CannonBall / 3DS / Switch BIN files are already assembled for
+    // the external Z80 area. They begin with the $84B9 custom-data pointer and
+    // must be copied byte-for-byte so existing files remain fully compatible.
+    if (data.length >= 2 && data.rom[0] == 0xB9 && data.rom[1] == 0x84)
+    {
+        memset(z80.rom + LOAD_BASE, 0, 0x8000);
+        memcpy(z80.rom + LOAD_BASE, data.rom, data.length);
+        data.unload();
+        return true;
+    }
+
+    // Raw siMMpLified binaries are normally assembled directly over an
+    // original OutRun song (for example Magical Sound Shower at $3D5F).
+    // Their first word points to tuneHeaders, which immediately follows the
+    // eight-byte master header. Use that relationship to recover the original
+    // ORG and relocate only pointers that refer back into this binary itself.
+    if (data.length < 35)
+    {
+        std::cout << "Invalid custom BIN music file: " << filename << std::endl;
+        data.unload();
+        return false;
+    }
+
+    uint16_t tune_headers = data.rom[0] | (data.rom[1] << 8);
+    if (tune_headers < 8)
+    {
+        std::cout << "Invalid siMMpLified BIN header: " << filename << std::endl;
+        data.unload();
+        return false;
+    }
+
+    uint16_t source_base = tune_headers - 8;
+    uint32_t source_end  = static_cast<uint32_t>(source_base) + data.length;
+
+    // siMMpLified's master header is followed by a 13-track pointer table.
+    // Requiring that layout avoids treating arbitrary/corrupt BIN files as
+    // relocatable songs.
+    if (data.rom[8] != 13 || source_end > 0x10000)
+    {
+        std::cout << "Unrecognized custom BIN music format: " << filename << std::endl;
+        data.unload();
+        return false;
+    }
+
+    for (int i = 0; i < 13; i++)
+    {
+        int offset = 9 + (i * 2);
+        uint16_t ptr = data.rom[offset] | (data.rom[offset + 1] << 8);
+        if (ptr < source_base || ptr >= source_end)
         {
-            memcpy(z80.rom + 0x8000, data.rom, data.length);
+            std::cout << "Invalid siMMpLified track pointer in: " << filename << std::endl;
             data.unload();
-            return true;
-        }
-        else
-        {
-            std::cout << "External music data is too large (max 32K): "
-                      << filename << std::endl;
+            return false;
         }
     }
-    return false;
+
+    if (data.length > (0x8000 - CUSTOM_OFF))
+    {
+        std::cout << "siMMpLified music data is too large for relocation: "
+                  << filename << std::endl;
+        data.unload();
+        return false;
+    }
+
+    memset(z80.rom + LOAD_BASE, 0, 0x8000);
+
+    // Match the native external layout expected by CannonBall.
+    z80.rom[LOAD_BASE]     = 0xB9;
+    z80.rom[LOAD_BASE + 1] = 0x84;
+    memcpy(z80.rom + CUSTOM_DATA, data.rom, data.length);
+
+    int relocated = 0;
+    for (int i = 0; i < data.length - 1; i++)
+    {
+        uint16_t ptr = data.rom[i] | (data.rom[i + 1] << 8);
+        if (ptr >= source_base && ptr < source_end)
+        {
+            uint16_t new_ptr = CUSTOM_DATA + (ptr - source_base);
+            z80.rom[CUSTOM_DATA + i]     = new_ptr & 0xFF;
+            z80.rom[CUSTOM_DATA + i + 1] = new_ptr >> 8;
+            relocated++;
+        }
+    }
+
+    std::cout << "Loaded raw siMMpLified BIN music (relocated "
+              << relocated << " pointers): " << filename << std::endl;
+
+    data.unload();
+    return true;
 }
