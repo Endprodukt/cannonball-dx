@@ -344,6 +344,8 @@ Custom music files can still be placed in `./res/` using:
 
 Tracks `01-03` replace the original songs. Tracks `04+` add additional entries to the radio selector. Native `.bin` music ripped from the 3DS/Switch ports uses CannonBall's original Z80 custom-music format and is limited to **32K per file**. During gameplay, the assignable **Radio** action cycles through the available tracks and **Music Off**, and the selected title is briefly shown on screen. On supported Windows wheels, the Music Select selector uses the normal low-speed centering spring plus short FFB steps between songs.
 
+> **BIN music support status:** Native 3DS/Switch `.bin` custom music support has been reintegrated into CannonBall DX. This path is currently **untested by the DX maintainer**, because I do not currently have a legal way to obtain the required source data for personal verification. Feedback from users who can legally test this feature is welcome.
+
 ---
 
 ## Arcade Outputs
