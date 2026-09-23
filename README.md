@@ -450,7 +450,7 @@ Upstream projects:
 - **Upstream CannonBall license:** non-commercial use; modified redistributions must include full source; warranty disclaimer. See `docs/license.txt`.
 - **CannonBall-SE additional terms:** SE enhancements © 2020-2025 James Pearce; provided "as is"; not for sale / monetisation; preserve notices. See `docs/CannonBall-SE-license.txt`.
 - **xBRZ:** Copyright © Zenju; the HqMAME-derived implementation used by CannonBall DX is distributed under the **GNU GPL v3** with the exception text retained in the upstream source.
-- **HQx:** Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek; licensed under **GNU LGPL v2.1 or later**.
+- **HQx:** Copyright © 2003 Maxim Stepin and © 2010 Cameron Zemek; licensed under the **GNU LGPL v2.1 or later**.
 - **Blargg `snes_ntsc`:** licensed under **GNU LGPL v2.1**.
 - **miniz:** public-domain / Unlicense terms.
 - **Third-party notices:** see `docs/THIRD-PARTY-NOTICES.md`. The LGPL v2.1 text is included at `docs/LGPL-2.1.txt`.
