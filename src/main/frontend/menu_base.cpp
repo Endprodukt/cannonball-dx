@@ -73,6 +73,19 @@ const static int16_t LOGO_Y = -60;
 const static uint16_t COLS = 40;
 const static uint16_t ROWS = 28;
 
+// Centre against the visible glyphs, not storage-only separator padding.
+// Many legacy labels deliberately end in a space before a value is appended;
+// counting that invisible trailing padding makes otherwise identical menu rows
+// appear a column left/right depending on their final string length.
+static int centered_text_x(const std::string& text)
+{
+    const size_t last_visible = text.find_last_not_of(' ');
+    const int width = last_visible == std::string::npos
+        ? 0
+        : static_cast<int>(last_visible + 1);
+    return (static_cast<int>(COLS) - width) / 2;
+}
+
 // Horizon Destination Position
 const static uint16_t HORIZON_DEST = 0x3A0;
 
@@ -529,8 +542,10 @@ void Menu::draw_menu_options()
     {
         std::string s = menu_selected->at(i);
 
-        // Centre the menu option
-        x = 20 - ((int)s.length() >> 1);
+        // Centre by visible width. Legacy option labels often keep one trailing
+        // separator space even when no value follows it; that padding must not
+        // influence the visual position of the row.
+        x = static_cast<int8_t>(centered_text_x(s));
         ohud.blit_text_new(x, y, s.c_str(), ohud.GREEN);
 
         if (!is_text_menu)
@@ -549,8 +564,8 @@ void Menu::draw_menu_options()
 // Draw a single line of text
 void Menu::draw_text(std::string s)
 {
-    // Centre text
-    int8_t x = 20 - ((int)s.length() >> 1);
+    // Centre by visible width for the same reason as normal menu options.
+    int8_t x = static_cast<int8_t>(centered_text_x(s));
 
     // Find central column in screen.
     int8_t y = 13 + ((ROWS - 13) >> 1) - 1;
