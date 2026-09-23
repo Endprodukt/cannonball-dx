@@ -100,13 +100,12 @@ jobs:
           retention-days: 14
           path: dist/cannonball-dx
 
-  cleanup:
-    name: One-time repository cleanup
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[repo-cleanup]')
+  archive-branches:
+    name: One-time stale branch archive
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[branch-cleanup]')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      actions: write
 
     steps:
       - name: Checkout full repository history
@@ -114,14 +113,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Delete merged development branches
+      - name: Archive and remove stale branches
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
 
-          # Keep branches that are intentionally still in active use even if their
-          # current tip has already landed on master.
+          # Keep the branches that still represent active work. Everything else
+          # is preserved as a dated archive tag before the branch ref is removed.
           keep_branch() {
             case "$1" in
               master|linux-parity|bin-music-support|logitech-g29-softlock-test|logitech-softlock-test|multiplayer-test|refactor/master-readability)
@@ -131,7 +130,7 @@ jobs:
             esac
           }
 
-          deleted=0
+          archived=0
           kept=0
           while IFS= read -r branch; do
             [[ -z "$branch" || "$branch" == "HEAD" ]] && continue
@@ -141,98 +140,14 @@ jobs:
               continue
             fi
 
-            if git merge-base --is-ancestor "refs/remotes/origin/$branch" origin/master; then
-              echo "DELETE merged: $branch"
-              git push origin --delete "$branch"
-              deleted=$((deleted + 1))
-            else
-              echo "KEEP unmerged: $branch"
-              kept=$((kept + 1))
+            tag="archive/2026-09-23/$branch"
+            echo "ARCHIVE: $branch -> $tag"
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              git tag "$tag" "refs/remotes/origin/$branch"
+              git push origin "refs/tags/$tag"
             fi
+            git push origin --delete "$branch"
+            archived=$((archived + 1))
           done < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin | sort)
 
-          echo "Branch cleanup complete: deleted=$deleted kept=$kept"
-
-      - name: Prune obsolete Actions history
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import time
-          import urllib.request
-          import urllib.error
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          token = os.environ["GH_TOKEN"]
-          current_run = int(os.environ["GITHUB_RUN_ID"])
-          api = f"https://api.github.com/repos/{repo}"
-          allowed_paths = {
-              ".github/workflows/windows-build.yml",
-              ".github/workflows/linux-build.yml",
-          }
-          keep_per_current_workflow = 20
-
-          headers = {
-              "Authorization": f"Bearer {token}",
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "cannonball-dx-repo-cleanup",
-          }
-
-          def request(url, method="GET"):
-              req = urllib.request.Request(url, method=method, headers=headers)
-              with urllib.request.urlopen(req) as response:
-                  body = response.read()
-                  return json.loads(body) if body else None
-
-          first = request(f"{api}/actions/runs?per_page=100&page=1")
-          total = int(first.get("total_count", 0))
-          runs = list(first.get("workflow_runs", []))
-          pages = (total + 99) // 100
-          for page in range(2, pages + 1):
-              data = request(f"{api}/actions/runs?per_page=100&page={page}")
-              runs.extend(data.get("workflow_runs", []))
-
-          # Keep active/queued runs. For the two workflows that still exist, retain
-          # a small useful history. Delete completed runs belonging to removed
-          # one-off workflows entirely.
-          by_path = {}
-          for run in runs:
-              by_path.setdefault(run.get("path", ""), []).append(run)
-
-          delete_ids = []
-          for path, items in sorted(by_path.items()):
-              items.sort(key=lambda r: r.get("created_at", ""), reverse=True)
-              completed = [r for r in items if r.get("status") == "completed"]
-              if path in allowed_paths:
-                  keep_ids = {r["id"] for r in completed[:keep_per_current_workflow]}
-                  for run in completed:
-                      if run["id"] not in keep_ids and run["id"] != current_run:
-                          delete_ids.append((run["id"], path))
-              else:
-                  for run in completed:
-                      if run["id"] != current_run:
-                          delete_ids.append((run["id"], path))
-
-          print(f"Found {len(runs)} runs across {len(by_path)} workflow paths.")
-          print(f"Deleting {len(delete_ids)} completed historical runs.")
-
-          deleted = 0
-          failed = 0
-          for run_id, path in delete_ids:
-              try:
-                  request(f"{api}/actions/runs/{run_id}", method="DELETE")
-                  deleted += 1
-                  if deleted % 25 == 0:
-                      print(f"Deleted {deleted}/{len(delete_ids)} runs...")
-                  time.sleep(0.03)
-              except urllib.error.HTTPError as exc:
-                  failed += 1
-                  print(f"WARN: could not delete run {run_id} ({path}): HTTP {exc.code}")
-
-          print(f"Actions cleanup complete: deleted={deleted} failed={failed}")
-          PY
+          echo "Branch archive complete: archived=$archived active=$kept"
