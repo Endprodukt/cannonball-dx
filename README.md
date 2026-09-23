@@ -4,7 +4,7 @@
 
 # CannonBall DX (WIP)
 
-*An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine — and yes, the Ferrari badge is back.*
+*An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine.*
 
 **CannonBall DX** builds on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to make CannonBall especially well suited to modern racing wheels, multi-device PC setups and dedicated arcade cabinets while keeping the original OutRun feel intact.
 
@@ -20,13 +20,11 @@ The additional work in this fork was developed with assistance from **ChatGPT by
 
 ## CannonBall DX Features
 
-### 🐎 Yes, the Ferrari Badge doesn't flip!
+### 🐎 Ferrari Badge Orientation Fix
 
-Of all the technically important changes in CannonBall DX, this somehow became one of the most popular.
+A small fix for a very visible detail: the Ferrari badge was always there, but it could appear flipped when the car sprite changed direction.
 
-The optional **Ferrari badge / logo restoration** brings the emblem back the way we remember and fixes its presentation so it looks the way it should. Is this the most important engineering work in the project? Probably not. Did people notice immediately? Absolutely.
-
-**The tiny horse has returned. We regret nothing.**
+The optional fix keeps the badge facing the right way. Small problem. Horse now faces the right way too.
 
 ### Game Modes
 
@@ -54,7 +52,7 @@ The optional **Ferrari badge / logo restoration** brings the emblem back the way
 
 ### Display & Presentation
 
-- **Ferrari badge / logo restoration** - optional visual fix for the emblem, because apparently a few pixels of prancing horse matter quite a lot
+- **Ferrari badge orientation fix** - optional correction that prevents the emblem from flipping with the car sprite during direction changes
 - **4:3, 16:9, 16:10, 21:9 and Stretched aspect ratios**
 - **Windowed, Borderless Fullscreen and experimental Exclusive Fullscreen modes**
 - **30 FPS, Original timing, 60 FPS and experimental 120 FPS modes**
