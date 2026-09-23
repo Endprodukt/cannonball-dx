@@ -105,9 +105,9 @@ void RenderBase::convert_palette(uint32_t adr, uint32_t r1, uint32_t g1, uint32_
 
     // Shadows
     s16_rgb555[adr + S16_PALETTE_ENTRIES] =
-                     (S16_shadowVal_5bit[r1] << 11) |
+                     (S16_shadowVal_5bit[r1] << 1)  |
                      (S16_shadowVal_5bit[g1] << 6)  |
-                     (S16_shadowVal_5bit[b1] << 1)  |
+                     (S16_shadowVal_5bit[b1] << 11) |
                      RGB1555_ALPHA;
     rgb_blargg[adr + S16_PALETTE_ENTRIES] = CURRENT_RGB_BLARRG_SHADOW();
 }
