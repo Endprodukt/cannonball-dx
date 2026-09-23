@@ -1,0 +1,73 @@
+name: Apply traffic full-resolution test patch
+
+on:
+  push:
+    branches:
+      - test/se-1.50-selective-sync
+    paths:
+      - .github/workflows/traffic-fullres-test-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/se-1.50-selective-sync
+
+      - name: Apply full-resolution traffic source patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          osprites = Path('src/main/engine/osprites_bugfix_base.cpp')
+          text = osprites.read_text(encoding='utf-8')
+
+          old = '''    // Copy address sprite was copied from.\n    // todo: pass pointer?\n    output->scratch = input->jump_index;\n\n    // Hide Sprite if zoom lookup not set\n'''
+          new = '''    // Copy address sprite was copied from.\n    // todo: pass pointer?\n    output->scratch = input->jump_index;\n\n    // DX-only word 14: optional full software-renderer zoom. This lets the\n    // renderer use the largest ROM sprite even when the equivalent zoom step\n    // exceeds the original hardware's 12-bit zoom field. Always clear it when\n    // a hardware sprite entry is reused.\n    output->data[14] = 0;\n\n    // Hide Sprite if zoom lookup not set\n'''
+          assert old in text, 'do_sprite scratch block not found'
+          text = text.replace(old, new, 1)
+
+          old = '''    int16_t offset = 0;\n    uint32_t zoom = 0;\n    uint32_t src_offsets = 0;\n    const uint32_t original_zoom = ZOOM_LOOKUP[index];\n'''
+          new = '''    int16_t offset = 0;\n    uint32_t zoom = 0;\n    uint32_t src_offsets = 0;\n    bool fullres_traffic = false;\n    const uint32_t original_zoom = ZOOM_LOOKUP[index];\n'''
+          assert old in text, 'zoom declarations not found'
+          text = text.replace(old, new, 1)
+
+          old = '''        const bool lock_traffic_size_frame =\n            (input->control & TRAFFIC_SPRITE) != 0 &&\n            input->addr != outrun.adr.sprite_shadow_small;\n\n        zoom = standard_hires_zoom;\n        uint16_t size_to_use = standard_hires_size;\n\n        // Traffic identity test: SIZE3 is the largest single ROM size frame\n        // that can be used over the complete distance range without exceeding\n        // the 12-bit sprite zoom field at the horizon. Keeping this descriptor\n        // fixed removes the original SIZE5/SIZE4/SIZE3/SIZE2/SIZE1 source swaps.\n        // The zoom value is compensated by powers of two so logical road size\n        // and collision geometry remain unchanged.\n        if (lock_traffic_size_frame)\n        {\n            constexpr uint16_t TRAFFIC_LOCKED_SIZE = SIZE3;\n            const int32_t step_delta =\n                (static_cast<int32_t>(size_to_use) -\n                 static_cast<int32_t>(TRAFFIC_LOCKED_SIZE)) / 0x0A;\n\n            if (step_delta > 0)\n                zoom <<= step_delta;\n            else if (step_delta < 0)\n                zoom >>= -step_delta;\n\n            if (zoom == 0)\n                zoom = 1;\n\n            size_to_use = TRAFFIC_LOCKED_SIZE;\n        }\n\n        output->set_vzoom(zoom);\n        output->set_hzoom(zoom);\n'''
+          new = '''        fullres_traffic =\n            (input->control & TRAFFIC_SPRITE) != 0 &&\n            input->addr != outrun.adr.sprite_shadow_small;\n\n        zoom = standard_hires_zoom;\n        uint16_t size_to_use = standard_hires_size;\n\n        // Traffic identity test: always use SIZE1, the largest/highest-detail\n        // ROM frame, from the horizon all the way to the camera. Older OutRun\n        // rendering swaps between five separately drawn size frames; those\n        // frames are not guaranteed to depict an identical silhouette. DX can\n        // avoid that swap and scale one source continuously in software.\n        if (fullres_traffic)\n        {\n            constexpr uint16_t TRAFFIC_LOCKED_SIZE = SIZE1;\n            const int32_t step_delta =\n                (static_cast<int32_t>(size_to_use) -\n                 static_cast<int32_t>(TRAFFIC_LOCKED_SIZE)) / 0x0A;\n\n            if (step_delta > 0)\n                zoom <<= step_delta;\n            else if (step_delta < 0)\n                zoom >>= -step_delta;\n\n            if (zoom == 0)\n                zoom = 1;\n\n            size_to_use = TRAFFIC_LOCKED_SIZE;\n        }\n\n        // data[3] shares its upper four bits with priority/shadow flags, so it\n        // cannot carry a >12-bit zoom without corrupting those flags. Word 14\n        // is DX-only scratch and carries the full value to hwsprites instead.\n        const uint32_t packed_zoom = zoom > 0x0FFF ? 0x0FFF : zoom;\n        output->set_vzoom(packed_zoom);\n        output->set_hzoom(packed_zoom);\n        if (fullres_traffic)\n            output->data[14] = static_cast<uint16_t>(zoom);\n'''
+          assert old in text, 'SIZE3 traffic lock block not found'
+          text = text.replace(old, new, 1)
+
+          text = text.replace('if (!lock_traffic_size_frame &&\n', 'if (!fullres_traffic &&\n', 1)
+
+          old = '''        output->set_vzoom(render_zoom);\n        output->set_hzoom(render_zoom);\n'''
+          new = '''        const uint32_t packed_render_zoom = render_zoom > 0x0FFF ? 0x0FFF : render_zoom;\n        output->set_vzoom(packed_render_zoom);\n        output->set_hzoom(packed_render_zoom);\n        if (fullres_traffic)\n            output->data[14] = static_cast<uint16_t>(render_zoom);\n'''
+          assert old in text, 'bumper render zoom block not found'
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+              '// The locked traffic source is intentional and can be smaller than the\n// original near the camera, so it deliberately bypasses this fallback.\n',
+              '// The locked traffic source is intentional and always uses the largest\n// ROM frame, so it deliberately bypasses this fallback.\n',
+              1)
+
+          osprites.write_text(text, encoding='utf-8')
+
+          hwsprites = Path('src/main/hwvideo/hwsprites.cpp')
+          text = hwsprites.read_text(encoding='utf-8')
+          old = '''//        int32_t  zoom     =   ramBuff[data+3] & 0x7ff;\n        int32_t  zoom     =   ramBuff[data+3] & 0x0fff;\n        int32_t ydelta    = ((ramBuff[data+4] & 0x8000) != 0) ? 1 : -1;\n'''
+          new = '''//        int32_t  zoom     =   ramBuff[data+3] & 0x7ff;\n        int32_t  zoom     =   ramBuff[data+3] & 0x0fff;\n        // DX software zoom override. The original hardware field is only\n        // 12-bit because its upper bits share priority/shadow flags. Word 14\n        // is spare in CannonBall's expanded sprite entry and lets hi-res\n        // traffic continuously scale the largest ROM frame at long distance.\n        const uint16_t software_zoom = ramBuff[data+14];\n        if (software_zoom != 0)\n            zoom = software_zoom;\n        int32_t ydelta    = ((ramBuff[data+4] & 0x8000) != 0) ? 1 : -1;\n'''
+          assert old in text, 'hardware zoom read block not found'
+          text = text.replace(old, new, 1)
+          hwsprites.write_text(text, encoding='utf-8')
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/engine/osprites_bugfix_base.cpp src/main/hwvideo/hwsprites.cpp
+          git commit -m "Use full-resolution traffic sprites across all distances"
+          git push origin HEAD:test/se-1.50-selective-sync
