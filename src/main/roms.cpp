@@ -48,7 +48,7 @@ bool Roms::load_revb_roms(bool fixed_rom)
     status += LOAD(rom1, ("epr-10327a.76", 0x00000, 0x10000, 0xe28a5baf, RomLoader::INTERLEAVE2, VERBOSE));
     status += LOAD(rom1, ("epr-10329a.58", 0x00001, 0x10000, 0xda131c81, RomLoader::INTERLEAVE2, VERBOSE));
     status += LOAD(rom1, ("epr-10328a.75", 0x20000, 0x10000, 0xd5ec5e5d, RomLoader::INTERLEAVE2, VERBOSE));
-    status += LOAD(rom1, ("epr-10330a.57", 0x20001, 0x10000, 0xba9ec82b, RomLoader::INTERLEAVE2, VERBOSE));
+    status += LOAD(rom1, ("epr-10330a.57", 0x20001, 0x10000, 0xba9ec82a, RomLoader::INTERLEAVE2, VERBOSE));
 
     // Load Non-Interleaved Tile ROMs
     tiles.init(0x30000);
