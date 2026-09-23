@@ -74,18 +74,31 @@ jobs:
           Copy-Item "build\Release\*.dll" $dist -ErrorAction SilentlyContinue
 
           # Runtime data expected beside the executable.
-          Copy-Item "build\tilemap.bin" $dist
-          Copy-Item "build\tilepatch.bin" $dist
           Copy-Item "build\gamecontrollerdb.txt" $dist
 
-          # Ship the complete runtime resources and documentation, including all
-          # CannonBall/CannonBall-SE/third-party license and notice files.
+          # Ship runtime resources and documentation. tilemap.bin and tilepatch.bin
+          # belong under res only and must not be duplicated in the release root.
           Copy-Item "res" "$dist\res" -Recurse
           Copy-Item "docs" "$dist\docs" -Recurse
           Copy-Item "roms\roms.txt" "$dist\roms\roms.txt"
 
+          # User-facing release readme only. Repository documentation such as
+          # README.md, EXTERNAL_OUTPUTS.md and CHANGELOG stays out of the package.
           Copy-Item "README.txt" $dist
-          Copy-Item "EXTERNAL_OUTPUTS.md" $dist
+
+          # Guard against accidentally reintroducing repository-only files.
+          $forbiddenDocs = @("README.md", "EXTERNAL_OUTPUTS.md", "CHANGELOG", "CHANGELOG.md")
+          $unexpectedDocs = Get-ChildItem $dist -Recurse -File | Where-Object { $_.Name -in $forbiddenDocs }
+          if ($unexpectedDocs) {
+            $unexpectedDocs | Select-Object FullName
+            throw "Repository-only documentation was found in the Windows release package."
+          }
+
+          foreach ($rootOnlyResource in @("tilemap.bin", "tilepatch.bin")) {
+            if (Test-Path (Join-Path $dist $rootOnlyResource)) {
+              throw "$rootOnlyResource must only exist under res, not in the release root."
+            }
+          }
 
           Write-Host "Windows package contents:"
           Get-ChildItem $dist -Recurse | Select-Object FullName
