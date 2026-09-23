@@ -432,7 +432,7 @@ else()
     # Fall back to pkg-config
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(TINYXML2 REQUIRED IMPORTED_TARGET tinyxml2)
-    set(_TINYXML2_TARGET PkgConfig::TinyXML2)
+    set(_TINYXML2_TARGET PkgConfig::TINYXML2)
 endif()
 
 # ——————————————————————————————————————
