@@ -64,11 +64,16 @@ jobs:
 
           # Keep the same menu/ownership hooks, but give SIMPLE the configured
           # fixed spring instead of explicitly disabling the spring.
-          replace_all(
+          replace_once(
               'src/main/frontend/menu.cpp',
               'config.ffb_modern_enabled() ? low_speed_spring_strength() : 0',
-              'config.ffb_modern_enabled()\n                    ? low_speed_spring_strength()\n                    : config.controls.centering_strength',
-              3)
+              'config.ffb_modern_enabled()\n                ? low_speed_spring_strength()\n                : config.controls.centering_strength')
+
+          replace_all(
+              'src/main/frontend/menu.cpp',
+              'modern ? low_speed_spring_strength() : 0',
+              'modern\n                    ? low_speed_spring_strength()\n                    : config.controls.centering_strength',
+              2)
 
           # The menu spring refresh must also run in SIMPLE so changing the
           # existing Centering value is reflected immediately.
