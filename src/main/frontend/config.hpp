@@ -133,6 +133,14 @@
     { \
         set_radio_binding(group, -1, -1, 0, "!"); \
     } \
+    bool menu_sounds_enabled() \
+    { \
+        return cfg.get_int("sound.menu_sounds", 1) != 0; \
+    } \
+    void set_menu_sounds_enabled(bool enabled) \
+    { \
+        cfg.put_int("sound.menu_sounds", enabled ? 1 : 0); \
+    } \
     int engine_vibration_strength() \
     { \
         int value = cfg.get_int( \
