@@ -228,8 +228,6 @@ protected:
                 display_message("AUDIO DEVICE UNAVAILABLE - USING DEFAULT");
             }
         }
-
-        config_save_pending = true;
     }
 
     static const FfbMenuItem* dx_ffb_effect_items(int& count)
@@ -670,6 +668,56 @@ protected:
         // every frontend menu tick so no periodic force can leak into menus.
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
+
+        // Audio output and frontend beeps are DX-facing controls for the SE
+        // playback-device support. LEFT/RIGHT changes values directly; Enter
+        // advances/toggles like the rest of the legacy settings UI.
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_sound &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_sound.size()))
+        {
+            const std::string option = menu_sound[cursor];
+            const bool output_entry = option.rfind(AUDIO_OUTPUT_LABEL, 0) == 0;
+            const bool menu_sounds_entry = option.rfind(MENU_SOUNDS_LABEL, 0) == 0;
+
+            if (output_entry || menu_sounds_entry)
+            {
+                int direction = 0;
+                if (input.has_pressed(Input::LEFT))
+                    direction = -1;
+                else if (input.has_pressed(Input::RIGHT))
+                    direction = 1;
+
+                const bool selected = direction == 0 && select_pressed();
+                if (direction != 0 || selected)
+                {
+                    if (output_entry)
+                    {
+                        cycle_audio_output(direction != 0 ? direction : 1);
+                        menu_sound[cursor] = audio_output_menu_text();
+                    }
+                    else
+                    {
+                        const bool enabled = selected
+                            ? !config.menu_sounds_enabled()
+                            : direction > 0;
+                        config.set_menu_sounds_enabled(enabled);
+                        menu_sound[cursor] = menu_sounds_menu_text();
+                    }
+
+                    if (!config.save())
+                        display_message("ERROR SAVING SETTINGS!");
+
+                    // When MENU SOUNDS has just been turned OFF this is
+                    // intentionally filtered by OSoundInt. Turning it ON gives
+                    // immediate audible confirmation.
+                    osoundint.queue_sound(sound::BEEP1);
+                    refresh_menu();
+                    return;
+                }
+            }
+        }
 
         // Keep the visible order intuitive without changing the persisted
         // numeric values: 0=4:3, 1=16:9, 4=16:10, 2=21:9, 3=STRETCHED.
