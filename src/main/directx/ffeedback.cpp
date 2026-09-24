@@ -26,6 +26,20 @@
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 
+namespace forcefeedback
+{
+    void set_centering_strength_base(
+        int percent,
+        const std::source_location& source);
+
+    inline void set_centering_strength_base(int percent)
+    {
+        set_centering_strength_base(
+            percent,
+            std::source_location::current());
+    }
+}
+
 #define set set_base
 #define set_centering_strength set_centering_strength_base
 #define set_tyre_slip set_tyre_slip_base
@@ -171,8 +185,6 @@ namespace forcefeedback
         if (!g_haptic || g_tyre_slip_effect < 0)
             return;
 
-        // OutRun's converted engine-rev value normally bottoms out around 0x1F
-        // and reaches roughly 0x130 near the top of the useful rev range.
         int revs = static_cast<int>(oferrari.revs >> 16);
         const int idle_revs = 0x1F;
         const int max_revs = 0x130;
@@ -182,15 +194,6 @@ namespace forcefeedback
         else if (revs > max_revs)
             revs = max_revs;
 
-        // ENGINE PERIOD is the low-RPM/base sine period. Frequency should track
-        // engine speed, so period is inversely proportional to RPM:
-        //
-        //     period = base_period * idle_revs / current_revs
-        //
-        // With the 110 ms default this gives about 110 ms at idle and about
-        // 11 ms near maximum revs instead of the old shallow 45% reduction.
-        // The user-facing range is 10..250 ms; the lower clamp also prevents
-        // extremely high periodic frequencies on devices that dislike them.
         const int base_period_ms = config.engine_period_ms();
         const int scaled_period_ms =
             (base_period_ms * idle_revs + (revs / 2)) / revs;
@@ -203,8 +206,6 @@ namespace forcefeedback
         int effective_percent =
             master_effect_gain(config.engine_vibration_strength());
 
-        // g_gain_percent is the in-race RPM amplitude envelope supplied by the
-        // driving engine-vibration caller.
         effective_percent =
             scale_value(
                 effective_percent,
@@ -224,9 +225,6 @@ namespace forcefeedback
         if (SDL_HapticUpdateEffect(g_haptic, g_tyre_slip_effect, &effect) == 0)
             SDL_HapticRunEffect(g_haptic, g_tyre_slip_effect, 1);
 
-        // The physical periodic effect keeps running, but logically there is no
-        // tyre slip. This prevents the engine vibration from weakening the
-        // normal speed-dependent centering spring.
         g_tyre_slip_active = false;
         g_tyre_slip_prestart = true;
         restore_engine_centering(source);
@@ -249,9 +247,6 @@ namespace forcefeedback
         const bool engine_related_request =
             grid_rev_request || driving_engine_request;
 
-        // During clean driving the engine owns the already-running periodic
-        // effect. Ignore ordinary OFF calls only while CannonBall is genuinely
-        // still in gameplay. Entering the frontend/menu must stop immediately.
         if (!active &&
             engine_channel_owned() &&
             clean_engine_driving_state())
@@ -259,8 +254,6 @@ namespace forcefeedback
             return;
         }
 
-        // Leaving clean engine operation (crash, off-road, menu/game transition)
-        // must really stop the driving engine sine.
         if (!active && engine_channel_owned())
         {
             stop_owned_engine_channel();
@@ -268,19 +261,12 @@ namespace forcefeedback
             return;
         }
 
-        // Real tyre slip takes ownership immediately. The driving engine effect
-        // already uses the same SDL effect slot, so clearing the ownership
-        // marker lets the preserved backend update that slot in place.
         if (active && !engine_related_request && engine_channel_owned())
         {
             g_tyre_slip_prestart = false;
             g_tyre_slip_active = false;
         }
 
-        // The original start-grid rev shake is intentionally handled entirely
-        // by the preserved backend: start_rev_shake controls its strength and
-        // its original 45 ms SINE period stays unchanged. Only the in-race
-        // engine request is replaced with the RPM-dependent motor curve.
         set_tyre_slip_base(active, source);
 
         if (driving_engine_request)
