@@ -1072,7 +1072,7 @@ namespace forcefeedback
     {
         g_centering_percent = config.ffb_modern_enabled()
             ? std::max(0, tuned_centering_for_source(percent, source))
-            : 0;
+            : clamp_percent(percent);
 
         if (!ensure_initialized() || !g_enabled)
             return;
