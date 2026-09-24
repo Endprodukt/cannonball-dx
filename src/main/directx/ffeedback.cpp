@@ -6,15 +6,62 @@
     the preserved backend so it can keep its own strength and timing.
 ***************************************************************************/
 
-// Preserve the existing backend implementation under a private periodic entry
-// point. All other forcefeedback symbols retain their original names.
+// Preserve the existing backend implementation under private entry points.
+// The public wrappers below can then keep SIMPLE isolated from frontend/menu
+// output without changing the MODERN FFB path.
+#define set set_base
+#define set_centering_strength set_centering_strength_base
 #define set_tyre_slip set_tyre_slip_base
 #include "ffeedback_base.cpp"
 #undef set_tyre_slip
+#undef set_centering_strength
+#undef set
 
 namespace forcefeedback
 {
 #if defined(_WIN32)
+    static bool simple_gameplay_active()
+    {
+        return
+            cannonball::state == cannonball::STATE_GAME &&
+            outrun.game_state == GS_INGAME;
+    }
+
+    int set(
+        int xdirection,
+        int force,
+        const std::source_location& source)
+    {
+        if (!config.ffb_modern_enabled() && !simple_gameplay_active())
+        {
+            // SIMPLE is a driving-only mode. The original motor table can still
+            // be ticked while CannonBall is in frontend/transition states; do
+            // not let those commands leak into the wheel as menu effects.
+            return set_base(0x08, 7, source);
+        }
+
+        return set_base(xdirection, force, source);
+    }
+
+    void set_centering_strength(
+        int percent,
+        const std::source_location& source)
+    {
+        if (!config.ffb_modern_enabled())
+        {
+            // SIMPLE uses the user-facing Centering value as a fixed spring,
+            // but only while the race is actually active. In particular there
+            // must be no spring in the frontend/menu or during transitions.
+            set_centering_strength_base(
+                simple_gameplay_active() ? clamp_percent(percent) : 0,
+                source);
+            return;
+        }
+
+        // MODERN retains its existing dynamic/tuned spring behaviour verbatim.
+        set_centering_strength_base(percent, source);
+    }
+
     static bool start_rev_source(
         const std::source_location& source)
     {
@@ -56,7 +103,7 @@ namespace forcefeedback
         // Engine vibration must not inherit the tyre-slip spring reduction.
         const bool periodic_active = g_tyre_slip_active;
         g_tyre_slip_active = false;
-        set_centering_strength(g_centering_percent, source);
+        set_centering_strength_base(g_centering_percent, source);
         g_tyre_slip_active = periodic_active;
     }
 
@@ -191,6 +238,21 @@ namespace forcefeedback
             apply_driving_engine_sine_parameters(source);
     }
 #else
+    int set(
+        int xdirection,
+        int force,
+        const std::source_location& source)
+    {
+        return set_base(xdirection, force, source);
+    }
+
+    void set_centering_strength(
+        int percent,
+        const std::source_location& source)
+    {
+        set_centering_strength_base(percent, source);
+    }
+
     void set_tyre_slip(
         bool active,
         const std::source_location& source)
