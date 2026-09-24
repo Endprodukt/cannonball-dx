@@ -51,6 +51,7 @@ namespace
     const int EDITOR_COLUMNS = 3;
     const int SAVE_Y = 23;
     const int CANCEL_Y = 24;
+    const int RESULT_Y = 25;
     const int STATUS_Y = 26;
 
     const int COL_KEYBOARD = 0;
@@ -492,6 +493,58 @@ namespace
             std::string(group == Input::BINDING_GAMEPAD ? "G:" : "W:") + device;
 
         return format_physical_binding(binding);
+    }
+
+    std::string font_safe_binding_message(const std::string& value)
+    {
+        std::string result;
+        result.reserve(value.size());
+
+        bool previous_space = false;
+        for (unsigned char ch : value)
+        {
+            const char c = static_cast<char>(std::toupper(ch));
+            const bool supported =
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') ||
+                c == ' ' || c == '-' || c == '.' || c == '/' ||
+                c == ',' || c == '%' || c == '!';
+
+            if (!supported)
+                continue;
+
+            if (c == ' ')
+            {
+                if (result.empty() || previous_space)
+                    continue;
+                previous_space = true;
+            }
+            else
+            {
+                previous_space = false;
+            }
+
+            result += c;
+        }
+
+        while (!result.empty() && result.back() == ' ')
+            result.pop_back();
+
+        if (result.size() > 34)
+            result.resize(34);
+
+        return result;
+    }
+
+    std::string bound_device_message(SDL_JoystickID device)
+    {
+        const InputDevice* input_device = input.find_device(device);
+        const std::string name =
+            input_device && !input_device->name.empty()
+                ? input_device->name
+                : std::string("DEVICE");
+
+        return font_safe_binding_message(std::string("BOUND TO ") + name);
     }
 }
 
@@ -1050,6 +1103,8 @@ void Menu::redefine_joystick()
     static int wait_button = -1;
     static int wait_hat = -1;
     static int wait_hat_value = SDL_HAT_CENTERED;
+    static std::string bind_message;
+    static int bind_message_timer = 0;
 
     struct StoredBinding
     {
@@ -1142,9 +1197,23 @@ void Menu::redefine_joystick()
         capture_after_release = false;
         steering_key_step = 0;
         wait_type = WAIT_NONE;
+        bind_message.clear();
+        bind_message_timer = 0;
         redef_state = 0;
         state = STATE_MENU;
         refresh_menu();
+    };
+
+    auto show_bound_device = [&](SDL_JoystickID device)
+    {
+        bind_message = bound_device_message(device);
+        bind_message_timer = 60;
+    };
+
+    auto show_bound_key = [&]()
+    {
+        bind_message = "BOUND KEY";
+        bind_message_timer = 60;
     };
 
     // menu_base.cpp sets redef_state to zero every time this editor is opened.
@@ -1163,10 +1232,15 @@ void Menu::redefine_joystick()
         waiting_release = false;
         capture_after_release = false;
         wait_type = WAIT_NONE;
+        bind_message.clear();
+        bind_message_timer = 0;
         input.set_capture_group(-1);
         clear_latches();
         redef_state = 1;
     }
+
+    if (bind_message_timer > 0 && --bind_message_timer == 0)
+        bind_message.clear();
 
     auto draw_editor = [&]()
     {
@@ -1254,43 +1328,50 @@ void Menu::redefine_joystick()
             "CANCEL",
             selected_row == CANCEL_ROW ? ohud.PINK : ohud.GREEN);
 
-        if (waiting_release)
+        // Keep the SE-style help visible permanently. DX uses the one remaining
+        // free row above it for capture prompts and the transient BOUND result.
+        ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
+        ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - EXIT", ohud.GREY);
+
+        std::string dynamic_message;
+        if (bind_message_timer > 0 && !bind_message.empty())
         {
-            ohud.blit_text_new(11, STATUS_Y, "RELEASE CONTROL", ohud.PINK);
+            dynamic_message = bind_message;
+        }
+        else if (waiting_release)
+        {
+            dynamic_message = "RELEASE CONTROL";
         }
         else if (capturing)
         {
             if (selected_col == COL_KEYBOARD && selected_row == 0)
             {
-                ohud.blit_text_new(
-                    4,
-                    STATUS_Y,
-                    steering_key_step == 0
-                        ? "PRESS STEERING LEFT KEY"
-                        : "PRESS STEERING RIGHT KEY",
-                    ohud.PINK);
+                dynamic_message = steering_key_step == 0
+                    ? "PRESS STEERING LEFT KEY"
+                    : "PRESS STEERING RIGHT KEY";
             }
             else if (selected_col == COL_KEYBOARD)
             {
-                ohud.blit_text_new(8, STATUS_Y, "PRESS A KEY", ohud.PINK);
+                dynamic_message = "PRESS A KEY";
             }
             else if (selected_row == 0)
             {
-                ohud.blit_text_new(7, STATUS_Y, "TURN WHEEL LEFT", ohud.PINK);
+                dynamic_message = "TURN WHEEL LEFT";
             }
             else if (selected_row == 1 || selected_row == 2)
             {
-                ohud.blit_text_new(2, STATUS_Y, "MOVE AXIS OR PRESS BUTTON", ohud.PINK);
+                dynamic_message = "MOVE AXIS OR PRESS BUTTON";
             }
             else
             {
-                ohud.blit_text_new(5, STATUS_Y, "PRESS BUTTON OR HAT", ohud.PINK);
+                dynamic_message = "PRESS BUTTON OR HAT";
             }
         }
-        else
+
+        if (!dynamic_message.empty())
         {
-            ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - EXIT", ohud.GREY);
+            dynamic_message = font_safe_binding_message(dynamic_message);
+            ohud.blit_text_new(1, RESULT_Y, dynamic_message.c_str(), ohud.PINK);
         }
     };
 
@@ -1371,24 +1452,30 @@ void Menu::redefine_joystick()
                     capture_after_release = steering_key_step < 2;
 
                     if (!capture_after_release)
+                    {
                         steering_key_step = 0;
+                        show_bound_key();
+                    }
                 }
                 else if (selected_row == RADIO_ROW)
                 {
                     config.set_radio_key(captured_key);
                     capture_after_release = false;
+                    show_bound_key();
                 }
                 else if (is_system_action_row(selected_row))
                 {
                     config.set_system_action_key(
                         system_action_for_row(selected_row), captured_key);
                     capture_after_release = false;
+                    show_bound_key();
                 }
                 else
                 {
                     config.controls.keyconfig[ROW_KEY_SLOT[selected_row]] =
                         captured_key;
                     capture_after_release = false;
+                    show_bound_key();
                 }
 
                 config_save_pending = true;
@@ -1445,6 +1532,7 @@ void Menu::redefine_joystick()
 
                     config_save_pending = true;
                     capturing = false;
+                    show_bound_device(captured_device);
                     input.set_capture_group(-1);
                     clear_latches();
                 }
@@ -1496,6 +1584,7 @@ void Menu::redefine_joystick()
 
             config_save_pending = true;
             capturing = false;
+            show_bound_device(captured_device);
             waiting_release = true;
             capture_after_release = false;
             wait_type = WAIT_HAT;
@@ -1551,6 +1640,7 @@ void Menu::redefine_joystick()
 
             config_save_pending = true;
             capturing = false;
+            show_bound_device(captured_device);
             waiting_release = true;
             capture_after_release = false;
             wait_type = WAIT_BUTTON;
