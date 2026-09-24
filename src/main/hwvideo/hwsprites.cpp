@@ -310,7 +310,7 @@ void hwsprites::swap()
 
 #define draw_pixel_1row()                                       \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             if (pix == 0xa) {                                   \
                 *pPix1 |= S16_PALETTE_ENTRIES;                  \
@@ -321,12 +321,12 @@ void hwsprites::swap()
         pPix1++;                                                \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_2row()                                       \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             if (pix == 0xa) {                                   \
                 *pPix1 |= S16_PALETTE_ENTRIES;                  \
@@ -339,12 +339,12 @@ void hwsprites::swap()
         pPix1++; pPix2++;                                       \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_3row()                                       \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             if (pix == 0xa) {                                   \
                 *pPix1 |= S16_PALETTE_ENTRIES;                  \
@@ -359,13 +359,13 @@ void hwsprites::swap()
         pPix1++; pPix2++; pPix3++;                              \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_1row_nc()                                    \
 {                                                               \
 int i = 0;\
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
 i++;\
             if (pix == 0xa) {                                   \
@@ -377,13 +377,13 @@ i++;\
         pPix1++;                                                \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 reps[i]++;\
 }
 
 #define draw_pixel_2row_nc()                                    \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
             if (pix == 0xa) {                                   \
                 *pPix1 |= S16_PALETTE_ENTRIES;                  \
@@ -396,12 +396,12 @@ reps[i]++;\
         pPix1++; pPix2++;                                       \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_3row_nc()                                    \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
             if (pix == 0xa) {                                   \
                 *pPix1 |= S16_PALETTE_ENTRIES;                  \
@@ -416,26 +416,26 @@ reps[i]++;\
         pPix1++; pPix2++; pPix3++;                              \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 // MACROS WITHOUT SHADOW SUPPORT
 
 #define draw_pixel_1row_ns()                                    \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             *pPix1 = (pix | color);                             \
         }                                                       \
         pPix1++;                                                \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_2row_ns()                                    \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             *pPix1 = (pix | color);                             \
             *pPix2 = (pix | color);                             \
@@ -443,12 +443,12 @@ reps[i]++;\
         pPix1++; pPix2++;                                       \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_3row_ns()                                    \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE() {                                      \
             *pPix1 = (pix | color);                             \
             *pPix2 = (pix | color);                             \
@@ -457,24 +457,24 @@ reps[i]++;\
         pPix1++; pPix2++; pPix3++;                              \
         x++; xacc += zoom;                                      \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_1row_nc_ns()                                 \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
             *pPix1 = (pix | color);                             \
         }                                                       \
         pPix1++;                                                \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_2row_nc_ns()                                 \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
             *pPix1 = (pix | color);                             \
             *pPix2 = (pix | color);                             \
@@ -482,12 +482,12 @@ reps[i]++;\
         pPix1++; pPix2++;                                       \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #define draw_pixel_3row_nc_ns()                                 \
 {                                                               \
-    while (xacc < 0x200) {                                      \
+    while (xacc < zoom_one) {                                   \
         IF_IS_DRAWABLE_NO_CLIP() {                              \
             *pPix1 = (pix | color);                             \
             *pPix2 = (pix | color);                             \
@@ -496,7 +496,7 @@ reps[i]++;\
         pPix1++; pPix2++; pPix3++;                              \
         xacc += zoom;                                           \
     }                                                           \
-    xacc -= 0x200;                                              \
+    xacc -= zoom_one;                                           \
 }
 
 #endif
@@ -517,6 +517,7 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
     }
 
     const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+    const int32_t zoom_one = 0x200 * render_scale;
 
     static uint32_t reps[6] = {0,0,0,0,0,0};
 
@@ -585,18 +586,13 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         // Adjust for widescreen mode
         xpos += config.s16_x_off;
 
-        // Scale coordinates in the actual internal render target. Dividing
-        // zoom by the same factor makes the fixed-point sprite sampler emit
-        // proportionally more destination pixels and gives 3x/4x finer motion.
-        // Round rather than truncate: plain integer division biases the
-        // scaled zoom step down (e.g. render_scale=3 loses up to 1/3 of a
-        // step every row), which compounds over a sprite's height into a
-        // small but systematic size drift versus the un-scaled renderer.
+        // Scale coordinates in the actual internal render target while keeping
+        // the original sprite zoom step intact. The accumulator threshold is
+        // scaled instead, preserving all zoom precision at 2x/3x/4x.
         if (render_scale > 1) {
             xpos *= render_scale;
             top *= render_scale;
             ytarget *= render_scale;
-            zoom = (zoom + render_scale / 2) / render_scale;
             if (zoom < 1) zoom = 1;
         }
 
@@ -604,8 +600,9 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         uint32_t sprite_height = 0;
         // Determine underlying sprite height
         int32_t steps = ytarget - top;  // true as ydelta is always + or - 1.
-        // Use 64-bit multiply to avoid overflow
-        sprite_height = ((uint64_t)steps * zoom) >> 9;
+        // Use 64-bit multiply to avoid overflow. steps already includes render_scale,
+        // so divide by the equally scaled accumulator threshold to cancel it exactly.
+        sprite_height = ((uint64_t)steps * zoom) / zoom_one;
 
 //std::cout << "\rSprite height: " << height << ", Calculated Height: " << sprite_height << ", raw height: " << rawh << "\n";
 
@@ -613,8 +610,9 @@ void hwsprites::render(uint16_t* pixels, const uint8_t priority)
         uint32_t yacc_t = 0;
         for (int y = top; y != ytarget; y += ydelta) {
             yacc_t += zoom;
-            sprite_height += (yacc_t >> 9);
-            yacc_t &= 0x1ff;
+            const uint32_t source_rows = yacc_t / zoom_one;
+            sprite_height += source_rows;
+            yacc_t -= source_rows * zoom_one;
         }
 */
         static uint32_t converted_sprites = 0;
@@ -865,8 +863,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                 }
 
                 yacc += zoom;
-                addr += pitch * (yacc >> 9);
-                yacc &= 0x1ff;
+                const int32_t source_rows = yacc / zoom_one;
+                addr += pitch * source_rows;
+                yacc -= source_rows * zoom_one;
             }
             continue;
         }
@@ -889,7 +888,7 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                 uint32_t frac = yacc + zoom;
                 uint16_t countmax = std::min( (uint16_t)(ytarget - y),
                                               std::min<uint16_t>(3, config.s16_height - y));
-                while (frac < 0x200 && count < countmax) {
+                while (frac < zoom_one && count < countmax) {
                     frac += zoom;
                     count++;
                 }
@@ -963,8 +962,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         }
                         // accumulate extra zoom factor
                         yacc += zoom;
-                        addr += pitch * (yacc >> 9);
-                        yacc &= 0x1ff;
+                        const int32_t source_rows = yacc / zoom_one;
+                        addr += pitch * source_rows;
+                        yacc -= source_rows * zoom_one;
                         y++;
                         break;
                     }
@@ -992,8 +992,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         // accumulate extra zoom factors
                         for (int i=1; i<2; i++) {
                             yacc += zoom;
-                            addr += pitch * (yacc >> 9);
-                            yacc &= 0x1ff;
+                            const int32_t source_rows = yacc / zoom_one;
+                            addr += pitch * source_rows;
+                            yacc -= source_rows * zoom_one;
                             y++;
                         }
                         break;
@@ -1041,8 +1042,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         } while ((pixels & 0x000000f0) != 0x000000f0);
                         // accumulate extra zoom factor
                         yacc += zoom;
-                        addr += pitch * (yacc >> 9);
-                        yacc &= 0x1ff;
+                        const int32_t source_rows = yacc / zoom_one;
+                        addr += pitch * source_rows;
+                        yacc -= source_rows * zoom_one;
                         y++;
                         break;
                     }
@@ -1069,8 +1071,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         // accumulate extra zoom factors
                         for (int i=1; i<2; i++) {
                             yacc += zoom;
-                            addr += pitch * (yacc >> 9);
-                            yacc &= 0x1ff;
+                            const int32_t source_rows = yacc / zoom_one;
+                            addr += pitch * source_rows;
+                            yacc -= source_rows * zoom_one;
                             y++;
                         }
                         break;
@@ -1119,8 +1122,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         }
                         // accumulate extra zoom factor
                         yacc += zoom;
-                        addr += pitch * (yacc >> 9);
-                        yacc &= 0x1ff;
+                        const int32_t source_rows = yacc / zoom_one;
+                        addr += pitch * source_rows;
+                        yacc -= source_rows * zoom_one;
                         y++;
                         break;
                     }
@@ -1148,8 +1152,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         // accumulate extra zoom factors
                         for (int i=1; i<2; i++) {
                             yacc += zoom;
-                            addr += pitch * (yacc >> 9);
-                            yacc &= 0x1ff;
+                            const int32_t source_rows = yacc / zoom_one;
+                            addr += pitch * source_rows;
+                            yacc -= source_rows * zoom_one;
                             y++;
                         }
                         break;
@@ -1197,8 +1202,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         } while ((pixels & 0x000000f0) != 0x000000f0);
                         // accumulate extra zoom factor
                         yacc += zoom;
-                        addr += pitch * (yacc >> 9);
-                        yacc &= 0x1ff;
+                        const int32_t source_rows = yacc / zoom_one;
+                        addr += pitch * source_rows;
+                        yacc -= source_rows * zoom_one;
                         y++;
                         break;
                     }
@@ -1225,8 +1231,9 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                         // accumulate extra zoom factors
                         for (int i=1; i<2; i++) {
                             yacc += zoom;
-                            addr += pitch * (yacc >> 9);
-                            yacc &= 0x1ff;
+                            const int32_t source_rows = yacc / zoom_one;
+                            addr += pitch * source_rows;
+                            yacc -= source_rows * zoom_one;
                             y++;
                         }
                         break;
@@ -1234,10 +1241,12 @@ std::cout << "\r\t\t\t\t" << processed_lines << " sprite lines flipped";
                     case 15: break; // count==4 - not used as <1%
                 }
             }
-            // accumulate zoom factors; if we carry into the high bit, skip an extra row
+            // accumulate zoom factors; if we carry across the scaled threshold,
+            // advance by the corresponding number of source rows.
             yacc += zoom;
-            addr += pitch * (yacc >> 9);
-            yacc &= 0x1ff;
+            const int32_t source_rows = yacc / zoom_one;
+            addr += pitch * source_rows;
+            yacc -= source_rows * zoom_one;
         }
         draw[jump_key] += std::chrono::high_resolution_clock::now() - start;
     }
