@@ -51,17 +51,42 @@ namespace forcefeedback
             outrun.game_state == GS_INGAME;
     }
 
+    static bool simple_classic_centering_request(
+        const std::source_location& source)
+    {
+        // In SIMPLE mode the SDL spring is the only centering force. The
+        // original moving-cabinet motor tables still provide crash/skid/offroad
+        // effects, but their normal clean-road steering commands would otherwise
+        // add a second, very strong center force on top of the spring.
+        return
+            source_function_contains(source, "motor_output") &&
+            simple_gameplay_active() &&
+            !ocrash.crash_counter &&
+            !ocrash.skid_counter &&
+            oferrari.wheel_state == OFerrari::WHEELS_ON;
+    }
+
     int set(
         int xdirection,
         int force,
         const std::source_location& source)
     {
-        if (!config.ffb_modern_enabled() && !simple_gameplay_active())
+        if (!config.ffb_modern_enabled())
         {
-            // SIMPLE is a driving-only mode. The original motor table can still
-            // be ticked while CannonBall is in frontend/transition states; do
-            // not let those commands leak into the wheel as menu effects.
-            return set_base(0x08, 7, source);
+            if (!simple_gameplay_active())
+            {
+                // SIMPLE is a driving-only mode. The original motor table can
+                // still tick during frontend/transition states; neutralize it
+                // so there are no effects while navigating menus.
+                return set_base(0x08, 7, source);
+            }
+
+            if (simple_classic_centering_request(source))
+            {
+                // Centering belongs exclusively to the spring in SIMPLE mode.
+                // Keep classic crash/skid/offroad motor commands untouched.
+                return set_base(0x08, 7, source);
+            }
         }
 
         return set_base(xdirection, force, source);
