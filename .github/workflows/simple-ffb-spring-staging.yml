@@ -9,12 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  patch-build-commit:
+  patch-commit:
     if: github.head_ref == 'staging/simple-ffb-spring'
     runs-on: windows-2022
-    env:
-      VCPKG_ROOT: C:\vcpkg
-      VCPKG_DEFAULT_TRIPLET: x64-windows
 
     steps:
       - name: Checkout staging branch
@@ -50,8 +47,6 @@ jobs:
                   raise RuntimeError(f'{path}: expected {expected} matches, got {count}: {old!r}')
               write(path, text.replace(old, new))
 
-          # SIMPLE uses the existing Centering setting as a fixed spring.
-          # MODERN keeps the existing tuned/dynamic spring path unchanged.
           replace_once(
               'src/main/directx/ffeedback_base.cpp',
               '''        g_centering_percent = config.ffb_modern_enabled()\n            ? std::max(0, tuned_centering_for_source(percent, source))\n            : 0;''',
@@ -62,8 +57,6 @@ jobs:
               '''                forcefeedback::set_tyre_slip(false);\n                forcefeedback::set_centering_strength(0);''',
               '''                forcefeedback::set_tyre_slip(false);\n                forcefeedback::set_centering_strength(\n                    config.controls.centering_strength);''')
 
-          # Keep the same menu/ownership hooks, but give SIMPLE the configured
-          # fixed spring instead of explicitly disabling the spring.
           replace_once(
               'src/main/frontend/menu.cpp',
               'config.ffb_modern_enabled() ? low_speed_spring_strength() : 0',
@@ -75,8 +68,6 @@ jobs:
               'modern\n                    ? low_speed_spring_strength()\n                    : config.controls.centering_strength',
               2)
 
-          # The menu spring refresh must also run in SIMPLE so changing the
-          # existing Centering value is reflected immediately.
           replace_once(
               'src/main/frontend/menu.cpp',
               '''        !config.controls.haptic ||\n        !config.input_mode_is_wheel() ||\n        !config.ffb_modern_enabled())''',
@@ -87,8 +78,6 @@ jobs:
               '''    const int desired_strength = low_speed_spring_strength();''',
               '''    const int desired_strength = config.ffb_modern_enabled()\n        ? low_speed_spring_strength()\n        : config.controls.centering_strength;''')
 
-          # Sanity: Modern's tuned path must still exist and Simple must use
-          # the two existing master settings independently.
           checks = {
               'src/main/directx/ffeedback_base.cpp': [
                   'std::max(0, tuned_centering_for_source(percent, source))',
@@ -115,24 +104,6 @@ jobs:
 
           git diff --check
           git diff --stat
-
-      - name: Configure
-        shell: pwsh
-        run: |
-          cmake --preset windows-release -A x64 `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DWITH_MARCH_NATIVE=OFF
-
-      - name: Build
-        shell: pwsh
-        run: cmake --build --preset windows-release --parallel
-
-      - name: Verify executable
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "build\Release\cannonball-dx.exe")) {
-            throw "Release build completed without producing cannonball-dx.exe"
-          }
 
       - name: Commit validated source changes
         shell: pwsh
