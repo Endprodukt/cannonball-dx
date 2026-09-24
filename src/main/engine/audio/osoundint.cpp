@@ -132,6 +132,16 @@ void OSoundInt::queue_sound(uint8_t snd)
 {
     if (has_booted)
     {
+        // BEEP1 is the frontend navigation/confirmation sound. Suppress only
+        // that command while the frontend is in its GS_INIT state; gameplay
+        // uses of other sound commands remain completely unaffected.
+        if (!config.menu_sounds_enabled() &&
+            snd == sound::BEEP1 &&
+            outrun.game_state == GS_INIT)
+        {
+            return;
+        }
+
         // In Time Trial, reserve the original CONGRATULATIONS voice for a real
         // three-lap course record (P1 for this course and Traffic class). A
         // normal OutRun ending retains the original unconditional behaviour.
