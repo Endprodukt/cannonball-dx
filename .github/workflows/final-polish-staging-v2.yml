@@ -1,0 +1,103 @@
+name: Final Polish Staging v2
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-commit:
+    if: github.head_ref == 'staging/final-polish'
+    runs-on: windows-2022
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply corrected final polish
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/final-polish-staging.yml').read_text(encoding='utf-8')
+          block = workflow.split("python - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+          lines = []
+          for line in block.splitlines():
+              lines.append(line[10:] if line.startswith('          ') else line)
+          script = '\n'.join(lines)
+
+          old = """if 'BACK_ROW' in read('src/main/frontend/menu.cpp'):\n    raise RuntimeError('menu.cpp: stale BACK_ROW references remain after SAVE/CANCEL conversion')"""
+          new = """menu_text = read('src/main/frontend/menu.cpp')\n# The old editor used BACK_ROW as its final wrap target. With SAVE and CANCEL,\n# CANCEL_ROW is now the final row and therefore the correct wrap target.\nmenu_text = menu_text.replace('BACK_ROW', 'CANCEL_ROW')\nwrite('src/main/frontend/menu.cpp', menu_text)"""
+          if old not in script:
+              raise RuntimeError('Could not locate BACK_ROW staging guard')
+          script = script.replace(old, new, 1)
+          exec(compile(script, '<final-polish>', 'exec'))
+          PY
+
+          git diff --check
+          git diff --stat
+
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          cmake --version
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            throw "vcpkg was not found at $env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" version
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: build/vcpkg_installed
+          key: vcpkg-windows-x64-${{ hashFiles('vcpkg.json') }}
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset windows-release -A x64 `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DWITH_MARCH_NATIVE=OFF
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build\Release\cannonball-dx.exe")) {
+            throw "Release build completed without producing cannonball-dx.exe"
+          }
+
+      - name: Commit validated source changes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/frontend/config_base.hpp `
+                  src/main/frontend/config_base.cpp `
+                  src/main/frontend/config.hpp `
+                  src/main/frontend/config.cpp `
+                  src/main/frontend/menu.hpp `
+                  src/main/frontend/menu.cpp `
+                  src/main/sdl2/audio.cpp `
+                  src/main/sdl2/input.hpp `
+                  src/main/sdl2/input.cpp `
+                  src/main/sdl2/gamepad_rumble_state.hpp `
+                  src/main/directx/ffeedback_base.cpp `
+                  src/main/directx/ffeedback.cpp `
+                  src/main/engine/ooutputs_base.cpp
+          git diff --cached --check
+          git commit -m "Polish audio, input bindings and feedback modes [skip ci]"
+          git push origin HEAD:staging/final-polish
