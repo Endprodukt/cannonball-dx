@@ -146,6 +146,7 @@ struct sound_settings_t
     std::vector <music_t> music;
     int callback_rate;   // 0 = 8ms, 1 = 16ms (needed for WSL2)
     int playback_device; // omit from config file or set to -1 to use system default
+    std::string playback_device_name; // stable SDL device name; takes priority over index when available
     int wave_volume;     // when using .wav files, the playback volume (1-8 where 5 = no adjustment)
     int custom_tracks_loaded = 0; // used to mask help text at startup if tracks are loaded
 };
@@ -183,6 +184,9 @@ struct device_binding_t
     int index = -1;
     int value = 0;              // HAT direction; unused for buttons/axes
     std::string device;         // persistent SDL device signature, or "*" for legacy any-device binding
+    uint16_t vid = 0;            // fallback identity if SDL GUID changes
+    uint16_t pid = 0;
+    bool invert = false;          // per-axis direction, derived automatically during capture
 };
 
 struct controls_settings_t

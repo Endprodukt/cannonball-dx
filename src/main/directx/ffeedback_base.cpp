@@ -240,6 +240,8 @@ namespace forcefeedback
     static int g_offroad_pull_direction = 0;
     static bool g_offroad_level_override_active = false;
     static int g_offroad_level_override = 0;
+    static Uint16 g_bound_steering_vid = 0;
+    static Uint16 g_bound_steering_pid = 0;
 
     static int clamp_percent(int percent)
     {
@@ -694,6 +696,8 @@ namespace forcefeedback
     static bool read_bound_wheel_steering_signature(std::string& signature)
     {
         signature.clear();
+        g_bound_steering_vid = 0;
+        g_bound_steering_pid = 0;
 
         for (auto it = config.controls.device_bindings.rbegin();
              it != config.controls.device_bindings.rend();
@@ -715,7 +719,11 @@ namespace forcefeedback
                 signature = it->device;
 
             if (!signature.empty())
+            {
+                g_bound_steering_vid = it->vid;
+                g_bound_steering_pid = it->pid;
                 return true;
+            }
         }
 
         if (!config.controls.axis_device[0].empty())
@@ -731,8 +739,25 @@ namespace forcefeedback
         SDL_Joystick* joystick,
         const std::string& signature)
     {
-        return joystick && !signature.empty() &&
-               joystick_signature(joystick) == signature;
+        if (!joystick || signature.empty())
+            return false;
+
+        const std::string candidate = joystick_signature(joystick);
+        if (candidate == signature)
+            return true;
+
+        if (!g_bound_steering_vid || !g_bound_steering_pid ||
+            SDL_JoystickGetVendor(joystick) != g_bound_steering_vid ||
+            SDL_JoystickGetProduct(joystick) != g_bound_steering_pid)
+        {
+            return false;
+        }
+
+        const size_t stored_shape = signature.find('|');
+        const size_t candidate_shape = candidate.find('|');
+        return stored_shape != std::string::npos &&
+               candidate_shape != std::string::npos &&
+               signature.substr(stored_shape) == candidate.substr(candidate_shape);
     }
 
     static bool candidate_matches_target(
@@ -957,10 +982,15 @@ namespace forcefeedback
         if (!ensure_initialized() || !g_enabled || g_constant_effect < 0)
             return -1;
 
-        tune_offroad_command(xdirection, force, source);
+        if (config.ffb_modern_enabled())
+            tune_offroad_command(xdirection, force, source);
+        else
+            g_offroad_level_override_active = false;
 
         const int tuned_gain =
-            clamp_percent(tuned_gain_for_source(source));
+            config.ffb_modern_enabled()
+                ? clamp_percent(tuned_gain_for_source(source))
+                : clamp_percent(config.controls.ffb_strength);
 
         int signed_level = 0;
 
@@ -972,7 +1002,9 @@ namespace forcefeedback
         else
         {
             const int normalized_force =
-                normalized_force_for_source(force, source);
+                config.ffb_modern_enabled()
+                    ? normalized_force_for_source(force, source)
+                    : std::max(0, std::min(7, force));
             const int magnitude =
                 constant_force_level(normalized_force, tuned_gain);
 
@@ -1038,9 +1070,9 @@ namespace forcefeedback
         int percent,
         const std::source_location& source)
     {
-        g_centering_percent = std::max(
-            0,
-            tuned_centering_for_source(percent, source));
+        g_centering_percent = config.ffb_modern_enabled()
+            ? std::max(0, tuned_centering_for_source(percent, source))
+            : 0;
 
         if (!ensure_initialized() || !g_enabled)
             return;

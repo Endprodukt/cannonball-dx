@@ -43,12 +43,14 @@ namespace
     const int PAUSE_ROW = 8;
     const int EXIT_ROW = 9;
     const int ACCEPT_ROW = 10;
-    const int MENU_BACK_ROW = 11;
+    const int MENU_CANCEL_ROW = 11;
     const int RADIO_ROW = BINDING_ROWS - 1;
-    const int BACK_ROW = BINDING_ROWS;
-    const int EDITOR_ROWS = BINDING_ROWS + 1;
+    const int SAVE_ROW = BINDING_ROWS;
+    const int CANCEL_ROW = BINDING_ROWS + 1;
+    const int EDITOR_ROWS = BINDING_ROWS + 2;
     const int EDITOR_COLUMNS = 3;
-    const int BACK_Y = 23;
+    const int SAVE_Y = 23;
+    const int CANCEL_Y = 24;
     const int STATUS_Y = 25;
 
     const int COL_KEYBOARD = 0;
@@ -57,6 +59,7 @@ namespace
 
     const char* INPUT_MODE_LABEL = "INPUT MODE ";
     const char* GAMEPAD_RUMBLE_LABEL = "GAMEPAD RUMBLE ";
+    const char* FFB_MODE_LABEL = "FFB MODE ";
     const char* PIXEL_SCALER_LABEL = "PIXEL SCALER ";
     const char* ENGINE_RESOLUTION_LABEL = "ENGINE RESOLUTION ";
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
@@ -91,7 +94,7 @@ namespace
     bool is_system_action_row(int row)
     {
         return row == PAUSE_ROW || row == EXIT_ROW ||
-               row == ACCEPT_ROW || row == MENU_BACK_ROW;
+               row == ACCEPT_ROW || row == MENU_CANCEL_ROW;
     }
 
     int system_action_for_row(int row)
@@ -100,7 +103,7 @@ namespace
             return Config::SYSTEM_ACTION_EXIT;
         if (row == ACCEPT_ROW)
             return Config::SYSTEM_ACTION_ACCEPT;
-        if (row == MENU_BACK_ROW)
+        if (row == MENU_CANCEL_ROW)
             return Config::SYSTEM_ACTION_BACK;
         return Config::SYSTEM_ACTION_PAUSE;
     }
@@ -120,6 +123,12 @@ namespace
     {
         return std::string(GAMEPAD_RUMBLE_LABEL) +
             (gamepad_rumble::enabled ? "ON" : "OFF");
+    }
+
+    std::string ffb_mode_menu_text()
+    {
+        return std::string(FFB_MODE_LABEL) +
+            (config.ffb_modern_enabled() ? "MODERN" : "SIMPLE");
     }
 
     std::string pixel_scaler_menu_text()
@@ -220,7 +229,8 @@ namespace
         {
             forcefeedback::set_gain(config.controls.ffb_strength);
             forcefeedback::set_enabled(true);
-            forcefeedback::set_centering_strength(low_speed_spring_strength());
+            forcefeedback::set_centering_strength(
+                config.ffb_modern_enabled() ? low_speed_spring_strength() : 0);
         }
     }
 
@@ -639,7 +649,8 @@ void Menu::tick()
 
     if (!frontend_menu ||
         !config.controls.haptic ||
-        !config.input_mode_is_wheel())
+        !config.input_mode_is_wheel() ||
+        !config.ffb_modern_enabled())
     {
         menu_spring_active = false;
         menu_spring_strength = -1;
@@ -725,6 +736,8 @@ void Menu::populate_controls()
             menu_controls.end());
     };
 
+    erase_entry(FFB_MODE_LABEL);
+
     if (config.input_mode_is_gamepad())
     {
         // Wheel-output settings are irrelevant while GAMEPAD owns the game.
@@ -749,6 +762,16 @@ void Menu::populate_controls()
         // WHEEL mode never drives gamepad motors, so hide both rumble controls.
         erase_entry(ENTRY_RUMBLE);
         erase_entry(GAMEPAD_RUMBLE_LABEL);
+
+        auto ffb_toggle = std::find_if(
+            menu_controls.begin(),
+            menu_controls.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, ENTRY_FFB);
+            });
+        if (ffb_toggle != menu_controls.end())
+            menu_controls.insert(ffb_toggle + 1, ffb_mode_menu_text());
     }
 
     // INPUT MODE is always the first item. CONFIG INPUTS remains available in
@@ -797,6 +820,24 @@ bool Menu::select_pressed()
         config_save_pending = true;
         populate_controls();
         cursor = 0;
+        osoundint.queue_sound(sound::BEEP1);
+        return false;
+    }
+
+    if (menu_selected == &menu_controls &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_controls.size()) &&
+        starts_with_label(menu_controls[cursor], FFB_MODE_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        const bool modern = input.has_pressed(Input::RIGHT);
+        config.set_ffb_modern_enabled(modern);
+        forcefeedback::set_tyre_slip(false);
+        forcefeedback::stop();
+        if (forcefeedback::is_supported())
+            forcefeedback::set_centering_strength(modern ? low_speed_spring_strength() : 0);
+        menu_controls[cursor] = ffb_mode_menu_text();
+        config_save_pending = true;
         osoundint.queue_sound(sound::BEEP1);
         return false;
     }
@@ -940,6 +981,18 @@ bool Menu::select_pressed()
             return false;
         }
 
+        if (starts_with_label(option, FFB_MODE_LABEL))
+        {
+            const bool modern = !config.ffb_modern_enabled();
+            config.set_ffb_modern_enabled(modern);
+            forcefeedback::set_tyre_slip(false);
+            forcefeedback::stop();
+            if (forcefeedback::is_supported())
+                forcefeedback::set_centering_strength(modern ? low_speed_spring_strength() : 0);
+            menu_controls[cursor] = ffb_mode_menu_text();
+            return false;
+        }
+
         if (starts_with_label(option, GAMEPAD_RUMBLE_LABEL))
         {
             gamepad_rumble::enabled = !gamepad_rumble::enabled;
@@ -991,6 +1044,77 @@ void Menu::redefine_joystick()
     static int wait_hat = -1;
     static int wait_hat_value = SDL_HAT_CENTERED;
 
+    struct StoredBinding
+    {
+        int type = -1;
+        int index = -1;
+        int value = 0;
+        std::string device;
+    };
+
+    static std::vector<device_binding_t> snapshot_bindings;
+    static int snapshot_keys[15] = {};
+    static int snapshot_system_keys[4] = {};
+    static StoredBinding snapshot_system[4][2];
+    static int snapshot_radio_key = -1;
+    static StoredBinding snapshot_radio[2];
+
+    auto take_snapshot = [&]()
+    {
+        snapshot_bindings = config.controls.device_bindings;
+        for (int i = 0; i < 15; ++i)
+            snapshot_keys[i] = config.controls.keyconfig[i];
+
+        for (int action = 0; action < 4; ++action)
+        {
+            snapshot_system_keys[action] = config.system_action_key(action);
+            for (int group = 0; group < 2; ++group)
+            {
+                StoredBinding& stored = snapshot_system[action][group];
+                stored.type = config.system_action_binding_type(action, group);
+                stored.index = config.system_action_binding_index(action, group);
+                stored.value = config.system_action_binding_value(action, group);
+                stored.device = config.system_action_binding_device(action, group);
+            }
+        }
+
+        snapshot_radio_key = config.radio_key();
+        for (int group = 0; group < 2; ++group)
+        {
+            snapshot_radio[group].type = config.radio_binding_type(group);
+            snapshot_radio[group].index = config.radio_binding_index(group);
+            snapshot_radio[group].value = config.radio_binding_value(group);
+            snapshot_radio[group].device = config.radio_binding_device(group);
+        }
+    };
+
+    auto restore_snapshot = [&]()
+    {
+        config.controls.device_bindings = snapshot_bindings;
+        for (int i = 0; i < 15; ++i)
+            config.controls.keyconfig[i] = snapshot_keys[i];
+
+        for (int action = 0; action < 4; ++action)
+        {
+            config.set_system_action_key(action, snapshot_system_keys[action]);
+            for (int group = 0; group < 2; ++group)
+            {
+                const StoredBinding& stored = snapshot_system[action][group];
+                config.set_system_action_binding(
+                    action, group, stored.type, stored.index, stored.value, stored.device);
+            }
+        }
+
+        config.set_radio_key(snapshot_radio_key);
+        for (int group = 0; group < 2; ++group)
+        {
+            const StoredBinding& stored = snapshot_radio[group];
+            config.set_radio_binding(
+                group, stored.type, stored.index, stored.value, stored.device);
+        }
+        input.normalize_device_bindings();
+    };
+
     auto clear_latches = [&]()
     {
         input.key_press = -1;
@@ -1023,6 +1147,7 @@ void Menu::redefine_joystick()
         // columns. Convert those to the new logical GAMEPAD/WHEEL grouping.
         input.normalize_device_bindings();
         config_save_pending = true;
+        take_snapshot();
 
         selected_row = 0;
         selected_col = COL_KEYBOARD;
@@ -1045,19 +1170,19 @@ void Menu::redefine_joystick()
             14,
             4,
             "KEYBOARD",
-            (selected_row != BACK_ROW && selected_col == COL_KEYBOARD)
+            (selected_row < BINDING_ROWS && selected_col == COL_KEYBOARD)
                 ? ohud.PINK : ohud.GREY);
         ohud.blit_text_new(
             24,
             4,
             "GAMEPAD",
-            (selected_row != BACK_ROW && selected_col == COL_GAMEPAD)
+            (selected_row < BINDING_ROWS && selected_col == COL_GAMEPAD)
                 ? ohud.PINK : ohud.GREY);
         ohud.blit_text_new(
             33,
             4,
             "WHEEL",
-            (selected_row != BACK_ROW && selected_col == COL_WHEEL)
+            (selected_row < BINDING_ROWS && selected_col == COL_WHEEL)
                 ? ohud.PINK : ohud.GREY);
 
         for (int row = 0; row < BINDING_ROWS; row++)
@@ -1112,10 +1237,15 @@ void Menu::redefine_joystick()
         }
 
         ohud.blit_text_new(
-            18,
-            BACK_Y,
-            "BACK",
-            selected_row == BACK_ROW ? ohud.PINK : ohud.GREEN);
+            14,
+            SAVE_Y,
+            "SAVE",
+            selected_row == SAVE_ROW ? ohud.PINK : ohud.GREEN);
+        ohud.blit_text_new(
+            22,
+            CANCEL_Y,
+            "CANCEL",
+            selected_row == CANCEL_ROW ? ohud.PINK : ohud.GREEN);
 
         if (waiting_release)
         {
@@ -1139,7 +1269,7 @@ void Menu::redefine_joystick()
             }
             else if (selected_row == 0)
             {
-                ohud.blit_text_new(5, STATUS_Y, "MOVE STEERING AXIS", ohud.PINK);
+                ohud.blit_text_new(7, STATUS_Y, "TURN WHEEL LEFT", ohud.PINK);
             }
             else if (selected_row == 1 || selected_row == 2)
             {
@@ -1153,7 +1283,7 @@ void Menu::redefine_joystick()
         else
         {
             ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - BACK", ohud.GREY);
+            ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - EXIT", ohud.GREY);
             ohud.blit_text_new(1, STATUS_Y + 2, "ALL ACTIONS CAN BE REBOUND", ohud.GREY);
         }
     };
@@ -1449,7 +1579,7 @@ void Menu::redefine_joystick()
         if (selected_row >= EDITOR_ROWS)
             selected_row = 0;
 
-        if (selected_row == BACK_ROW)
+        if (selected_row >= BINDING_ROWS)
             selected_col = COL_KEYBOARD;
 
         osoundint.queue_sound(sound::BEEP1);
@@ -1460,12 +1590,12 @@ void Menu::redefine_joystick()
         if (selected_row < 0)
             selected_row = EDITOR_ROWS - 1;
 
-        if (selected_row == BACK_ROW)
+        if (selected_row >= BINDING_ROWS)
             selected_col = COL_KEYBOARD;
 
         osoundint.queue_sound(sound::BEEP1);
     }
-    else if (selected_row != BACK_ROW && input.has_pressed(Input::RIGHT))
+    else if (selected_row < BINDING_ROWS && input.has_pressed(Input::RIGHT))
     {
         selected_col++;
         if (selected_col >= EDITOR_COLUMNS)
@@ -1473,7 +1603,7 @@ void Menu::redefine_joystick()
 
         osoundint.queue_sound(sound::BEEP1);
     }
-    else if (selected_row != BACK_ROW && input.has_pressed(Input::LEFT))
+    else if (selected_row < BINDING_ROWS && input.has_pressed(Input::LEFT))
     {
         selected_col--;
         if (selected_col < 0)
@@ -1486,7 +1616,7 @@ void Menu::redefine_joystick()
         input.key_press == SDLK_DELETE ||
         input.key_press == SDLK_BACKSPACE;
 
-    if (clear_pressed && selected_row != BACK_ROW)
+    if (clear_pressed && selected_row < BINDING_ROWS)
     {
         bool changed = true;
 
@@ -1551,8 +1681,17 @@ void Menu::redefine_joystick()
 
     if (activate)
     {
-        if (selected_row == BACK_ROW)
+        if (selected_row == SAVE_ROW)
         {
+            osoundint.queue_sound(sound::BEEP1);
+            leave_editor();
+            return;
+        }
+
+        if (selected_row == CANCEL_ROW)
+        {
+            restore_snapshot();
+            config_save_pending = true;
             osoundint.queue_sound(sound::BEEP1);
             leave_editor();
             return;

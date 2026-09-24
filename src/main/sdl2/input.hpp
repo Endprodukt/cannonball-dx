@@ -31,6 +31,8 @@ struct InputDevice
     int axes = 0;
     int buttons = 0;
     int hats = 0;
+    Uint16 vid = 0;
+    Uint16 pid = 0;
 };
 
 class Input

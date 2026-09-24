@@ -140,6 +140,12 @@ namespace forcefeedback
         bool active,
         const std::source_location& source)
     {
+        if (!config.ffb_modern_enabled())
+        {
+            set_tyre_slip_base(false, source);
+            return;
+        }
+
         const bool grid_rev_request =
             active && start_rev_source(source);
         const bool driving_engine_request =
