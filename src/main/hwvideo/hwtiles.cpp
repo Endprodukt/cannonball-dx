@@ -1,5 +1,6 @@
 #include <cstring> // memcpy
 #include <algorithm> // std::fill_n, std::clamp
+#include "main.hpp"
 #include "globals.hpp"
 #include "romloader.hpp"
 #include "hwvideo/hwtiles.hpp"
@@ -372,12 +373,50 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
 void hwtiles::render_text_layer(uint16_t* buf, uint8_t priority_draw)
 {
     uint16_t mx, my, Code, Colour, x, y, Priority, TileIndex = 0;
+    const bool centre_menu_rows = cannonball::state == cannonball::STATE_MENU;
 
     int my8 = -8, mx8;
     for (my = 0; my < 32; my++) 
     {
         my8 += 8;
         mx8 = -8;
+
+        // Menu text is stored on an 8-pixel tile grid. An odd number of
+        // visible characters therefore lands half a tile (4 logical pixels)
+        // left of the true 320-pixel centre. Detect the green menu text span
+        // and apply that half-tile correction to the complete row, including
+        // the minicar cursor. Other HUD/text rows remain pixel-identical.
+        int menu_x_offset = 0;
+        if (centre_menu_rows)
+        {
+            int first_text_column = -1;
+            int last_text_column = -1;
+
+            for (int column = 24; column < 64; ++column)
+            {
+                const uint32_t index = static_cast<uint32_t>((my * 64 + column) << 1);
+                const uint16_t raw = static_cast<uint16_t>((text_ram[index] << 8) | text_ram[index + 1]);
+                const uint8_t glyph = static_cast<uint8_t>(raw & 0xff);
+
+                // Menu::draw_menu_options/draw_text use OHud::GREEN (0x92).
+                // Limit this to printable menu glyphs so unrelated tile data
+                // such as the cursor cannot influence the measured span.
+                if ((raw & 0xff00) == 0x9200 &&
+                    glyph >= 0x21 && glyph <= 0x7e)
+                {
+                    if (first_text_column < 0)
+                        first_text_column = column;
+                    last_text_column = column;
+                }
+            }
+
+            if (first_text_column >= 0 &&
+                ((last_text_column - first_text_column + 1) & 1) != 0)
+            {
+                menu_x_offset = 4;
+            }
+        }
+
         for (mx = 0; mx < 64; mx++) 
         {
             mx8 += 8;
@@ -400,6 +439,7 @@ void hwtiles::render_text_layer(uint16_t* buf, uint8_t priority_draw)
                     y = my8;
 
                     x -= 192;
+                    x += menu_x_offset;
 
                     // We also adjust the text layer for wide-screen below. But don't allow painting in the 
                     // wide-screen areas to avoid graphical glitches.
