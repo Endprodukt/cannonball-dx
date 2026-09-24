@@ -87,6 +87,44 @@ public:
         if (config.smartypi.enabled)
             return;
 
+        // Surface the SE playback-device support in the normal Sound menu.
+        // DEFAULT maps to playback_device=-1; the remaining entries use the
+        // same SDL device indices already consumed by Audio::start_audio().
+        auto has_sound_entry = [&](const char* label)
+        {
+            return std::find_if(
+                menu_sound.begin(),
+                menu_sound.end(),
+                [&](const std::string& entry)
+                {
+                    return entry.rfind(label, 0) == 0;
+                }) != menu_sound.end();
+        };
+
+        if (!has_sound_entry(AUDIO_OUTPUT_LABEL))
+        {
+            auto music_entry = std::find_if(
+                menu_sound.begin(),
+                menu_sound.end(),
+                [](const std::string& entry)
+                {
+                    return entry.rfind(ENTRY_MUSICTEST, 0) == 0;
+                });
+            menu_sound.insert(music_entry, audio_output_menu_text());
+        }
+
+        if (!has_sound_entry(MENU_SOUNDS_LABEL))
+        {
+            auto music_entry = std::find_if(
+                menu_sound.begin(),
+                menu_sound.end(),
+                [](const std::string& entry)
+                {
+                    return entry.rfind(ENTRY_MUSICTEST, 0) == 0;
+                });
+            menu_sound.insert(music_entry, menu_sounds_menu_text());
+        }
+
         // Gameplay is the natural home for detailed run rules and compatibility
         // choices. Keep the main page compact and put both pages before Car Setup.
         auto insert_before_handling = [&]()
@@ -115,6 +153,84 @@ public:
 protected:
     std::vector<std::string> menu_endless;
     std::vector<std::string> menu_bugfixes;
+
+    static constexpr const char* AUDIO_OUTPUT_LABEL = "AUDIO OUTPUT ";
+    static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
+
+    static int audio_device_count()
+    {
+        if ((SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) == 0)
+        {
+            if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0)
+                return 0;
+        }
+
+        int count = SDL_GetNumAudioDevices(0);
+        if (count < 0)
+            count = 0;
+        if (count > 32)
+            count = 32;
+        return count;
+    }
+
+    static std::string audio_output_menu_text()
+    {
+        const int count = audio_device_count();
+        const int device = config.sound.playback_device;
+
+        if (device < 0 || device >= count)
+            return std::string(AUDIO_OUTPUT_LABEL) + "DEFAULT";
+
+        const char* device_name = SDL_GetAudioDeviceName(device, 0);
+        std::string value = device_name && *device_name
+            ? std::string(device_name)
+            : std::string("DEVICE ") + std::to_string(device + 1);
+
+        // The legacy HUD is 40 columns wide. Leave a little breathing room and
+        // make long Windows/SDL endpoint names deterministic instead of letting
+        // them run into the screen edge.
+        const size_t max_value_length = 24;
+        if (value.size() > max_value_length)
+            value = value.substr(0, max_value_length - 3) + "...";
+
+        return std::string(AUDIO_OUTPUT_LABEL) + value;
+    }
+
+    static std::string menu_sounds_menu_text()
+    {
+        return std::string(MENU_SOUNDS_LABEL) +
+            (config.menu_sounds_enabled() ? "ON" : "OFF");
+    }
+
+    void cycle_audio_output(int direction)
+    {
+        const int count = audio_device_count();
+        const int slots = count + 1; // DEFAULT + every enumerated device
+
+        int current = config.sound.playback_device;
+        int position = current >= 0 && current < count ? current + 1 : 0;
+        position = (position + (direction < 0 ? -1 : 1) + slots) % slots;
+        config.sound.playback_device = position - 1;
+
+        if (config.sound.enabled)
+        {
+            cannonball::audio.stop_audio();
+            cannonball::audio.start_audio();
+
+            // A device can disappear between enumeration and opening (USB/BT
+            // disconnect). Keep the game audible and the stored config valid by
+            // falling back to the system default immediately.
+            if (!cannonball::audio.sound_enabled &&
+                config.sound.playback_device != -1)
+            {
+                config.sound.playback_device = -1;
+                cannonball::audio.start_audio();
+                display_message("AUDIO DEVICE UNAVAILABLE - USING DEFAULT");
+            }
+        }
+
+        config_save_pending = true;
+    }
 
     static const FfbMenuItem* dx_ffb_effect_items(int& count)
     {
