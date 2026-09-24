@@ -49,9 +49,10 @@ namespace
     const int CANCEL_ROW = BINDING_ROWS + 1;
     const int EDITOR_ROWS = BINDING_ROWS + 2;
     const int EDITOR_COLUMNS = 3;
-    const int SAVE_Y = 23;
-    const int CANCEL_Y = 24;
-    const int STATUS_Y = 25;
+    const int EDITOR_VISIBLE_ROWS = 13;
+    const int SAVE_Y = 20;
+    const int CANCEL_Y = 21;
+    const int STATUS_Y = 22;
 
     const int COL_KEYBOARD = 0;
     const int COL_GAMEPAD = 1;
@@ -1039,6 +1040,7 @@ void Menu::redefine_joystick()
 
     static int selected_row = 0;
     static int selected_col = COL_KEYBOARD;
+    static int first_visible_row = 0;
     static bool capturing = false;
     static int steering_key_step = 0;
 
@@ -1158,6 +1160,7 @@ void Menu::redefine_joystick()
 
         selected_row = 0;
         selected_col = COL_KEYBOARD;
+        first_visible_row = 0;
         capturing = false;
         steering_key_step = 0;
         waiting_release = false;
@@ -1170,31 +1173,50 @@ void Menu::redefine_joystick()
 
     auto draw_editor = [&]()
     {
-        ohud.blit_text_new(12, 2, "CONTROL BINDINGS", ohud.GREEN);
+        // Match CannonBall-SE's CONFIGURE INPUTS geometry. DX has four extra
+        // binding rows, so keep the same 13-row viewport and scroll only that
+        // list instead of pushing SAVE/CANCEL and the help text off-screen.
+        if (selected_row < BINDING_ROWS)
+        {
+            if (selected_row < first_visible_row)
+                first_visible_row = selected_row;
+            else if (selected_row >= first_visible_row + EDITOR_VISIBLE_ROWS)
+                first_visible_row = selected_row - EDITOR_VISIBLE_ROWS + 1;
+        }
 
-        ohud.blit_text_new(1, 4, "CONTROL", ohud.GREY);
+        const int max_first_row =
+            std::max(0, BINDING_ROWS - EDITOR_VISIBLE_ROWS);
+        first_visible_row = std::clamp(first_visible_row, 0, max_first_row);
+
+        ohud.blit_text_new(12, 2, "CONFIGURE INPUTS", ohud.GREEN);
+
+        ohud.blit_text_new(1, 4, "CONTROL", ohud.GREEN);
         ohud.blit_text_new(
             14,
             4,
             "KEYBOARD",
             (selected_row < BINDING_ROWS && selected_col == COL_KEYBOARD)
-                ? ohud.PINK : ohud.GREY);
+                ? ohud.PINK : ohud.GREEN);
         ohud.blit_text_new(
             24,
             4,
             "GAMEPAD",
             (selected_row < BINDING_ROWS && selected_col == COL_GAMEPAD)
-                ? ohud.PINK : ohud.GREY);
+                ? ohud.PINK : ohud.GREEN);
         ohud.blit_text_new(
             33,
             4,
             "WHEEL",
             (selected_row < BINDING_ROWS && selected_col == COL_WHEEL)
-                ? ohud.PINK : ohud.GREY);
+                ? ohud.PINK : ohud.GREEN);
 
-        for (int row = 0; row < BINDING_ROWS; row++)
+        for (int visible_row = 0; visible_row < EDITOR_VISIBLE_ROWS; ++visible_row)
         {
-            const int y = 6 + row;
+            const int row = first_visible_row + visible_row;
+            if (row >= BINDING_ROWS)
+                break;
+
+            const int y = 6 + visible_row;
 
             ohud.blit_text_new(
                 1,
@@ -1244,12 +1266,12 @@ void Menu::redefine_joystick()
         }
 
         ohud.blit_text_new(
-            14,
+            18,
             SAVE_Y,
             "SAVE",
             selected_row == SAVE_ROW ? ohud.PINK : ohud.GREEN);
         ohud.blit_text_new(
-            22,
+            17,
             CANCEL_Y,
             "CANCEL",
             selected_row == CANCEL_ROW ? ohud.PINK : ohud.GREEN);
@@ -1291,7 +1313,6 @@ void Menu::redefine_joystick()
         {
             ohud.blit_text_new(1, STATUS_Y,     "ARROWS - SELECT   ENTER - CHANGE", ohud.GREY);
             ohud.blit_text_new(1, STATUS_Y + 1, "DEL/BSP - CLEAR   ESC - EXIT", ohud.GREY);
-            ohud.blit_text_new(1, STATUS_Y + 2, "ALL ACTIONS CAN BE REBOUND", ohud.GREY);
         }
     };
 
