@@ -173,22 +173,68 @@ protected:
         return count;
     }
 
+    static std::string audio_font_safe(const std::string& input)
+    {
+        std::string out;
+        out.reserve(input.size());
+
+        for (unsigned char c : input)
+        {
+            char u = static_cast<char>(c);
+            if (u >= 'a' && u <= 'z')
+                u = static_cast<char>(u - 'a' + 'A');
+
+            if ((u >= 'A' && u <= 'Z') ||
+                (u >= '0' && u <= '9') ||
+                u == ' ' || u == '-' || u == '.' ||
+                u == '%' || u == '!' || u == ',' || u == '/')
+            {
+                if (u != ' ' || out.empty() || out.back() != ' ')
+                    out += u;
+            }
+        }
+
+        while (!out.empty() && out.front() == ' ') out.erase(out.begin());
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        return out.empty() ? std::string("DEVICE") : out;
+    }
+
     static std::string audio_output_menu_text()
     {
         const int count = audio_device_count();
-        const int device = config.sound.playback_device;
+        int device = -1;
 
-        if (device < 0 || device >= count)
+        if (!config.sound.playback_device_name.empty())
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                const char* name = SDL_GetAudioDeviceName(i, 0);
+                if (name && config.sound.playback_device_name == name)
+                {
+                    device = i;
+                    break;
+                }
+            }
+        }
+
+        if (device < 0 &&
+            config.sound.playback_device >= 0 &&
+            config.sound.playback_device < count)
+        {
+            device = config.sound.playback_device;
+        }
+
+        if (device < 0)
             return std::string(AUDIO_OUTPUT_LABEL) + "DEFAULT";
 
         const char* device_name = SDL_GetAudioDeviceName(device, 0);
-        std::string value = device_name && *device_name
-            ? std::string(device_name)
-            : std::string("DEVICE ") + std::to_string(device + 1);
+        std::string value = audio_font_safe(
+            !config.sound.playback_device_name.empty()
+                ? config.sound.playback_device_name
+                : (device_name && *device_name
+                    ? std::string(device_name)
+                    : std::string("DEVICE ") + std::to_string(device + 1)));
 
-        // The legacy HUD is 40 columns wide. Leave a little breathing room and
-        // make long Windows/SDL endpoint names deterministic instead of letting
-        // them run into the screen edge.
         const size_t max_value_length = 24;
         if (value.size() > max_value_length)
             value = value.substr(0, max_value_length - 3) + "...";
@@ -207,23 +253,51 @@ protected:
         const int count = audio_device_count();
         const int slots = count + 1; // DEFAULT + every enumerated device
 
-        int current = config.sound.playback_device;
-        int position = current >= 0 && current < count ? current + 1 : 0;
+        int position = 0;
+        if (!config.sound.playback_device_name.empty())
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                const char* name = SDL_GetAudioDeviceName(i, 0);
+                if (name && config.sound.playback_device_name == name)
+                {
+                    position = i + 1;
+                    break;
+                }
+            }
+        }
+
+        if (position == 0 &&
+            config.sound.playback_device >= 0 &&
+            config.sound.playback_device < count)
+        {
+            position = config.sound.playback_device + 1;
+        }
+
         position = (position + (direction < 0 ? -1 : 1) + slots) % slots;
-        config.sound.playback_device = position - 1;
+
+        if (position == 0)
+        {
+            config.sound.playback_device = -1;
+            config.sound.playback_device_name.clear();
+        }
+        else
+        {
+            config.sound.playback_device = position - 1;
+            const char* name = SDL_GetAudioDeviceName(position - 1, 0);
+            config.sound.playback_device_name = name ? name : "";
+        }
 
         if (config.sound.enabled)
         {
             cannonball::audio.stop_audio();
             cannonball::audio.start_audio();
 
-            // A device can disappear between enumeration and opening (USB/BT
-            // disconnect). Keep the game audible and the stored config valid by
-            // falling back to the system default immediately.
             if (!cannonball::audio.sound_enabled &&
                 config.sound.playback_device != -1)
             {
                 config.sound.playback_device = -1;
+                config.sound.playback_device_name.clear();
                 cannonball::audio.start_audio();
                 display_message("AUDIO DEVICE UNAVAILABLE - USING DEFAULT");
             }

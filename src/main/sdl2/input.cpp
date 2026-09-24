@@ -149,34 +149,52 @@ namespace
         return device.compare(0, 2, WHEEL_PREFIX) == 0;
     }
 
+    std::string signature_shape(const std::string& signature)
+    {
+        const size_t pos = signature.find('|');
+        return pos == std::string::npos ? signature : signature.substr(pos);
+    }
+
     bool binding_matches_group_signature(
-        const std::string& stored_device,
+        const device_binding_t& binding,
         const std::string& signature,
         int group)
     {
-        // In gameplay only the selected family is active. The frontend is
-        // intentionally shared so a connected gamepad can still operate menus
-        // in WHEEL mode and wheel buttons can still operate them in GAMEPAD mode.
         if (!frontend_accepts_all_input_groups() &&
             group != config.input_mode())
         {
             return false;
         }
 
-        if (!binding_is_group(stored_device, group))
+        if (!binding_is_group(binding.device, group))
             return false;
 
         const std::string stored_signature =
-            raw_binding_signature(stored_device);
+            raw_binding_signature(binding.device);
 
-        // Wildcards came from the old single-pad configuration where the
-        // physical device was not stored. They are unsafe in the new grouped
-        // input model because the same physical gamepad also emits raw joystick
-        // events with different button numbers. Never execute them.
         if (stored_signature == "*")
             return false;
 
-        return stored_signature == signature;
+        if (stored_signature == signature)
+            return true;
+
+        // SDL GUIDs can change across SDL revisions/backends. A VID/PID plus
+        // the stable axis/button/hat shape is a conservative fallback.
+        if (!binding.vid || !binding.pid ||
+            signature_shape(stored_signature) != signature_shape(signature))
+        {
+            return false;
+        }
+
+        for (const auto& device : input.get_devices())
+        {
+            if (input.get_device_signature(device.instance_id) == signature)
+            {
+                return device.vid == binding.vid && device.pid == binding.pid;
+            }
+        }
+
+        return false;
     }
 
     int default_system_gamepad_button(int action)
@@ -479,6 +497,8 @@ void Input::add_joystick(int device_index)
     device.axes = SDL_JoystickNumAxes(joystick);
     device.buttons = SDL_JoystickNumButtons(joystick);
     device.hats = SDL_JoystickNumHats(joystick);
+    device.vid = SDL_JoystickGetVendor(joystick);
+    device.pid = SDL_JoystickGetProduct(joystick);
 
     devices.push_back(std::move(device));
     gamepad = !devices.empty();
@@ -755,6 +775,68 @@ void Input::set_device_binding(
     binding.index = index;
     binding.value = value;
     binding.device = stored_device;
+
+    if (const InputDevice* physical = find_device(device))
+    {
+        binding.vid = physical->vid;
+        binding.pid = physical->pid;
+
+        if (type == device_binding_t::TYPE_AXIS)
+        {
+            int baseline_axis = index;
+            int current_value = 0;
+            bool current_valid = false;
+
+            if (group == BINDING_GAMEPAD && index < RAW_GAMEPAD_AXIS_BASE)
+            {
+                baseline_axis = CONTROLLER_AXIS_BASE + index;
+                if (SDL_GameController* pad = SDL_GameControllerFromInstanceID(device))
+                {
+                    current_value = SDL_GameControllerGetAxis(
+                        pad, static_cast<SDL_GameControllerAxis>(index));
+                    current_valid = true;
+                }
+            }
+            else
+            {
+                const int raw_axis =
+                    group == BINDING_GAMEPAD && index >= RAW_GAMEPAD_AXIS_BASE
+                        ? index - RAW_GAMEPAD_AXIS_BASE
+                        : index;
+                baseline_axis = raw_axis;
+                if (physical->joystick && raw_axis >= 0 && raw_axis < physical->axes)
+                {
+                    current_value = SDL_JoystickGetAxis(physical->joystick, raw_axis);
+                    current_valid = true;
+                }
+            }
+
+            if (current_valid)
+            {
+                for (const auto& baseline : axis_capture_baseline)
+                {
+                    if (baseline.device != device || baseline.axis != baseline_axis)
+                        continue;
+
+                    const int delta = current_value - baseline.value;
+                    if (target == device_binding_t::TARGET_ACCEL ||
+                        target == device_binding_t::TARGET_BRAKE)
+                    {
+                        // A pedal should increase when pressed.
+                        binding.invert = delta < 0;
+                    }
+                    else if (target == device_binding_t::TARGET_STEER)
+                    {
+                        // The editor asks for a LEFT turn. SDL convention is
+                        // negative-left; invert hardware that reports opposite.
+                        binding.invert = delta > 0;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     bindings.push_back(binding);
 
     if (target == device_binding_t::TARGET_STEER &&
@@ -914,7 +996,7 @@ void Input::apply_device_button(
     {
         if (binding.type != device_binding_t::TYPE_BUTTON ||
             binding.index != button ||
-            !binding_matches_group_signature(binding.device, signature, group))
+            !binding_matches_group_signature(binding, signature, group))
         {
             continue;
         }
@@ -940,7 +1022,7 @@ void Input::apply_device_hat(
     {
         if (binding.type != device_binding_t::TYPE_HAT ||
             binding.index != hat ||
-            !binding_matches_group_signature(binding.device, signature, group))
+            !binding_matches_group_signature(binding, signature, group))
         {
             continue;
         }
@@ -974,14 +1056,14 @@ void Input::apply_device_axis(
     {
         if (binding.type != device_binding_t::TYPE_AXIS ||
             binding.index != ax ||
-            !binding_matches_group_signature(binding.device, signature, group))
+            !binding_matches_group_signature(binding, signature, group))
         {
             continue;
         }
 
         if (binding.target == device_binding_t::TARGET_STEER)
         {
-            int raw = value;
+            int raw = binding.invert ? -value : value;
 
             // wheel_zone is a WHEEL saturation setting, not a gamepad-stick
             // setting. Applying the default 75% wheel zone to a GameController
@@ -1024,10 +1106,7 @@ void Input::apply_device_axis(
         else if (binding.target == device_binding_t::TARGET_ACCEL ||
                  binding.target == device_binding_t::TARGET_BRAKE)
         {
-            const int invert_slot =
-                binding.target == device_binding_t::TARGET_ACCEL ? 1 : 2;
-
-            int working = invert[invert_slot] ? -value : value;
+            int working = binding.invert ? -value : value;
             int scaled =
                 group == BINDING_GAMEPAD && !raw_gamepad_axis
                     ? working / 0x80

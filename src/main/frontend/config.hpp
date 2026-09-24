@@ -141,6 +141,14 @@
     { \
         cfg.put_int("sound.menu_sounds", enabled ? 1 : 0); \
     } \
+    bool ffb_modern_enabled() \
+    { \
+        return cfg.get_int("controls.analog.haptic.mode", 1) != 0; \
+    } \
+    void set_ffb_modern_enabled(bool enabled) \
+    { \
+        cfg.put_int("controls.analog.haptic.mode", enabled ? 1 : 0); \
+    } \
     int engine_vibration_strength() \
     { \
         int value = cfg.get_int( \

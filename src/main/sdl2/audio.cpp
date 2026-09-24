@@ -198,9 +198,54 @@ void Audio::start_audio(bool list_devices_only)
         desired.userdata = this;
 
         const char* playback_device = NULL;
-        if (config.sound.playback_device != -1 && config.sound.playback_device < numDevices) {
-            // User has configured a particular output device; find its name
-            playback_device = device_name[config.sound.playback_device];
+        int resolved_device = -1;
+
+        // Prefer the stable SDL endpoint name. Device indices can move between
+        // boots, Windows updates and USB/Bluetooth reconnects. Match the exact
+        // name first, then a substring for SDL backends that decorate names.
+        if (!config.sound.playback_device_name.empty())
+        {
+            for (int i = 0; i < numDevices; ++i)
+            {
+                if (device_name[i] && config.sound.playback_device_name == device_name[i])
+                {
+                    resolved_device = i;
+                    break;
+                }
+            }
+
+            if (resolved_device < 0)
+            {
+                for (int i = 0; i < numDevices; ++i)
+                {
+                    if (device_name[i] &&
+                        std::string(device_name[i]).find(config.sound.playback_device_name) != std::string::npos)
+                    {
+                        resolved_device = i;
+                        break;
+                    }
+                }
+            }
+
+            if (resolved_device < 0)
+            {
+                std::cerr << "Configured audio device not found: "
+                          << config.sound.playback_device_name
+                          << ". Falling back to index/default." << std::endl;
+            }
+        }
+
+        if (resolved_device < 0 &&
+            config.sound.playback_device >= 0 &&
+            config.sound.playback_device < numDevices)
+        {
+            resolved_device = config.sound.playback_device;
+        }
+
+        if (resolved_device >= 0)
+        {
+            playback_device = device_name[resolved_device];
+            config.sound.playback_device = resolved_device;
         }
 
         // SDL2 block

@@ -57,6 +57,10 @@ namespace
         binding.index = index;
         binding.value = value;
         binding.device = device.empty() ? "*" : device;
+        if (type == device_binding_t::TYPE_AXIS && target == device_binding_t::TARGET_ACCEL)
+            binding.invert = controls.invert[1];
+        else if (type == device_binding_t::TYPE_AXIS && target == device_binding_t::TARGET_BRAKE)
+            binding.invert = controls.invert[2];
         controls.device_bindings.push_back(binding);
     }
 
@@ -327,6 +331,8 @@ namespace
 
     bool parse_device_bindings(
         const std::string& encoded,
+        bool legacy_accel_invert,
+        bool legacy_brake_invert,
         std::vector<device_binding_t>& bindings)
     {
         bindings.clear();
@@ -342,30 +348,23 @@ namespace
             if (entry.empty())
                 continue;
 
-            std::stringstream fields(entry);
-            std::string target;
-            std::string type;
-            std::string index;
-            std::string value;
-            std::string device;
+            std::stringstream fields_stream(entry);
+            std::vector<std::string> fields;
+            std::string field;
+            while (std::getline(fields_stream, field, ','))
+                fields.push_back(field);
 
-            if (!std::getline(fields, target, ',') ||
-                !std::getline(fields, type, ',') ||
-                !std::getline(fields, index, ',') ||
-                !std::getline(fields, value, ',') ||
-                !std::getline(fields, device))
-            {
+            if (fields.size() < 5)
                 continue;
-            }
 
             try
             {
                 device_binding_t binding;
-                binding.target = std::stoi(target);
-                binding.type = std::stoi(type);
-                binding.index = std::stoi(index);
-                binding.value = std::stoi(value);
-                binding.device = device;
+                binding.target = std::stoi(fields[0]);
+                binding.type = std::stoi(fields[1]);
+                binding.index = std::stoi(fields[2]);
+                binding.value = std::stoi(fields[3]);
+                binding.device = fields[4];
 
                 if (binding.target < device_binding_t::TARGET_STEER ||
                     binding.target > device_binding_t::TARGET_VIEW3 ||
@@ -375,6 +374,26 @@ namespace
                     binding.device.empty())
                 {
                     continue;
+                }
+
+                if (fields.size() > 5 && !fields[5].empty())
+                    binding.vid = static_cast<uint16_t>(std::stoul(fields[5]));
+                if (fields.size() > 6 && !fields[6].empty())
+                    binding.pid = static_cast<uint16_t>(std::stoul(fields[6]));
+
+                if (fields.size() > 7 && !fields[7].empty())
+                {
+                    binding.invert = std::stoi(fields[7]) != 0;
+                }
+                else if (binding.type == device_binding_t::TYPE_AXIS &&
+                         binding.target == device_binding_t::TARGET_ACCEL)
+                {
+                    binding.invert = legacy_accel_invert;
+                }
+                else if (binding.type == device_binding_t::TYPE_AXIS &&
+                         binding.target == device_binding_t::TARGET_BRAKE)
+                {
+                    binding.invert = legacy_brake_invert;
                 }
 
                 bindings.push_back(binding);
@@ -408,7 +427,10 @@ namespace
                 << binding.type << ','
                 << binding.index << ','
                 << binding.value << ','
-                << binding.device;
+                << binding.device << ','
+                << binding.vid << ','
+                << binding.pid << ','
+                << (binding.invert ? 1 : 0);
         }
 
         return encoded.str();
@@ -632,6 +654,7 @@ void Config::load()
         video.hue = 0;
 
         sound.playback_device = -1;
+        sound.playback_device_name.clear();
 
         // Canonical CannonBall DX wheel defaults. These match the tested
         // headroom preset materialized below by seed_ffb_tuning_defaults().
@@ -712,7 +735,7 @@ void Config::load()
     const bool default_gamepad_profile =
         cfg.get_int("controls.default_gamepad", 0) != 0;
     const bool parsed_device_bindings =
-        parse_device_bindings(encoded, controls.device_bindings);
+        parse_device_bindings(encoded, controls.invert[1], controls.invert[2], controls.device_bindings);
 
     if (default_gamepad_profile && !parsed_device_bindings)
     {

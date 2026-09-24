@@ -671,6 +671,20 @@ void OOutputs::tick(int16_t input_motor)
         // Force Feedback Steering Wheels
         case MODE_FFEEDBACK:
         {
+            if (!config.ffb_modern_enabled())
+            {
+                // SIMPLE: translate the original OutRun moving-cabinet motor
+                // commands directly. No generated spring, engine sine, custom
+                // crash choreography or DX off-road pull is layered on top.
+                forcefeedback::set_tyre_slip(false);
+                forcefeedback::set_centering_strength(0);
+                reset_crash_ffb_tracking();
+                reset_start_sequence_ffb_tracking();
+                do_motors(mode, input_motor);
+                motor_output(hw_motor_control);
+                break;
+            }
+
             const bool start_sequence_ffb =
                 apply_start_sequence_ffb();
 
@@ -1195,7 +1209,7 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
         }
         else if (ocrash.skid_counter)
         {
-            if (MODE == MODE_FFEEDBACK)
+            if (MODE == MODE_FFEEDBACK && config.ffb_modern_enabled())
             {
                 if (!skid_ffb_active)
                 {
@@ -1238,6 +1252,7 @@ void OOutputs::do_motors(int MODE, int16_t input_motor)
             else
             {
                 if (MODE == MODE_FFEEDBACK &&
+                    config.ffb_modern_enabled() &&
                     oferrari.wheel_state == OFerrari::WHEELS_ON)
                 {
                     hw_motor_control = MOTOR_OFF;
@@ -1375,7 +1390,7 @@ void OOutputs::car_moving(const int MODE)
 // Source: 0xE822
 void OOutputs::car_stationary()
 {
-    if (mode == MODE_FFEEDBACK)
+    if (mode == MODE_FFEEDBACK && config.ffb_modern_enabled())
     {
         hw_motor_control = MOTOR_OFF;
         forcefeedback::stop();
@@ -1463,7 +1478,7 @@ void OOutputs::do_motor_offroad()
     // For FFB, keep the denser vibration pattern even when all wheels
     // are off-road. Cabinet/non-FFB modes retain the original table choice.
     const uint8_t* table =
-        (mode == MODE_FFEEDBACK ||
+        ((mode == MODE_FFEEDBACK && config.ffb_modern_enabled()) ||
          oferrari.wheel_state != OFerrari::WHEELS_OFF)
         ? MOTOR_VALUES_OFFROAD2
         : MOTOR_VALUES_OFFROAD1;
@@ -1483,7 +1498,7 @@ void OOutputs::do_motor_offroad()
         index = 3;
 
     // Preserve original behaviour for cabinet / non-FFB modes.
-    if (mode != MODE_FFEEDBACK)
+    if (mode != MODE_FFEEDBACK || !config.ffb_modern_enabled())
     {
         set_value(table, index);
         return;
@@ -1587,7 +1602,7 @@ void OOutputs::set_value(const uint8_t* table, uint8_t index)
 void OOutputs::done()
 {
     const int centre_deadzone =
-        (mode == MODE_FFEEDBACK) ? 1 : 8;
+        (mode == MODE_FFEEDBACK && config.ffb_modern_enabled()) ? 1 : 8;
 
     if (std::abs(motor_x_change) <= centre_deadzone)
     {

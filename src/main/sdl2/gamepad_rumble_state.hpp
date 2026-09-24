@@ -73,6 +73,28 @@ namespace gamepad_rumble
         }
     }
 
+    inline int write_rumble(
+        SDL_GameController* controller,
+        Uint16 low_frequency,
+        Uint16 high_frequency,
+        Uint32 duration_ms)
+    {
+        int result = SDL_GameControllerRumble(
+            controller, low_frequency, high_frequency, duration_ms);
+
+#if SDL_VERSION_ATLEAST(2, 0, 9)
+        if (result != 0 && controller)
+        {
+            if (SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller))
+            {
+                result = SDL_JoystickRumble(
+                    joystick, low_frequency, high_frequency, duration_ms);
+            }
+        }
+#endif
+        return result;
+    }
+
     // Central SDL GameController rumble mixer. During gameplay the incoming
     // legacy cabinet-motor request is deliberately ignored: rumble is derived
     // directly from game state so wheel FFB can never suppress pad effects.
@@ -88,7 +110,7 @@ namespace gamepad_rumble
         if (!enabled || cannonball::state != cannonball::STATE_GAME)
         {
             reset_tracking();
-            return SDL_GameControllerRumble(
+            return write_rumble(
                 controller,
                 enabled ? low_frequency : 0,
                 enabled ? high_frequency : 0,
@@ -295,7 +317,7 @@ namespace gamepad_rumble
             out_high = master;
         }
 
-        return SDL_GameControllerRumble(
+        return write_rumble(
             controller,
             out_low,
             out_high,
