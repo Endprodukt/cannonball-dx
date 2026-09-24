@@ -26,22 +26,7 @@
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 
-namespace forcefeedback
-{
-    void set_centering_strength_base(
-        int percent,
-        const std::source_location& source);
-
-    inline void set_centering_strength_base(int percent)
-    {
-        set_centering_strength_base(
-            percent,
-            std::source_location::current());
-    }
-}
-
 #define set set_base
-#define set_centering_strength set_centering_strength_base
 #define set_tyre_slip set_tyre_slip_base
 #else
 #define set_tyre_slip set_tyre_slip_base
@@ -51,33 +36,46 @@ namespace forcefeedback
 
 #undef set_tyre_slip
 #if defined(_WIN32)
-#undef set_centering_strength
 #undef set
 #endif
 
 namespace forcefeedback
 {
 #if defined(_WIN32)
-    static bool simple_gameplay_active()
-    {
-        return
-            cannonball::state == cannonball::STATE_GAME &&
-            outrun.game_state == GS_INGAME;
-    }
-
-    static bool simple_classic_centering_request(
+    static bool simple_classic_motor_effect_active(
         const std::source_location& source)
     {
-        // In SIMPLE mode the SDL spring is the only centering force. The
-        // original moving-cabinet motor tables still provide crash/skid/offroad
-        // effects, but their normal clean-road steering commands would otherwise
-        // add a second, very strong center force on top of the spring.
+        // SIMPLE has exactly one centering source: the fixed SDL Spring.
+        // The legacy motor tables are only allowed through for the few original
+        // gameplay effects (crash, skid and off-road). Normal moving/stationary
+        // motor output is legacy steering centering and must never stack with
+        // the Spring.
+        if (!source_function_contains(source, "motor_output"))
+            return false;
+
+        if (cannonball::state != cannonball::STATE_GAME ||
+            outrun.game_state != GS_INGAME)
+        {
+            return false;
+        }
+
+        const int car_inc = static_cast<int>(oinitengine.car_increment >> 16);
+
+        // At very low speed the original crash path falls back to
+        // car_stationary(), which is centering rather than a crash effect.
+        if (ocrash.crash_counter)
+            return car_inc > 0x14;
+
+        // SIMPLE deliberately keeps the original skid motor pattern.
+        if (ocrash.skid_counter)
+            return true;
+
+        // Off-road uses the original motor table once the car is actually
+        // moving. At parking speed do_motors() again falls back to stationary
+        // centering, so keep that suppressed as well.
         return
-            source_function_contains(source, "motor_output") &&
-            simple_gameplay_active() &&
-            !ocrash.crash_counter &&
-            !ocrash.skid_counter &&
-            oferrari.wheel_state == OFerrari::WHEELS_ON;
+            car_inc > 0x14 &&
+            oferrari.wheel_state != OFerrari::WHEELS_ON;
     }
 
     int set(
@@ -85,44 +83,15 @@ namespace forcefeedback
         int force,
         const std::source_location& source)
     {
-        if (!config.ffb_modern_enabled())
+        if (!config.ffb_modern_enabled() &&
+            !simple_classic_motor_effect_active(source))
         {
-            if (!simple_gameplay_active())
-            {
-                // SIMPLE is a driving-only mode. The original motor table can
-                // still tick during frontend/transition states; neutralize it
-                // so there are no effects while navigating menus.
-                return set_base(0x08, 7, source);
-            }
-
-            if (simple_classic_centering_request(source))
-            {
-                // Centering belongs exclusively to the spring in SIMPLE mode.
-                // Keep classic crash/skid/offroad motor commands untouched.
-                return set_base(0x08, 7, source);
-            }
+            // Neutral constant-force command. This leaves the independent SDL
+            // Spring running at the user-selected Centering strength.
+            return set_base(0x08, 7, source);
         }
 
         return set_base(xdirection, force, source);
-    }
-
-    void set_centering_strength(
-        int percent,
-        const std::source_location& source)
-    {
-        if (!config.ffb_modern_enabled())
-        {
-            // SIMPLE uses the user-facing Centering value as a fixed spring,
-            // but only while the race is actually active. In particular there
-            // must be no spring in the frontend/menu or during transitions.
-            set_centering_strength_base(
-                simple_gameplay_active() ? clamp_percent(percent) : 0,
-                source);
-            return;
-        }
-
-        // MODERN retains its existing dynamic/tuned spring behaviour verbatim.
-        set_centering_strength_base(percent, source);
     }
 
     static bool start_rev_source(
@@ -166,7 +135,7 @@ namespace forcefeedback
         // Engine vibration must not inherit the tyre-slip spring reduction.
         const bool periodic_active = g_tyre_slip_active;
         g_tyre_slip_active = false;
-        set_centering_strength_base(g_centering_percent, source);
+        set_centering_strength(g_centering_percent, source);
         g_tyre_slip_active = periodic_active;
     }
 
@@ -236,6 +205,9 @@ namespace forcefeedback
     {
         if (!config.ffb_modern_enabled())
         {
+            // SIMPLE never owns the periodic/modern channel. Its centering is
+            // the fixed Spring and its extra forces are only the classic motor
+            // effects passed by set() above.
             set_tyre_slip_base(false, source);
             return;
         }
