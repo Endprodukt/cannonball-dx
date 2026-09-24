@@ -677,7 +677,8 @@ void OOutputs::tick(int16_t input_motor)
                 // commands directly. No generated spring, engine sine, custom
                 // crash choreography or DX off-road pull is layered on top.
                 forcefeedback::set_tyre_slip(false);
-                forcefeedback::set_centering_strength(0);
+                forcefeedback::set_centering_strength(
+                    config.controls.centering_strength);
                 reset_crash_ffb_tracking();
                 reset_start_sequence_ffb_tracking();
                 do_motors(mode, input_motor);

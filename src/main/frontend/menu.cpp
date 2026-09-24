@@ -230,7 +230,9 @@ namespace
             forcefeedback::set_gain(config.controls.ffb_strength);
             forcefeedback::set_enabled(true);
             forcefeedback::set_centering_strength(
-                config.ffb_modern_enabled() ? low_speed_spring_strength() : 0);
+                config.ffb_modern_enabled()
+                ? low_speed_spring_strength()
+                : config.controls.centering_strength);
         }
     }
 
@@ -649,15 +651,16 @@ void Menu::tick()
 
     if (!frontend_menu ||
         !config.controls.haptic ||
-        !config.input_mode_is_wheel() ||
-        !config.ffb_modern_enabled())
+        !config.input_mode_is_wheel())
     {
         menu_spring_active = false;
         menu_spring_strength = -1;
         return;
     }
 
-    const int desired_strength = low_speed_spring_strength();
+    const int desired_strength = config.ffb_modern_enabled()
+        ? low_speed_spring_strength()
+        : config.controls.centering_strength;
     if (!menu_spring_active || desired_strength != menu_spring_strength)
     {
         if (forcefeedback::is_supported())
@@ -835,7 +838,9 @@ bool Menu::select_pressed()
         forcefeedback::set_tyre_slip(false);
         forcefeedback::stop();
         if (forcefeedback::is_supported())
-            forcefeedback::set_centering_strength(modern ? low_speed_spring_strength() : 0);
+            forcefeedback::set_centering_strength(modern
+                    ? low_speed_spring_strength()
+                    : config.controls.centering_strength);
         menu_controls[cursor] = ffb_mode_menu_text();
         config_save_pending = true;
         osoundint.queue_sound(sound::BEEP1);
@@ -988,7 +993,9 @@ bool Menu::select_pressed()
             forcefeedback::set_tyre_slip(false);
             forcefeedback::stop();
             if (forcefeedback::is_supported())
-                forcefeedback::set_centering_strength(modern ? low_speed_spring_strength() : 0);
+                forcefeedback::set_centering_strength(modern
+                    ? low_speed_spring_strength()
+                    : config.controls.centering_strength);
             menu_controls[cursor] = ffb_mode_menu_text();
             return false;
         }
