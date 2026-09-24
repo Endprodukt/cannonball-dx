@@ -6,16 +6,40 @@
     the preserved backend so it can keep its own strength and timing.
 ***************************************************************************/
 
-// Preserve the existing backend implementation under private entry points.
-// The public wrappers below can then keep SIMPLE isolated from frontend/menu
-// output without changing the MODERN FFB path.
+// Pre-include the Windows backend dependencies before temporarily renaming the
+// generic `set` symbol below. This keeps the macro away from std::set and other
+// declarations in standard/project headers.
+#include "ffeedback.hpp"
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <string>
+
+#if defined(_WIN32)
+#include <SDL.h>
+#include "main.hpp"
+#include "engine/ocrash.hpp"
+#include "engine/oferrari.hpp"
+#include "engine/oinitengine.hpp"
+#include "engine/outrun.hpp"
+#include "frontend/config.hpp"
+
 #define set set_base
 #define set_centering_strength set_centering_strength_base
 #define set_tyre_slip set_tyre_slip_base
+#else
+#define set_tyre_slip set_tyre_slip_base
+#endif
+
 #include "ffeedback_base.cpp"
+
 #undef set_tyre_slip
+#if defined(_WIN32)
 #undef set_centering_strength
 #undef set
+#endif
 
 namespace forcefeedback
 {
@@ -238,21 +262,6 @@ namespace forcefeedback
             apply_driving_engine_sine_parameters(source);
     }
 #else
-    int set(
-        int xdirection,
-        int force,
-        const std::source_location& source)
-    {
-        return set_base(xdirection, force, source);
-    }
-
-    void set_centering_strength(
-        int percent,
-        const std::source_location& source)
-    {
-        set_centering_strength_base(percent, source);
-    }
-
     void set_tyre_slip(
         bool active,
         const std::source_location& source)
