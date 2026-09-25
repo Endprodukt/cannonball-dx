@@ -24,6 +24,7 @@
 #include "engine/audio/osoundint.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
+#include "engine/ohud.hpp"
 #include "directx/ffeedback.hpp"
 
 #define Menu MenuLegacy
@@ -408,7 +409,7 @@ protected:
             { "OFFROAD PULL FULL",       "offroad_pull_full" },
             { "GEAR SHIFT",              "gear_shift" },
             { "MUSIC SELECTOR",          "music_selector" },
-            { "TRAFFIC SKID",            "traffic_skid" },
+            { "TRAFFIC SKID",             "traffic_skid" },
             { "CRASH BUMP",              "crash_bump" },
             { "CRASH SPIN IMPACT",       "crash_spin_impact" },
             { "CRASH SPIN",              "crash_spin" },
@@ -1123,3 +1124,30 @@ protected:
     bool select_pressed() override;
     void redefine_joystick() override;
 };
+
+// menu.cpp preserves the SE renderer by compiling menu_base.cpp as MenuBase.
+// While that source is included, its temporary `Menu` macro expands to
+// `MenuBase`; use that to tint only this non-interactive heading. In all other
+// contexts the helper is an identity function, so normal HUD/menu colours are
+// untouched. The 3-argument form is forwarded unchanged as well.
+inline uint16_t dx_menu_color_MenuBase(const char* text, uint16_t color)
+{
+    return text && std::string(text) == "AUDIO OUTPUT DEVICE"
+        ? OHud::GREY
+        : color;
+}
+
+inline uint16_t dx_menu_color_Menu(const char*, uint16_t color)
+{
+    return color;
+}
+
+#define DX_MENU_JOIN_I(A, B) A##B
+#define DX_MENU_JOIN(A, B) DX_MENU_JOIN_I(A, B)
+#define DX_MENU_COLOR_HELPER DX_MENU_JOIN(dx_menu_color_, Menu)
+#define DX_MENU_BLIT_3(X, Y, T) blit_text_new((X), (Y), (T))
+#define DX_MENU_BLIT_4(X, Y, T, C) \
+    blit_text_new((X), (Y), (T), DX_MENU_COLOR_HELPER((T), (C)))
+#define DX_MENU_BLIT_SELECT(_1, _2, _3, _4, NAME, ...) NAME
+#define blit_text_new(...) \
+    DX_MENU_BLIT_SELECT(__VA_ARGS__, DX_MENU_BLIT_4, DX_MENU_BLIT_3)(__VA_ARGS__)
