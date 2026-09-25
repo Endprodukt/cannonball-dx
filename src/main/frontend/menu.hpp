@@ -199,6 +199,101 @@ protected:
         return out.empty() ? std::string("DEVICE") : out;
     }
 
+    static std::string audio_compact_name(const std::string& input)
+    {
+        std::string value = audio_font_safe(input);
+
+        auto replace_all = [&](const std::string& from, const std::string& to)
+        {
+            if (from.empty())
+                return;
+
+            size_t pos = 0;
+            while ((pos = value.find(from, pos)) != std::string::npos)
+            {
+                value.replace(pos, from.size(), to);
+                pos += to.size();
+            }
+        };
+
+        auto trim = [&]()
+        {
+            std::string out;
+            out.reserve(value.size());
+            bool previous_space = false;
+            for (char c : value)
+            {
+                if (c == ' ')
+                {
+                    if (!previous_space && !out.empty())
+                        out += c;
+                    previous_space = true;
+                }
+                else
+                {
+                    out += c;
+                    previous_space = false;
+                }
+            }
+            while (!out.empty() && out.back() == ' ')
+                out.pop_back();
+            value.swap(out);
+        };
+
+        auto strip_suffix = [&](const std::string& suffix)
+        {
+            if (value.size() > suffix.size() &&
+                value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0)
+            {
+                value.erase(value.size() - suffix.size());
+                trim();
+            }
+        };
+
+        // SDL/Windows device names often contain driver descriptions that are
+        // useful for opening the device but add little value in the menu.
+        replace_all("REALTEKR", "REALTEK");
+        replace_all("INTELR", "INTEL");
+        replace_all("NVIDIA HIGH DEFINITION AUDIO", "");
+        replace_all("AMD HIGH DEFINITION AUDIO DEVICE", "");
+        replace_all("AMD HIGH DEFINITION AUDIO", "");
+        replace_all("HIGH DEFINITION AUDIO DEVICE", "");
+        replace_all("HIGH DEFINITION AUDIO", "");
+        trim();
+
+        // Keep the useful transport/type information but drop generic suffixes.
+        strip_suffix(" STEREO");
+        strip_suffix(" DEVICE");
+
+        if (value.size() > 24)
+        {
+            // If the type prefix is the only thing preventing a useful model
+            // name from fitting, prefer the model/manufacturer information.
+            static const char* GENERIC_PREFIXES[] =
+            {
+                "SPEAKERS ",
+                "HEADPHONES ",
+                "HEADSET "
+            };
+
+            for (const char* prefix : GENERIC_PREFIXES)
+            {
+                const size_t length = std::char_traits<char>::length(prefix);
+                if (value.rfind(prefix, 0) == 0 && value.size() > length + 4)
+                {
+                    value.erase(0, length);
+                    break;
+                }
+            }
+        }
+
+        const size_t max_value_length = 24;
+        if (value.size() > max_value_length)
+            value = value.substr(0, max_value_length - 3) + "...";
+
+        return value.empty() ? std::string("DEVICE") : value;
+    }
+
     static std::string audio_output_menu_text()
     {
         const int count = audio_device_count();
@@ -228,16 +323,12 @@ protected:
             return std::string(AUDIO_OUTPUT_LABEL) + "DEFAULT";
 
         const char* device_name = SDL_GetAudioDeviceName(device, 0);
-        std::string value = audio_font_safe(
+        const std::string value = audio_compact_name(
             !config.sound.playback_device_name.empty()
                 ? config.sound.playback_device_name
                 : (device_name && *device_name
                     ? std::string(device_name)
                     : std::string("DEVICE ") + std::to_string(device + 1)));
-
-        const size_t max_value_length = 24;
-        if (value.size() > max_value_length)
-            value = value.substr(0, max_value_length - 3) + "...";
 
         return std::string(AUDIO_OUTPUT_LABEL) + value;
     }
