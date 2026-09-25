@@ -564,23 +564,39 @@ void HWRoad::render_background_hires(uint16_t* pixels)
 
 namespace
 {
-    inline int interpolate_wrapped(
-        int current,
-        int next,
-        int fraction,
-        int scale,
-        int mask)
-    {
-        const int period = mask + 1;
-        const int half = period >> 1;
-        int delta = next - current;
-        if (delta > half) delta -= period;
-        else if (delta < -half) delta += period;
-        return (current + (delta * fraction) / scale) & mask;
-    }
+    constexpr int CLEAN_ROAD_ROWS = 256;
+    constexpr int CLEAN_ROAD_WIDTH = 512;
+    constexpr int CLEAN_ROAD_CENTER = 256;
+    constexpr int CLEAN_ROAD_MAX_EDGES = 32;
+    constexpr int CLEAN_ROAD_FP_SHIFT = 4;
+    constexpr int CLEAN_ROAD_FP_ONE = 1 << CLEAN_ROAD_FP_SHIFT;
 
-    // Preserve the fractional horizontal position at the active render scale.
-    // The returned value uses 1/render_scale native road pixels as its unit.
+    struct CleanRoadProfile
+    {
+        bool ready;
+        int edge_count;
+        int edge_rel16[CLEAN_ROAD_MAX_EDGES];
+        uint8_t codes[CLEAN_ROAD_MAX_EDGES + 1];
+        int half_width16[CLEAN_ROAD_ROWS];
+        int reference_half_width16;
+    };
+
+    struct RenderRoadProfile
+    {
+        bool valid;
+        int edge_count;
+        int edge_scaled[CLEAN_ROAD_MAX_EDGES];
+        uint8_t codes[CLEAN_ROAD_MAX_EDGES + 1];
+    };
+
+    struct RoadSpan
+    {
+        unsigned code;
+        int run;
+    };
+
+    CleanRoadProfile clean_road_profiles[2]{};
+
     inline int interpolate_wrapped_scaled(
         int current,
         int next,
@@ -607,13 +623,217 @@ namespace
         if (value < 0) value += period;
         return value;
     }
+
+    inline int interpolate_depth_scaled(
+        int current,
+        int next,
+        int fraction,
+        int render_scale)
+    {
+        const int delta = next - current;
+
+        // The road ROM selector is a depth coordinate, not a wrapping texture
+        // coordinate. Large jumps are hill/visibility discontinuities; do not
+        // interpolate through hidden geometry in that case.
+        if (delta > 0x20 || delta < -0x20)
+            return ((fraction * 2 < render_scale) ? current : next) * render_scale;
+
+        return current * render_scale + delta * fraction;
+    }
+
+    inline int measure_half_width16(const uint8_t* row)
+    {
+        int left = 0;
+        while (left < CLEAN_ROAD_WIDTH && (row[left] == 3 || row[left] == 7))
+            ++left;
+
+        int right = CLEAN_ROAD_WIDTH - 1;
+        while (right >= 0 && (row[right] == 3 || row[right] == 7))
+            --right;
+
+        if (left > right)
+            return 0;
+
+        const int left_half = CLEAN_ROAD_CENTER - left;
+        const int right_half = right - (CLEAN_ROAD_CENTER - 1);
+        return std::max(left_half, right_half) * CLEAN_ROAD_FP_ONE;
+    }
+
+    void build_clean_road_profile(const uint8_t* roads, int road_index)
+    {
+        CleanRoadProfile& profile = clean_road_profiles[road_index];
+        int raw_half_width16[CLEAN_ROAD_ROWS]{};
+        int reference_row = 0;
+        int reference_half_width16 = 0;
+        const int road_base = road_index * CLEAN_ROAD_ROWS * CLEAN_ROAD_WIDTH;
+
+        for (int row = 0; row < CLEAN_ROAD_ROWS; ++row)
+        {
+            const uint8_t* src = roads + road_base + row * CLEAN_ROAD_WIDTH;
+            raw_half_width16[row] = measure_half_width16(src);
+            if (raw_half_width16[row] > reference_half_width16)
+            {
+                reference_half_width16 = raw_half_width16[row];
+                reference_row = row;
+            }
+        }
+
+        // Smooth the perspective width itself. The ROM remains the source of the
+        // perspective curve, but one-pixel quantisation is deliberately removed.
+        for (int row = 0; row < CLEAN_ROAD_ROWS; ++row)
+        {
+            int total = 0;
+            int weight_total = 0;
+            for (int offset = -2; offset <= 2; ++offset)
+            {
+                const int source_row = row + offset;
+                if (source_row < 0 || source_row >= CLEAN_ROAD_ROWS)
+                    continue;
+
+                const int weight = 3 - (offset < 0 ? -offset : offset);
+                total += raw_half_width16[source_row] * weight;
+                weight_total += weight;
+            }
+            profile.half_width16[row] = weight_total ? (total + weight_total / 2) / weight_total : 0;
+        }
+
+        // Width should grow towards the camera. Remove tiny backwards steps from
+        // the quantised ROM data so the reconstructed road has a clean perspective.
+        for (int row = 1; row < CLEAN_ROAD_ROWS; ++row)
+        {
+            if (profile.half_width16[row] < profile.half_width16[row - 1])
+                profile.half_width16[row] = profile.half_width16[row - 1];
+        }
+
+        profile.edge_count = 0;
+        profile.reference_half_width16 = reference_half_width16;
+
+        if (reference_half_width16 <= 0)
+        {
+            profile.ready = false;
+            return;
+        }
+
+        const uint8_t* reference = roads + road_base + reference_row * CLEAN_ROAD_WIDTH;
+        profile.codes[0] = reference[0];
+
+        for (int x = 1; x < CLEAN_ROAD_WIDTH; ++x)
+        {
+            if (reference[x] == reference[x - 1])
+                continue;
+
+            if (profile.edge_count >= CLEAN_ROAD_MAX_EDGES)
+            {
+                profile.ready = false;
+                return;
+            }
+
+            profile.edge_rel16[profile.edge_count] =
+                (x - CLEAN_ROAD_CENTER) * CLEAN_ROAD_FP_ONE;
+            ++profile.edge_count;
+            profile.codes[profile.edge_count] = reference[x];
+        }
+
+        profile.ready = profile.edge_count > 0;
+    }
+
+    bool make_render_road_profile(
+        const uint8_t* roads,
+        int road_index,
+        int selector_scaled,
+        int render_scale,
+        RenderRoadProfile& output)
+    {
+        CleanRoadProfile& profile = clean_road_profiles[road_index];
+        if (!profile.ready)
+            build_clean_road_profile(roads, road_index);
+
+        output.valid = false;
+        if (!profile.ready || profile.reference_half_width16 <= 0)
+            return false;
+
+        const int depth_denominator = 2 * render_scale;
+        const int max_depth = (CLEAN_ROAD_ROWS - 1) * depth_denominator;
+        selector_scaled = std::clamp(selector_scaled, 0, max_depth);
+
+        const int row0 = selector_scaled / depth_denominator;
+        const int fraction = selector_scaled % depth_denominator;
+        const int row1 = std::min(row0 + 1, CLEAN_ROAD_ROWS - 1);
+
+        const int half_width16 =
+            (profile.half_width16[row0] * (depth_denominator - fraction) +
+             profile.half_width16[row1] * fraction + depth_denominator / 2) /
+            depth_denominator;
+
+        output.edge_count = profile.edge_count;
+        for (int i = 0; i <= profile.edge_count; ++i)
+            output.codes[i] = profile.codes[i];
+
+        int previous = 0;
+        for (int i = 0; i < profile.edge_count; ++i)
+        {
+            const int64_t scaled_relative =
+                static_cast<int64_t>(profile.edge_rel16[i]) * half_width16 /
+                profile.reference_half_width16;
+            int position16 = CLEAN_ROAD_CENTER * CLEAN_ROAD_FP_ONE +
+                static_cast<int>(scaled_relative);
+            position16 = std::clamp(
+                position16,
+                0,
+                CLEAN_ROAD_WIDTH * CLEAN_ROAD_FP_ONE);
+
+            int position_scaled =
+                (position16 * render_scale + CLEAN_ROAD_FP_ONE / 2) >> CLEAN_ROAD_FP_SHIFT;
+            if (position_scaled < previous)
+                position_scaled = previous;
+
+            output.edge_scaled[i] = position_scaled;
+            previous = position_scaled;
+        }
+
+        output.valid = true;
+        return true;
+    }
+
+    inline RoadSpan sample_road_span(
+        const RenderRoadProfile& profile,
+        int source_scaled,
+        int scaled_visible,
+        int scaled_period)
+    {
+        if (!profile.valid)
+            return { 3u, scaled_period };
+
+        if (source_scaled >= scaled_visible)
+            return { 3u, std::max(1, scaled_period - source_scaled) };
+
+        unsigned code = profile.codes[0];
+        int next = scaled_visible;
+
+        for (int i = 0; i < profile.edge_count; ++i)
+        {
+            const int edge = profile.edge_scaled[i];
+            if (edge > source_scaled)
+            {
+                next = edge;
+                break;
+            }
+            code = profile.codes[i + 1];
+        }
+
+        return { code, std::max(1, next - source_scaled) };
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
 // Render Road Foreground - High Resolution Version
-// Intermediate output scanlines interpolate the source road line and keep the
-// horizontal road position at physical-pixel precision. This lets 2x-4x modes
-// move road edges by one high-resolution pixel instead of one native pixel.
+//
+// The original road ROM is treated as a description of the road rather than as
+// a fixed 512-pixel raster. A clean canonical cross-section is taken from the
+// widest ROM row, while the ROM still supplies the perspective width curve.
+// Width and all stripe/edge positions are then reconstructed continuously at
+// the active 2x-4x render scale. This intentionally removes native-pixel stair
+// stepping while leaving gameplay, collision and low-resolution rendering alone.
 // ------------------------------------------------------------------------------------------------
 void HWRoad::render_foreground_hires(uint16_t* pixels)
 {
@@ -639,7 +859,7 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
     };
 
     const int scaled_period = 0x1000 * render_scale;
-    const int scaled_visible = 0x200 * render_scale;
+    const int scaled_visible = CLEAN_ROAD_WIDTH * render_scale;
 
     for (int y = 0; y < config.s16_height; ++y)
     {
@@ -652,6 +872,9 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         if ((data0 & 0x800) && (data1 & 0x800))
             continue;
 
+        const bool road0_visible = (data0 & 0x800) == 0;
+        const bool road1_visible = (data1 & 0x800) == 0;
+
         const int hpos0 = roadram[0x200 +
             (((road_control & 4) != 0) ? yy : (data0 & 0x1ff))] & 0xfff;
         const int hpos1 = roadram[0x400 +
@@ -659,28 +882,21 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
 
         int hpos0_scaled = hpos0 * render_scale;
         int hpos1_scaled = hpos1 * render_scale;
-
-        uint8_t* src0 = (data0 & 0x800)
-            ? roads + 256 * 2 * 512
-            : roads + (0x000 + ((data0 >> 1) & 0xff)) * 512;
-        uint8_t* src1 = (data1 & 0x800)
-            ? roads + 256 * 2 * 512
-            : roads + (0x100 + ((data1 >> 1) & 0xff)) * 512;
+        int selector0_scaled = (data0 & 0x1ff) * render_scale;
+        int selector1_scaled = (data1 & 0x1ff) * render_scale;
 
         if (sub != 0 && yy < S16_HEIGHT - 1)
         {
             const uint32_t next0 = roadram[0x000 + yy + 1];
             const uint32_t next1 = roadram[0x100 + yy + 1];
 
-            if (!(data0 & 0x800) && !(next0 & 0x800))
+            if (road0_visible && !(next0 & 0x800))
             {
-                const int line = interpolate_wrapped(
-                    (data0 >> 1) & 0xff,
-                    (next0 >> 1) & 0xff,
+                selector0_scaled = interpolate_depth_scaled(
+                    data0 & 0x1ff,
+                    next0 & 0x1ff,
                     sub,
-                    render_scale,
-                    0xff);
-                src0 = roads + (0x000 + line) * 512;
+                    render_scale);
 
                 const int next_hpos = roadram[0x200 +
                     (((road_control & 4) != 0) ? yy + 1 : (next0 & 0x1ff))] & 0xfff;
@@ -688,15 +904,13 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     hpos0, next_hpos, sub, render_scale, 0xfff);
             }
 
-            if (!(data1 & 0x800) && !(next1 & 0x800))
+            if (road1_visible && !(next1 & 0x800))
             {
-                const int line = interpolate_wrapped(
-                    (data1 >> 1) & 0xff,
-                    (next1 >> 1) & 0xff,
+                selector1_scaled = interpolate_depth_scaled(
+                    data1 & 0x1ff,
+                    next1 & 0x1ff,
                     sub,
-                    render_scale,
-                    0xff);
-                src1 = roads + (0x100 + line) * 512;
+                    render_scale);
 
                 const int next_hpos = roadram[0x400 +
                     (((road_control & 4) != 0)
@@ -706,6 +920,13 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     hpos1, next_hpos, sub, render_scale, 0xfff);
             }
         }
+
+        RenderRoadProfile profile0{};
+        RenderRoadProfile profile1{};
+        if (road0_visible)
+            make_render_road_profile(roads, 0, selector0_scaled, render_scale, profile0);
+        if (road1_visible)
+            make_render_road_profile(roads, 1, selector1_scaled, render_scale, profile1);
 
         uint16_t color_table[32]{};
         const int color0 = roadram[0x600 +
@@ -732,8 +953,8 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         color_table[0x17] = color_offset1 ^ 0x0e ^ ((color1 >> 7) & 1);
 
         const int control = road_control & 3;
-        if ((control == 0 && (data0 & 0x800)) ||
-            (control == 3 && (data1 & 0x800)))
+        if ((control == 0 && !road0_visible) ||
+            (control == 3 && !road1_visible))
         {
             continue;
         }
@@ -747,12 +968,15 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         int x = 0;
         while (x < width)
         {
-            const unsigned pix0 = h0_scaled < scaled_visible
-                ? src0[h0_scaled / render_scale]
-                : 3u;
-            const unsigned pix1 = h1_scaled < scaled_visible
-                ? src1[h1_scaled / render_scale]
-                : 3u;
+            const RoadSpan span0 = road0_visible
+                ? sample_road_span(profile0, h0_scaled, scaled_visible, scaled_period)
+                : RoadSpan{ 3u, width - x };
+            const RoadSpan span1 = road1_visible
+                ? sample_road_span(profile1, h1_scaled, scaled_visible, scaled_period)
+                : RoadSpan{ 3u, width - x };
+
+            const unsigned pix0 = span0.code;
+            const unsigned pix1 = span1.code;
 
             uint16_t colour = 0;
             switch (control)
@@ -776,18 +1000,21 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
             }
 
             int run = width - x;
-            if (control != 3 && !(data0 & 0x800))
-                run = std::min(run, render_scale - (h0_scaled % render_scale));
-            if (control != 0 && !(data1 & 0x800))
-                run = std::min(run, render_scale - (h1_scaled % render_scale));
+            if (control != 3)
+                run = std::min(run, span0.run);
+            if (control != 0)
+                run = std::min(run, span1.run);
+            run = std::max(run, 1);
 
             std::fill_n(out + x, run, colour);
             x += run;
 
             h0_scaled += run;
-            if (h0_scaled >= scaled_period) h0_scaled -= scaled_period;
+            if (h0_scaled >= scaled_period)
+                h0_scaled -= scaled_period;
             h1_scaled += run;
-            if (h1_scaled >= scaled_period) h1_scaled -= scaled_period;
+            if (h1_scaled >= scaled_period)
+                h1_scaled -= scaled_period;
         }
     }
 }
