@@ -2,6 +2,8 @@
 #include "hwvideo/hwroad.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
+#include "engine/oroad.hpp"
+#include "engine/oinitengine.hpp"
 
 /***************************************************************************
     Video Emulation: OutRun Road Rendering Hardware.
@@ -196,28 +198,101 @@ void HWRoad::decode_road(const uint8_t* src_road)
     }
 }
 
-// Writes go to RAM, but we read from the RAM Buffer.
-/* JJP - moved to header, inline
-void HWRoad::write16(uint32_t adr, const uint16_t data)
+// Preserve only the six road_x fractional bits that the original road hardware
+// discards. Vehicle offset quantisation is deliberately left untouched, so this
+// cannot create carries between the two original rounding paths.
+int8_t HWRoad::hscroll_fraction_for_write(uint32_t address, uint16_t data) const
 {
-    ram[(adr >> 1) & 0x7FF] = data;
+    const uint32_t offset = address & 0xFFF;
+    int road_index = -1;
+    int index = 0;
+
+    if (offset >= 0x400 && offset < 0x800)
+    {
+        road_index = 0;
+        index = static_cast<int>((offset - 0x400) >> 1);
+    }
+    else if (offset >= 0x800 && offset < 0xC00)
+    {
+        road_index = 1;
+        index = static_cast<int>((offset - 0x800) >> 1);
+    }
+    else
+    {
+        return 0;
+    }
+
+    bool active = false;
+    bool invert = false;
+
+    if (road_index == 0)
+    {
+        active = oroad.road_ctrl == ORoad::ROAD_R0 ||
+                 oroad.road_ctrl == ORoad::ROAD_R0_SPLIT ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P0 ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P1 ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P0_INV ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P1_INV;
+    }
+    else
+    {
+        active = oroad.road_ctrl == ORoad::ROAD_R1 ||
+                 oroad.road_ctrl == ORoad::ROAD_R1_SPLIT ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P0 ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P1 ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P0_INV ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P1_INV;
+        invert = oroad.road_ctrl == ORoad::ROAD_R1_SPLIT ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P0_INV ||
+                 oroad.road_ctrl == ORoad::ROAD_BOTH_P1_INV;
+    }
+
+    if (!active)
+        return 0;
+
+    const int16_t stored_hscroll = road_index == 0
+        ? oroad.road0_h[index]
+        : oroad.road1_h[index];
+
+    // output_hscroll writes 0x654 - src. If another caller writes this address,
+    // treat it as a normal hardware write and clear the side-buffer value.
+    if (data != static_cast<uint16_t>(0x654 - stored_hscroll))
+        return 0;
+
+    const int32_t road_x = oroad.road_x[index];
+    if (road_x == 0x3210)
+        return 0;
+
+    const int32_t width = road_index == 0 ? -oroad.road_width_bak : oroad.road_width_bak;
+    const int32_t car_offset = oroad.car_x_bak + width + oinitengine.camera_x_off;
+    int32_t source_fraction = 0;
+
+    if (car_offset != 0)
+    {
+        // Original car path: c +/- (x >> 6). Keep c exactly as quantised by the
+        // original and restore only x's residue. Subtraction therefore carries a
+        // negative source fraction, unlike the addition path.
+        const int32_t x_integer = road_x >> 6;
+        const int32_t residue = road_x - x_integer * 64;
+        source_fraction = invert ? -residue : residue;
+    }
+    else if (invert)
+    {
+        // Original non-car invert path is (-x) >> 6, not -(x >> 6).
+        const int32_t negated = -road_x;
+        const int32_t x_integer = negated >> 6;
+        source_fraction = negated - x_integer * 64;
+    }
+    else
+    {
+        const int32_t x_integer = road_x >> 6;
+        source_fraction = road_x - x_integer * 64;
+    }
+
+    // Road hardware stores 0x654 - src, so the fractional sign flips here too.
+    return static_cast<int8_t>(-source_fraction);
 }
 
-void HWRoad::write16(uint32_t* adr, const uint16_t data)
-{
-    uint32_t a = *adr;
-    ram[(a >> 1) & 0x7FF] = data;
-    *adr += 2;
-}
-
-void HWRoad::write32(uint32_t* adr, const uint32_t data)
-{
-    uint32_t a = *adr;
-    ram[(a >> 1) & 0x7FF] = data >> 16;
-    ram[((a >> 1) + 1) & 0x7FF] = data & 0xFFFF;
-    *adr += 4;
-}
-*/
 uint16_t HWRoad::read_road_control()
 {
     uint32_t *src = (uint32_t *)ram;
@@ -230,6 +305,11 @@ uint16_t HWRoad::read_road_control()
         *src++ = *dst;
         *dst++ = temp;
     }
+
+    // Keep the high-resolution fractional side-buffer in exactly the same
+    // double-buffer phase as the integer road RAM.
+    for (uint16_t i = 0; i < ROAD_RAM_SIZE/2; ++i)
+        std::swap(ramFrac[i], ramFracBuff[i]);
 
     return 0xffff;
 }
@@ -571,6 +651,7 @@ namespace
     constexpr int CLEAN_ROAD_FP_SHIFT = 4;
     constexpr int CLEAN_ROAD_FP_ONE = 1 << CLEAN_ROAD_FP_SHIFT;
     constexpr int CLEAN_ROAD_CENT_START = CLEAN_ROAD_CENTER - 8;
+    constexpr int ROAD_HPOS_FRAC_ONE = 64;
 
     struct CleanRoadProfile
     {
@@ -605,31 +686,50 @@ namespace
         return code == 7 ? 3 : code;
     }
 
-    inline int interpolate_wrapped_scaled(
-        int current,
-        int next,
-        int fraction,
-        int render_scale,
-        int mask)
-    {
-        const int period = mask + 1;
-        const int half = period >> 1;
-        int delta = next - current;
-        if (delta > half) delta -= period;
-        else if (delta < -half) delta += period;
-
-        const int scaled_period = period * render_scale;
-        int value = current * render_scale + delta * fraction;
-        value %= scaled_period;
-        if (value < 0) value += scaled_period;
-        return value;
-    }
-
     inline int wrap_scaled(int value, int period)
     {
         value %= period;
         if (value < 0) value += period;
         return value;
+    }
+
+    inline int round_div_64(int64_t value)
+    {
+        if (value >= 0)
+            return static_cast<int>((value + ROAD_HPOS_FRAC_ONE / 2) / ROAD_HPOS_FRAC_ONE);
+        return -static_cast<int>((-value + ROAD_HPOS_FRAC_ONE / 2) / ROAD_HPOS_FRAC_ONE);
+    }
+
+    inline int interpolate_wrapped_scaled(
+        int current,
+        int current_fraction64,
+        int next,
+        int next_fraction64,
+        int fraction,
+        int render_scale,
+        int mask)
+    {
+        const int period64 = (mask + 1) * ROAD_HPOS_FRAC_ONE;
+        const int half64 = period64 >> 1;
+
+        int current64 = current * ROAD_HPOS_FRAC_ONE + current_fraction64;
+        int next64 = next * ROAD_HPOS_FRAC_ONE + next_fraction64;
+        current64 %= period64;
+        next64 %= period64;
+        if (current64 < 0) current64 += period64;
+        if (next64 < 0) next64 += period64;
+
+        int delta64 = next64 - current64;
+        if (delta64 > half64) delta64 -= period64;
+        else if (delta64 < -half64) delta64 += period64;
+
+        // Vertical interpolation and conversion to physical high-res pixels can be
+        // combined: (current64 + delta64 * fraction / scale) * scale / 64.
+        const int64_t scaled_numerator =
+            static_cast<int64_t>(current64) * render_scale +
+            static_cast<int64_t>(delta64) * fraction;
+        const int scaled_period = (mask + 1) * render_scale;
+        return wrap_scaled(round_div_64(scaled_numerator), scaled_period);
     }
 
     inline int interpolate_depth_scaled(
@@ -942,13 +1042,17 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         const bool road0_visible = (data0 & 0x800) == 0;
         const bool road1_visible = (data1 & 0x800) == 0;
 
-        const int hpos0 = roadram[0x200 +
-            (((road_control & 4) != 0) ? yy : (data0 & 0x1ff))] & 0xfff;
-        const int hpos1 = roadram[0x400 +
-            (((road_control & 4) != 0) ? (0x100 + yy) : (data1 & 0x1ff))] & 0xfff;
+        const int hindex0 = ((road_control & 4) != 0) ? yy : (data0 & 0x1ff);
+        const int hindex1 = ((road_control & 4) != 0) ? (0x100 + yy) : (data1 & 0x1ff);
+        const int hpos0 = roadram[0x200 + hindex0] & 0xfff;
+        const int hpos1 = roadram[0x400 + hindex1] & 0xfff;
+        const int hfrac0 = ramFracBuff[0x200 + hindex0];
+        const int hfrac1 = ramFracBuff[0x400 + hindex1];
 
-        int hpos0_scaled = hpos0 * render_scale;
-        int hpos1_scaled = hpos1 * render_scale;
+        int hpos0_scaled = interpolate_wrapped_scaled(
+            hpos0, hfrac0, hpos0, hfrac0, 0, render_scale, 0xfff);
+        int hpos1_scaled = interpolate_wrapped_scaled(
+            hpos1, hfrac1, hpos1, hfrac1, 0, render_scale, 0xfff);
         int selector0_scaled = (data0 & 0x1ff) * render_scale;
         int selector1_scaled = (data1 & 0x1ff) * render_scale;
 
@@ -965,10 +1069,12 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     sub,
                     render_scale);
 
-                const int next_hpos = roadram[0x200 +
-                    (((road_control & 4) != 0) ? yy + 1 : (next0 & 0x1ff))] & 0xfff;
+                const int next_index0 = ((road_control & 4) != 0) ? yy + 1 : (next0 & 0x1ff);
+                const int next_hpos = roadram[0x200 + next_index0] & 0xfff;
+                const int next_hfrac = ramFracBuff[0x200 + next_index0];
                 hpos0_scaled = interpolate_wrapped_scaled(
-                    hpos0, next_hpos, sub, render_scale, 0xfff);
+                    hpos0, hfrac0, next_hpos, next_hfrac,
+                    sub, render_scale, 0xfff);
             }
 
             if (road1_visible && !(next1 & 0x800))
@@ -979,12 +1085,14 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     sub,
                     render_scale);
 
-                const int next_hpos = roadram[0x400 +
-                    (((road_control & 4) != 0)
-                        ? (0x100 + yy + 1)
-                        : (next1 & 0x1ff))] & 0xfff;
+                const int next_index1 = ((road_control & 4) != 0)
+                    ? (0x100 + yy + 1)
+                    : (next1 & 0x1ff);
+                const int next_hpos = roadram[0x400 + next_index1] & 0xfff;
+                const int next_hfrac = ramFracBuff[0x400 + next_index1];
                 hpos1_scaled = interpolate_wrapped_scaled(
-                    hpos1, next_hpos, sub, render_scale, 0xfff);
+                    hpos1, hfrac1, next_hpos, next_hfrac,
+                    sub, render_scale, 0xfff);
             }
         }
 

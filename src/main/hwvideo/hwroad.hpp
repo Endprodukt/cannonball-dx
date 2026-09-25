@@ -10,17 +10,23 @@ public:
 
     void init(const uint8_t*, const bool hires);
     inline void write16(uint32_t adr, const uint16_t data) {
-        ram[(adr >> 1) & 0x7FF] = data;
+        const uint32_t index = (adr >> 1) & 0x7FF;
+        ram[index] = data;
+        ramFrac[index] = 0;
     };
     inline void write16(uint32_t* adr, const uint16_t data) {
-        uint32_t a = *adr;
-        ram[(a >> 1) & 0x7FF] = data;
+        const uint32_t a = *adr;
+        const uint32_t index = (a >> 1) & 0x7FF;
+        ram[index] = data;
+        ramFrac[index] = hscroll_fraction_for_write(a, data);
         *adr += 2;
     };
     inline void write32(uint32_t* adr, const uint32_t data) {
-        uint32_t a = (*adr) >> 1;
+        const uint32_t a = (*adr) >> 1;
         ram[a & 0x7FF] = data >> 16;
         ram[(a + 1) & 0x7FF] = data & 0xFFFF;
+        ramFrac[a & 0x7FF] = 0;
+        ramFrac[(a + 1) & 0x7FF] = 0;
         *adr += 4;
     };
     uint16_t read_road_control();
@@ -41,10 +47,14 @@ private:
     // Decoded road graphics
     uint8_t roads[0x40200];
 
-    // Two halves of RAM
+    // Two halves of RAM. The fractional side-buffer mirrors road RAM word-for-word
+    // and stores only the 1/64-pixel road_x residue used by the high-res renderer.
     uint16_t ram[ROAD_RAM_SIZE / 2];
     uint16_t ramBuff[ROAD_RAM_SIZE / 2];
+    int8_t ramFrac[ROAD_RAM_SIZE / 2];
+    int8_t ramFracBuff[ROAD_RAM_SIZE / 2];
 
+    int8_t hscroll_fraction_for_write(uint32_t address, uint16_t data) const;
     void decode_road(const uint8_t*);
     void render_background_lores(uint16_t*);
     void render_foreground_lores(uint16_t*);
