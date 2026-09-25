@@ -1,0 +1,103 @@
+name: Linux Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Ubuntu 24.04 x64 Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            pkg-config \
+            libsdl2-dev \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev \
+            libglu1-mesa-dev \
+            libmpg123-dev \
+            libtinyxml2-dev \
+            libudev-dev
+
+      - name: Verify build tools
+        run: |
+          cmake --version
+          c++ --version
+          pkg-config --modversion sdl2
+          pkg-config --modversion egl
+          pkg-config --modversion glesv2
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWITH_MARCH_NATIVE=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify executable
+        run: |
+          test -x build/cannonball-dx
+          file build/cannonball-dx
+          ldd build/cannonball-dx
+
+      - name: Assemble Linux release package
+        run: |
+          rm -rf dist
+          mkdir -p dist/cannonball-dx/roms
+
+          cp build/cannonball-dx dist/cannonball-dx/
+          cp -r res dist/cannonball-dx/res
+          cp -r docs dist/cannonball-dx/docs
+          cp roms/roms.txt dist/cannonball-dx/roms/roms.txt
+          cp README.txt dist/cannonball-dx/
+
+          # Keep repository-only documentation out of the user-facing package,
+          # matching the Windows release layout.
+          for file in README.md EXTERNAL_OUTPUTS.md CHANGELOG CHANGELOG.md; do
+            if find dist/cannonball-dx -type f -name "$file" | grep -q .; then
+              echo "Repository-only documentation found in Linux package: $file"
+              exit 1
+            fi
+          done
+
+          for file in tilemap.bin tilepatch.bin gamecontrollerdb.txt; do
+            if [ -f "dist/cannonball-dx/$file" ]; then
+              echo "$file must only exist under res, not in the release root."
+              exit 1
+            fi
+          done
+
+          echo "Linux package contents:"
+          find dist/cannonball-dx -maxdepth 3 -type f | sort
+
+      - name: Upload Linux release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cannonball-dx-linux-${{ github.ref_name }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/cannonball-dx
