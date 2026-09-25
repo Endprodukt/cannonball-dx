@@ -719,6 +719,9 @@ void OHud::blit_text_big(const uint8_t Y, const char* text, bool do_notes)
 // Normal font: 41 onwards
 void OHud::blit_text_new(uint16_t x, uint16_t y, const char* text, uint16_t pal)
 {
+    if (text && pal == OHud::GREEN && std::strcmp(text, "AUDIO OUTPUT DEVICE") == 0)
+        pal = OHud::GREY;
+
     uint32_t dst_addr = translate(x, y); 
     uint16_t length = (uint16_t) strlen(text);
 
@@ -729,7 +732,7 @@ void OHud::blit_text_new(uint16_t x, uint16_t y, const char* text, uint16_t pal)
         // Convert lowercase characters to uppercase
         if (c >= 'a' && c <= 'z')
             c -= 0x20;
-        else if (c == '©')
+        else if (c == 'Â©')
             c = 0x10;
         else if (c == '-')
             c = 0x2d;
