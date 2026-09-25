@@ -51,13 +51,25 @@ namespace forcefeedback
 #if defined(_WIN32)
     void close()
     {
-        // A wheel rebind already performs close -> init -> set_enabled(true).
-        // Make that sequence a real disable/enable transition. Previously the
-        // backend stayed logically enabled across close(), so the following
-        // set_enabled(true) was a no-op and the freshly opened haptic device
-        // could remain without its active Spring until the user manually
-        // toggled Force Feedback OFF and ON in the menu.
+        // Steering rebinding already follows close -> init -> enable. If the
+        // newly bound steering axis still belongs to the same physical wheel,
+        // keep the existing SDL haptic handle alive and turn feedback off only.
+        // The following init() then becomes a harmless no-op and enable(true)
+        // restarts the existing Spring exactly like the working menu OFF/ON
+        // sequence. A real device change still performs the full close/reopen.
+        std::string steering_signature;
+        const bool same_bound_wheel =
+            cannonball::state == cannonball::STATE_MENU &&
+            g_supported &&
+            g_joystick &&
+            read_bound_wheel_steering_signature(steering_signature) &&
+            candidate_matches_signature(g_joystick, steering_signature);
+
         set_enabled(false);
+
+        if (same_bound_wheel)
+            return;
+
         close_base();
     }
 
