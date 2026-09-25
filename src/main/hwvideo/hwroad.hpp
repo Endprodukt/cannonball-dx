@@ -33,6 +33,11 @@ public:
     void write_road_control(const uint8_t);
     void (HWRoad::*render_background)(uint16_t*);
     void (HWRoad::*render_foreground)(uint16_t*);
+
+    // DX high-resolution road path. ORoad snapshots the unquantised road_y
+    // curve that corresponds to the road data just blitted into Road RAM.
+    void capture_hires_road_y(const int16_t* curve);
+    void select_hires_depth_renderer();
   
 private:
     uint8_t road_control;
@@ -54,12 +59,18 @@ private:
     int8_t ramFrac[ROAD_RAM_SIZE / 2];
     int8_t ramFracBuff[ROAD_RAM_SIZE / 2];
 
+    // Raw ORoad depth curve for the same frame as ramBuff. Values retain the
+    // four fractional bits that do_road_data() normally discards with >> 4.
+    int16_t roadYCurve[0x200];
+    bool roadYCurveValid = false;
+
     int8_t hscroll_fraction_for_write(uint32_t address, uint16_t data) const;
     void decode_road(const uint8_t*);
     void render_background_lores(uint16_t*);
     void render_foreground_lores(uint16_t*);
     void render_background_hires(uint16_t*);
     void render_foreground_hires(uint16_t*);
+    void render_foreground_hires_depth(uint16_t*);
 };
 
 extern HWRoad hwroad;

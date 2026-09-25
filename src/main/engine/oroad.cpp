@@ -23,10 +23,16 @@
 #include "engine/oinitengine.hpp"
 #include "engine/ostats.hpp"
 #include "engine/ohud.hpp"
+#include "hwvideo/hwroad.hpp"
 
 #define tick tick_base
 #include "oroad_base.cpp"
 #undef tick
+
+// Keep the new high-resolution road reconstruction isolated from the preserved
+// arcade implementation. It is compiled here so no CMake/source-list changes are
+// required while the experiment remains on the test branch.
+#include "hwvideo/hwroad_hires_depth.inc"
 
 namespace
 {
@@ -168,6 +174,17 @@ void ORoad::tick()
     const int16_t applied_offset = bumper_view ? bumper_height_offset : 0;
     horizon_base += applied_offset;
     tick_base();
+
+    // road_p2 is the road_y block whose converted selector table was just
+    // blitted into the visible Road RAM buffer by tick_base(). Snapshot its raw
+    // 512-entry depth curve before the next rotation. Both road generators share
+    // this depth mapping; their horizontal positions remain independent.
+    if (config.video.hires > 0)
+    {
+        hwroad.capture_hires_road_y(&road_y[road_p2]);
+        hwroad.select_hires_depth_renderer();
+    }
+
     horizon_base -= applied_offset;
 
     if (bumper_view)
