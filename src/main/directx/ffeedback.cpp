@@ -29,6 +29,11 @@
 #define close close_base
 #define set set_base
 #define set_tyre_slip set_tyre_slip_base
+
+namespace forcefeedback
+{
+    void close_base();
+}
 #else
 #define set_tyre_slip set_tyre_slip_base
 #endif
