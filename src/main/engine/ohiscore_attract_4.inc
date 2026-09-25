@@ -141,6 +141,41 @@ void OHiScore::display_scores()
                 outrun.cannonball_mode = runtime_mode;
 
                 shift_stock_rows_down_two_lines();
+
+                // Keep empty saved slots visually consistent with Endless and
+                // Time Trial instead of exposing the stock renderer's blank/0
+                // fields. These tile indices are revealed by the same mini-car
+                // wipe as real score data, so the animation remains unchanged.
+                const bool show_route_placeholder =
+                    attract_score_page == ATTRACT_SCORE_ORIGINAL ||
+                    attract_score_page == ATTRACT_SCORE_ORIGINAL_JAPAN;
+
+                for (int row = 0; row < ATTRACT_VISIBLE_ROWS; row++)
+                {
+                    const int score_index = score_display_pos + row;
+                    if (scores[score_index].score != 0)
+                        continue;
+
+                    const uint16_t y = static_cast<uint16_t>(
+                        ATTRACT_ROW_BOTTOM_Y + (row * 2));
+
+                    clear_attract_tile_span(7, y, 8);
+                    write_attract_tile_text(7, y, "--------");
+
+                    clear_attract_tile_span(16, y, 5);
+                    write_attract_tile_text(17, y, "---");
+
+                    if (show_route_placeholder)
+                    {
+                        clear_attract_tile_span(22, y - 1, 7);
+                        clear_attract_tile_span(22, y, 7);
+                        write_attract_tile_text(24, y, "---");
+                    }
+
+                    clear_attract_tile_span(29, y, 8);
+                    write_attract_tile_text(29, y, "--'--\"--");
+                }
+
                 video.clear_text_ram();
             }
             else
