@@ -88,8 +88,8 @@ public:
             return;
 
         // Surface the SE playback-device support in the normal Sound menu.
-        // DEFAULT maps to playback_device=-1; the remaining entries use the
-        // same SDL device indices already consumed by Audio::start_audio().
+        // AUDIO OUTPUT is a visual heading; the selected device lives on the
+        // row below it and is the only row that changes while cycling devices.
         auto has_sound_entry = [&](const char* label)
         {
             return std::find_if(
@@ -101,7 +101,7 @@ public:
                 }) != menu_sound.end();
         };
 
-        if (!has_sound_entry(AUDIO_OUTPUT_LABEL))
+        if (std::find(menu_sound.begin(), menu_sound.end(), AUDIO_OUTPUT_HEADING) == menu_sound.end())
         {
             auto music_entry = std::find_if(
                 menu_sound.begin(),
@@ -110,7 +110,9 @@ public:
                 {
                     return entry.rfind(ENTRY_MUSICTEST, 0) == 0;
                 });
-            menu_sound.insert(music_entry, audio_output_menu_text());
+            const auto output_pos = music_entry - menu_sound.begin();
+            menu_sound.insert(menu_sound.begin() + output_pos, AUDIO_OUTPUT_HEADING);
+            menu_sound.insert(menu_sound.begin() + output_pos + 1, audio_output_menu_text());
         }
 
         if (!has_sound_entry(MENU_SOUNDS_LABEL))
@@ -154,7 +156,7 @@ protected:
     std::vector<std::string> menu_endless;
     std::vector<std::string> menu_bugfixes;
 
-    static constexpr const char* AUDIO_OUTPUT_LABEL = "AUDIO OUTPUT ";
+    static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT:";
     static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
 
     static int audio_device_count()
@@ -261,11 +263,12 @@ protected:
         replace_all("HIGH DEFINITION AUDIO", "");
         trim();
 
-        // Keep the useful transport/type information but drop generic suffixes.
+        // Keep useful model/transport information, but discard generic tails.
         strip_suffix(" STEREO");
         strip_suffix(" DEVICE");
+        strip_suffix(" OUTPUT");
 
-        if (value.size() > 24)
+        if (value.size() > 18)
         {
             // If the type prefix is the only thing preventing a useful model
             // name from fitting, prefer the model/manufacturer information.
@@ -287,7 +290,7 @@ protected:
             }
         }
 
-        const size_t max_value_length = 24;
+        const size_t max_value_length = 18;
         if (value.size() > max_value_length)
             value = value.substr(0, max_value_length - 3) + "...";
 
@@ -320,17 +323,15 @@ protected:
         }
 
         if (device < 0)
-            return std::string(AUDIO_OUTPUT_LABEL) + "DEFAULT";
+            return "DEFAULT";
 
         const char* device_name = SDL_GetAudioDeviceName(device, 0);
-        const std::string value = audio_compact_name(
+        return audio_compact_name(
             !config.sound.playback_device_name.empty()
                 ? config.sound.playback_device_name
                 : (device_name && *device_name
                     ? std::string(device_name)
                     : std::string("DEVICE ") + std::to_string(device + 1)));
-
-        return std::string(AUDIO_OUTPUT_LABEL) + value;
     }
 
     static std::string menu_sounds_menu_text()
@@ -842,8 +843,47 @@ protected:
             cursor >= 0 &&
             cursor < static_cast<int>(menu_sound.size()))
         {
+            const auto heading_it = std::find(
+                menu_sound.begin(), menu_sound.end(), AUDIO_OUTPUT_HEADING);
+            const int heading_index = heading_it == menu_sound.end()
+                ? -1
+                : static_cast<int>(heading_it - menu_sound.begin());
+            const int output_index = heading_index >= 0 ? heading_index + 1 : -1;
+
+            // AUDIO OUTPUT is only a heading. Skip it during vertical navigation.
+            if (heading_index >= 0)
+            {
+                if (cursor == heading_index - 1 && input.has_pressed(Input::DOWN))
+                {
+                    cursor = static_cast<int16_t>(output_index);
+                    osoundint.queue_sound(sound::BEEP1);
+                    refresh_menu();
+                    return;
+                }
+                if (cursor == output_index && input.has_pressed(Input::UP))
+                {
+                    cursor = static_cast<int16_t>(std::max(0, heading_index - 1));
+                    osoundint.queue_sound(sound::BEEP1);
+                    refresh_menu();
+                    return;
+                }
+                if (cursor == heading_index)
+                {
+                    if (input.has_pressed(Input::DOWN))
+                        cursor = static_cast<int16_t>(output_index);
+                    else if (input.has_pressed(Input::UP))
+                        cursor = static_cast<int16_t>(std::max(0, heading_index - 1));
+                    else
+                        return;
+
+                    osoundint.queue_sound(sound::BEEP1);
+                    refresh_menu();
+                    return;
+                }
+            }
+
             const std::string option = menu_sound[cursor];
-            const bool output_entry = option.rfind(AUDIO_OUTPUT_LABEL, 0) == 0;
+            const bool output_entry = cursor == output_index;
             const bool menu_sounds_entry = option.rfind(MENU_SOUNDS_LABEL, 0) == 0;
 
             if (output_entry || menu_sounds_entry)
