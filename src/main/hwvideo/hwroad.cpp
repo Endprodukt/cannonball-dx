@@ -578,18 +578,47 @@ namespace
         else if (delta < -half) delta += period;
         return (current + (delta * fraction) / scale) & mask;
     }
+
+    // Preserve the fractional horizontal position at the active render scale.
+    // The returned value uses 1/render_scale native road pixels as its unit.
+    inline int interpolate_wrapped_scaled(
+        int current,
+        int next,
+        int fraction,
+        int render_scale,
+        int mask)
+    {
+        const int period = mask + 1;
+        const int half = period >> 1;
+        int delta = next - current;
+        if (delta > half) delta -= period;
+        else if (delta < -half) delta += period;
+
+        const int scaled_period = period * render_scale;
+        int value = current * render_scale + delta * fraction;
+        value %= scaled_period;
+        if (value < 0) value += scaled_period;
+        return value;
+    }
+
+    inline int wrap_scaled(int value, int period)
+    {
+        value %= period;
+        if (value < 0) value += period;
+        return value;
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
 // Render Road Foreground - High Resolution Version
-// Intermediate output scanlines interpolate the source road line and horizontal
-// position between adjacent native System 16 scanlines.
+// Intermediate output scanlines interpolate the source road line and keep the
+// horizontal road position at physical-pixel precision. This lets 2x-4x modes
+// move road edges by one high-resolution pixel instead of one native pixel.
 // ------------------------------------------------------------------------------------------------
 void HWRoad::render_foreground_hires(uint16_t* pixels)
 {
     const int render_scale = std::clamp(config.video.hires + 1, 2, 4);
     const int width = config.s16_width;
-    const int logical_width = width / render_scale;
     uint16_t* roadram = ramBuff;
 
     static const uint8_t priority_map[2][8] =
@@ -609,6 +638,9 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         { 0,0,0,0,0,0,0,0 }
     };
 
+    const int scaled_period = 0x1000 * render_scale;
+    const int scaled_visible = 0x200 * render_scale;
+
     for (int y = 0; y < config.s16_height; ++y)
     {
         const int yy = y / render_scale;
@@ -620,10 +652,13 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         if ((data0 & 0x800) && (data1 & 0x800))
             continue;
 
-        int hpos0 = roadram[0x200 +
+        const int hpos0 = roadram[0x200 +
             (((road_control & 4) != 0) ? yy : (data0 & 0x1ff))] & 0xfff;
-        int hpos1 = roadram[0x400 +
+        const int hpos1 = roadram[0x400 +
             (((road_control & 4) != 0) ? (0x100 + yy) : (data1 & 0x1ff))] & 0xfff;
+
+        int hpos0_scaled = hpos0 * render_scale;
+        int hpos1_scaled = hpos1 * render_scale;
 
         uint8_t* src0 = (data0 & 0x800)
             ? roads + 256 * 2 * 512
@@ -649,7 +684,7 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
 
                 const int next_hpos = roadram[0x200 +
                     (((road_control & 4) != 0) ? yy + 1 : (next0 & 0x1ff))] & 0xfff;
-                hpos0 = interpolate_wrapped(
+                hpos0_scaled = interpolate_wrapped_scaled(
                     hpos0, next_hpos, sub, render_scale, 0xfff);
             }
 
@@ -667,7 +702,7 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     (((road_control & 4) != 0)
                         ? (0x100 + yy + 1)
                         : (next1 & 0x1ff))] & 0xfff;
-                hpos1 = interpolate_wrapped(
+                hpos1_scaled = interpolate_wrapped_scaled(
                     hpos1, next_hpos, sub, render_scale, 0xfff);
             }
         }
@@ -704,16 +739,22 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         }
 
         const int s16_x = 0x5f8 + config.s16_x_off;
-        int h0 = (hpos0 - (s16_x + x_offset)) & 0xfff;
-        int h1 = (hpos1 - (s16_x + x_offset)) & 0xfff;
+        const int screen_offset_scaled = (s16_x + x_offset) * render_scale;
+        int h0_scaled = wrap_scaled(hpos0_scaled - screen_offset_scaled, scaled_period);
+        int h1_scaled = wrap_scaled(hpos1_scaled - screen_offset_scaled, scaled_period);
         uint16_t* out = pixels + (y * width);
 
-        for (int x = 0; x < logical_width; ++x)
+        int x = 0;
+        while (x < width)
         {
-            const unsigned pix0 = h0 < 0x200 ? src0[h0] : 3u;
-            const unsigned pix1 = h1 < 0x200 ? src1[h1] : 3u;
-            uint16_t colour = 0;
+            const unsigned pix0 = h0_scaled < scaled_visible
+                ? src0[h0_scaled / render_scale]
+                : 3u;
+            const unsigned pix1 = h1_scaled < scaled_visible
+                ? src1[h1_scaled / render_scale]
+                : 3u;
 
+            uint16_t colour = 0;
             switch (control)
             {
                 case 0:
@@ -734,9 +775,19 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
                     break;
             }
 
-            std::fill_n(out + (x * render_scale), render_scale, colour);
-            h0 = (h0 + 1) & 0xfff;
-            h1 = (h1 + 1) & 0xfff;
+            int run = width - x;
+            if (control != 3 && !(data0 & 0x800))
+                run = std::min(run, render_scale - (h0_scaled % render_scale));
+            if (control != 0 && !(data1 & 0x800))
+                run = std::min(run, render_scale - (h1_scaled % render_scale));
+
+            std::fill_n(out + x, run, colour);
+            x += run;
+
+            h0_scaled += run;
+            if (h0_scaled >= scaled_period) h0_scaled -= scaled_period;
+            h1_scaled += run;
+            if (h1_scaled >= scaled_period) h1_scaled -= scaled_period;
         }
     }
 }
