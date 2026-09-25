@@ -24,7 +24,6 @@
 #include "engine/audio/osoundint.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
-#include "engine/ohud.hpp"
 #include "directx/ffeedback.hpp"
 
 #define Menu MenuLegacy
@@ -409,7 +408,7 @@ protected:
             { "OFFROAD PULL FULL",       "offroad_pull_full" },
             { "GEAR SHIFT",              "gear_shift" },
             { "MUSIC SELECTOR",          "music_selector" },
-            { "TRAFFIC SKID",             "traffic_skid" },
+            { "TRAFFIC SKID",            "traffic_skid" },
             { "CRASH BUMP",              "crash_bump" },
             { "CRASH SPIN IMPACT",       "crash_spin_impact" },
             { "CRASH SPIN",              "crash_spin" },
@@ -486,9 +485,6 @@ protected:
         }
         else if (setting == "engine_period")
         {
-            // Period is a physical timing value, not a percentage. Five
-            // milliseconds per step is useful enough to feel while still giving
-            // a broad 20..250 ms range. Larger values mean a slower pulse.
             const int step = delta < 0 ? -5 : 5;
             config.set_engine_period_ms(config.engine_period_ms() + step);
         }
@@ -830,15 +826,9 @@ protected:
 
     void tick_menu() override
     {
-        // F5 may leave the underlying game_state at GS_INGAME while the
-        // frontend is already active. Explicitly stop/reset the motor effect on
-        // every frontend menu tick so no periodic force can leak into menus.
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
 
-        // Audio output and frontend beeps are DX-facing controls for the SE
-        // playback-device support. LEFT/RIGHT changes values directly; Enter
-        // advances/toggles like the rest of the legacy settings UI.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_sound &&
             cursor >= 0 &&
@@ -915,9 +905,6 @@ protected:
                     if (!config.save())
                         display_message("ERROR SAVING SETTINGS!");
 
-                    // When MENU SOUNDS has just been turned OFF this is
-                    // intentionally filtered by OSoundInt. Turning it ON gives
-                    // immediate audible confirmation.
                     osoundint.queue_sound(sound::BEEP1);
                     refresh_menu();
                     return;
@@ -925,8 +912,6 @@ protected:
             }
         }
 
-        // Keep the visible order intuitive without changing the persisted
-        // numeric values: 0=4:3, 1=16:9, 4=16:10, 2=21:9, 3=STRETCHED.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_video &&
             cursor >= 0 &&
@@ -970,9 +955,6 @@ protected:
             }
         }
 
-        // Once inside the FFB tuning pages, use the DX handler so engine
-        // vibration strength and period live beside the existing effect values
-        // without adding another option to the main Controls page.
         if (menu_selected == &menu_ffb_tuning ||
             menu_selected == &menu_ffb_effects ||
             menu_selected == &menu_ffb_spring)
@@ -981,8 +963,6 @@ protected:
             return;
         }
 
-        // Open the two detailed Gameplay pages. All other Gameplay entries are
-        // still owned by the existing DX menu implementation.
         if (!config.smartypi.enabled &&
             menu_selected == &menu_engine &&
             cursor >= 0 &&
@@ -1124,30 +1104,3 @@ protected:
     bool select_pressed() override;
     void redefine_joystick() override;
 };
-
-// menu.cpp preserves the SE renderer by compiling menu_base.cpp as MenuBase.
-// While that source is included, its temporary `Menu` macro expands to
-// `MenuBase`; use that to tint only this non-interactive heading. In all other
-// contexts the helper is an identity function, so normal HUD/menu colours are
-// untouched. The 3-argument form is forwarded unchanged as well.
-inline uint16_t dx_menu_color_MenuBase(const char* text, uint16_t color)
-{
-    return text && std::string(text) == "AUDIO OUTPUT DEVICE"
-        ? OHud::GREY
-        : color;
-}
-
-inline uint16_t dx_menu_color_Menu(const char*, uint16_t color)
-{
-    return color;
-}
-
-#define DX_MENU_JOIN_I(A, B) A##B
-#define DX_MENU_JOIN(A, B) DX_MENU_JOIN_I(A, B)
-#define DX_MENU_COLOR_HELPER DX_MENU_JOIN(dx_menu_color_, Menu)
-#define DX_MENU_BLIT_3(X, Y, T) blit_text_new((X), (Y), (T))
-#define DX_MENU_BLIT_4(X, Y, T, C) \
-    blit_text_new((X), (Y), (T), DX_MENU_COLOR_HELPER((T), (C)))
-#define DX_MENU_BLIT_SELECT(_1, _2, _3, _4, NAME, ...) NAME
-#define blit_text_new(...) \
-    DX_MENU_BLIT_SELECT(__VA_ARGS__, DX_MENU_BLIT_4, DX_MENU_BLIT_3)(__VA_ARGS__)
