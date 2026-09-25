@@ -167,7 +167,7 @@ public:
         remove_save_entry(menu_s_exsettings);
 
         if (!menu_about.empty())
-            menu_about[0] = std::string("CANNONBALL DX ") + CANNONBALL_DX_VERSION;
+            menu_about[0] = std::string("CANNONBALL DX VERSION ") + CANNONBALL_DX_VERSION;
 
         // Keep the inherited CannonBall-SE credit and add the DX fork credit above it.
         if (menu_about.size() >= 6)
