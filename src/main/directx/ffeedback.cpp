@@ -26,6 +26,7 @@
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 
+#define close close_base
 #define set set_base
 #define set_tyre_slip set_tyre_slip_base
 #else
@@ -37,11 +38,24 @@
 #undef set_tyre_slip
 #if defined(_WIN32)
 #undef set
+#undef close
 #endif
 
 namespace forcefeedback
 {
 #if defined(_WIN32)
+    void close()
+    {
+        // A wheel rebind already performs close -> init -> set_enabled(true).
+        // Make that sequence a real disable/enable transition. Previously the
+        // backend stayed logically enabled across close(), so the following
+        // set_enabled(true) was a no-op and the freshly opened haptic device
+        // could remain without its active Spring until the user manually
+        // toggled Force Feedback OFF and ON in the menu.
+        set_enabled(false);
+        close_base();
+    }
+
     static bool simple_classic_motor_effect_active(
         const std::source_location& source)
     {
