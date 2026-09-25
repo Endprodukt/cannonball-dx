@@ -802,7 +802,13 @@ void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw)
         text_scroll_offset = static_cast<int16_t>(next_offset);
     }
 
-    const int render_scale = std::clamp(config.video.hires + 1, 1, 4);
+    // Derive the active scale from the actual framebuffer geometry. The legacy
+    // hires flag can remain at 1 while DX is rendering at 3x/4x, which made the
+    // Time Trial overlay fall back to 2x and jump upward when scrolling began.
+    const int render_scale = std::clamp(
+        static_cast<int>(config.s16_height) / static_cast<int>(S16_HEIGHT),
+        1,
+        4);
     const int logical_width = s16_width_noscale;
     const int logical_height = S16_HEIGHT;
 
