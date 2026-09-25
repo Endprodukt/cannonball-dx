@@ -88,8 +88,8 @@ public:
             return;
 
         // Surface the SE playback-device support in the normal Sound menu.
-        // AUDIO OUTPUT is a visual heading; the selected device lives on the
-        // row below it and is the only row that changes while cycling devices.
+        // AUDIO OUTPUT DEVICE is a visual heading; the selected device lives on
+        // the row below it and is the only row that changes while cycling.
         auto has_sound_entry = [&](const char* label)
         {
             return std::find_if(
@@ -156,7 +156,7 @@ protected:
     std::vector<std::string> menu_endless;
     std::vector<std::string> menu_bugfixes;
 
-    static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT:";
+    static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT DEVICE";
     static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
 
     static int audio_device_count()
@@ -268,7 +268,7 @@ protected:
         strip_suffix(" DEVICE");
         strip_suffix(" OUTPUT");
 
-        if (value.size() > 18)
+        if (value.size() > 24)
         {
             // If the type prefix is the only thing preventing a useful model
             // name from fitting, prefer the model/manufacturer information.
@@ -290,7 +290,7 @@ protected:
             }
         }
 
-        const size_t max_value_length = 18;
+        const size_t max_value_length = 24;
         if (value.size() > max_value_length)
             value = value.substr(0, max_value_length - 3) + "...";
 
@@ -850,7 +850,7 @@ protected:
                 : static_cast<int>(heading_it - menu_sound.begin());
             const int output_index = heading_index >= 0 ? heading_index + 1 : -1;
 
-            // AUDIO OUTPUT is only a heading. Skip it during vertical navigation.
+            // AUDIO OUTPUT DEVICE is only a heading. Skip it during navigation.
             if (heading_index >= 0)
             {
                 if (cursor == heading_index - 1 && input.has_pressed(Input::DOWN))
