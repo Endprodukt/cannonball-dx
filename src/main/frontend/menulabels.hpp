@@ -118,8 +118,11 @@ const static char* ENTRY_DPEDAL             = "DIGITAL PEDAL SPEED ";
 
 // GamePad Menu
 const static char* ENTRY_ANALOG             = "ANALOG ";
-const static char* ENTRY_INVERT_ACCEL       = "INVERT GAS ";
-const static char* ENTRY_INVERT_BRAKE       = "INVERT BRAKE ";
+// DX detects pedal direction while binding the axis. Keep the inherited labels
+// only for legacy config compatibility; the final DX Controls builder removes
+// all CONFIG INPUTS-prefixed inherited rows before inserting its single editor.
+const static char* ENTRY_INVERT_ACCEL       = "CONFIG INPUTS LEGACY INVERT GAS";
+const static char* ENTRY_INVERT_BRAKE       = "CONFIG INPUTS LEGACY INVERT BRAKE";
 const static char* ENTRY_FFB = "FORCE FEEDBACK ";
 const static char* ENTRY_FFB_STRENGTH = "FFB STRENGTH ";
 const static char* ENTRY_CENTERING_STRENGTH = "CENTERING STRENGTH ";
