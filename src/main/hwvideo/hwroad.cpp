@@ -570,9 +570,11 @@ namespace
     constexpr int CLEAN_ROAD_MAX_EDGES = 32;
     constexpr int CLEAN_ROAD_FP_SHIFT = 4;
     constexpr int CLEAN_ROAD_FP_ONE = 1 << CLEAN_ROAD_FP_SHIFT;
+    constexpr int CLEAN_ROAD_CENT_START = CLEAN_ROAD_CENTER - 8;
 
     struct CleanRoadProfile
     {
+        bool built;
         bool ready;
         int edge_count;
         int edge_rel16[CLEAN_ROAD_MAX_EDGES];
@@ -587,6 +589,7 @@ namespace
         int edge_count;
         int edge_scaled[CLEAN_ROAD_MAX_EDGES];
         uint8_t codes[CLEAN_ROAD_MAX_EDGES + 1];
+        uint8_t cent_mask;
     };
 
     struct RoadSpan
@@ -596,6 +599,11 @@ namespace
     };
 
     CleanRoadProfile clean_road_profiles[2]{};
+
+    inline uint8_t clean_road_code(uint8_t code)
+    {
+        return code == 7 ? 3 : code;
+    }
 
     inline int interpolate_wrapped_scaled(
         int current,
@@ -662,6 +670,9 @@ namespace
     void build_clean_road_profile(const uint8_t* roads, int road_index)
     {
         CleanRoadProfile& profile = clean_road_profiles[road_index];
+        profile.built = true;
+        profile.ready = false;
+
         int raw_half_width16[CLEAN_ROAD_ROWS]{};
         int reference_row = 0;
         int reference_half_width16 = 0;
@@ -709,29 +720,25 @@ namespace
         profile.reference_half_width16 = reference_half_width16;
 
         if (reference_half_width16 <= 0)
-        {
-            profile.ready = false;
             return;
-        }
 
         const uint8_t* reference = roads + road_base + reference_row * CLEAN_ROAD_WIDTH;
-        profile.codes[0] = reference[0];
+        profile.codes[0] = clean_road_code(reference[0]);
 
         for (int x = 1; x < CLEAN_ROAD_WIDTH; ++x)
         {
-            if (reference[x] == reference[x - 1])
+            const uint8_t previous_code = clean_road_code(reference[x - 1]);
+            const uint8_t current_code = clean_road_code(reference[x]);
+            if (current_code == previous_code)
                 continue;
 
             if (profile.edge_count >= CLEAN_ROAD_MAX_EDGES)
-            {
-                profile.ready = false;
                 return;
-            }
 
             profile.edge_rel16[profile.edge_count] =
                 (x - CLEAN_ROAD_CENTER) * CLEAN_ROAD_FP_ONE;
             ++profile.edge_count;
-            profile.codes[profile.edge_count] = reference[x];
+            profile.codes[profile.edge_count] = current_code;
         }
 
         profile.ready = profile.edge_count > 0;
@@ -745,10 +752,11 @@ namespace
         RenderRoadProfile& output)
     {
         CleanRoadProfile& profile = clean_road_profiles[road_index];
-        if (!profile.ready)
+        if (!profile.built)
             build_clean_road_profile(roads, road_index);
 
         output.valid = false;
+        output.cent_mask = 0;
         if (!profile.ready || profile.reference_half_width16 <= 0)
             return false;
 
@@ -791,6 +799,17 @@ namespace
             previous = position_scaled;
         }
 
+        // Code 7 is the road chip's CENT flag, not scalable road geometry. Preserve
+        // it from the nearest actual ROM row at its original 248..255 coordinates.
+        const int cent_row = (fraction * 2 < depth_denominator) ? row0 : row1;
+        const int road_base = road_index * CLEAN_ROAD_ROWS * CLEAN_ROAD_WIDTH;
+        const uint8_t* cent_source = roads + road_base + cent_row * CLEAN_ROAD_WIDTH;
+        for (int i = 0; i < 8; ++i)
+        {
+            if (cent_source[CLEAN_ROAD_CENT_START + i] == 7)
+                output.cent_mask |= static_cast<uint8_t>(1u << i);
+        }
+
         output.valid = true;
         return true;
     }
@@ -799,13 +818,60 @@ namespace
         const RenderRoadProfile& profile,
         int source_scaled,
         int scaled_visible,
-        int scaled_period)
+        int scaled_period,
+        int render_scale)
     {
         if (!profile.valid)
             return { 3u, scaled_period };
 
         if (source_scaled >= scaled_visible)
             return { 3u, std::max(1, scaled_period - source_scaled) };
+
+        int cent_transition = scaled_visible;
+        bool cent_active = false;
+        const int cent_start_scaled = CLEAN_ROAD_CENT_START * render_scale;
+        const int cent_end_scaled = CLEAN_ROAD_CENTER * render_scale;
+
+        if (profile.cent_mask != 0 && source_scaled < cent_end_scaled)
+        {
+            if (source_scaled < cent_start_scaled)
+            {
+                for (int i = 0; i < 8; ++i)
+                {
+                    if (profile.cent_mask & (1u << i))
+                    {
+                        cent_transition = cent_start_scaled + i * render_scale;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                const int cent_pixel =
+                    std::clamp((source_scaled - cent_start_scaled) / render_scale, 0, 7);
+                const bool current_cent = (profile.cent_mask & (1u << cent_pixel)) != 0;
+
+                if (current_cent)
+                {
+                    cent_active = true;
+                    int next_pixel = cent_pixel + 1;
+                    while (next_pixel < 8 && (profile.cent_mask & (1u << next_pixel)))
+                        ++next_pixel;
+                    cent_transition = cent_start_scaled + next_pixel * render_scale;
+                }
+                else
+                {
+                    int next_pixel = cent_pixel + 1;
+                    while (next_pixel < 8 && !(profile.cent_mask & (1u << next_pixel)))
+                        ++next_pixel;
+                    if (next_pixel < 8)
+                        cent_transition = cent_start_scaled + next_pixel * render_scale;
+                }
+            }
+        }
+
+        if (cent_active)
+            return { 7u, std::max(1, cent_transition - source_scaled) };
 
         unsigned code = profile.codes[0];
         int next = scaled_visible;
@@ -821,6 +887,7 @@ namespace
             code = profile.codes[i + 1];
         }
 
+        next = std::min(next, cent_transition);
         return { code, std::max(1, next - source_scaled) };
     }
 }
@@ -969,10 +1036,10 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
         while (x < width)
         {
             const RoadSpan span0 = road0_visible
-                ? sample_road_span(profile0, h0_scaled, scaled_visible, scaled_period)
+                ? sample_road_span(profile0, h0_scaled, scaled_visible, scaled_period, render_scale)
                 : RoadSpan{ 3u, width - x };
             const RoadSpan span1 = road1_visible
-                ? sample_road_span(profile1, h1_scaled, scaled_visible, scaled_period)
+                ? sample_road_span(profile1, h1_scaled, scaled_visible, scaled_period, render_scale)
                 : RoadSpan{ 3u, width - x };
 
             const unsigned pix0 = span0.code;
