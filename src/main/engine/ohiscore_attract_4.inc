@@ -153,27 +153,34 @@ void OHiScore::display_scores()
                 for (int row = 0; row < ATTRACT_VISIBLE_ROWS; row++)
                 {
                     const int score_index = score_display_pos + row;
-                    if (scores[score_index].score != 0)
-                        continue;
-
                     const uint16_t y = static_cast<uint16_t>(
                         ATTRACT_ROW_BOTTOM_Y + (row * 2));
 
-                    clear_attract_tile_span(7, y, 8);
-                    write_attract_tile_text(7, y, "--------");
-
-                    clear_attract_tile_span(16, y, 5);
-                    write_attract_tile_text(17, y, "---");
-
-                    if (show_route_placeholder)
+                    if (scores[score_index].score == 0)
                     {
-                        clear_attract_tile_span(22, y - 1, 7);
-                        clear_attract_tile_span(22, y, 7);
-                        write_attract_tile_text(24, y, "---");
+                        clear_attract_tile_span(7, y, 8);
+                        write_attract_tile_text(7, y, "--------");
+
+                        clear_attract_tile_span(16, y, 5);
+                        write_attract_tile_text(17, y, "---");
+
+                        if (show_route_placeholder)
+                        {
+                            clear_attract_tile_span(22, y - 1, 7);
+                            clear_attract_tile_span(22, y, 7);
+                            write_attract_tile_text(24, y, "---");
+                        }
                     }
 
-                    clear_attract_tile_span(29, y, 8);
-                    write_attract_tile_text(29, y, "--'--\"--");
+                    // A non-zero score with no completion time is a valid
+                    // unfinished run. Show the same empty record marker used by
+                    // a completely unused slot rather than leaving the column
+                    // visually blank.
+                    if (scores[score_index].time == 0)
+                    {
+                        clear_attract_tile_span(29, y, 8);
+                        write_attract_tile_text(29, y, "--'--\"--");
+                    }
                 }
 
                 video.clear_text_ram();
