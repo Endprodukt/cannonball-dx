@@ -1,0 +1,64 @@
+name: Refine display persistence handoff
+
+on:
+  push:
+    branches:
+      - fix/persist-moved-display
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/persist-moved-display
+          fetch-depth: 0
+      - name: Refine source patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once('src/main/frontend/config.hpp', '#include <SDL.h>\n#include <atomic>\n#include <set>', '#include <SDL.h>\n#include <set>')
+          replace_once(
+              'src/main/frontend/config.hpp',
+              '''    void request_preferred_display_save(int index) \\\n    { \\\n        pending_preferred_display.store(index, std::memory_order_release); \\\n    } \\\n    int take_preferred_display_save_request() \\\n    { \\\n        return pending_preferred_display.exchange(-1, std::memory_order_acq_rel); \\\n    } \\\n    std::atomic<int> pending_preferred_display{-1}; \\\n''',
+              '')
+
+          replace_once(
+              'src/main/sdl2/display_utils.hpp',
+              '#include <SDL.h>\n\n#include <algorithm>',
+              '#include <SDL.h>\n\n#include <algorithm>\n#include <atomic>')
+          replace_once(
+              'src/main/sdl2/display_utils.hpp',
+              '''namespace display_utils\n{\n    inline int count()''',
+              '''namespace display_utils\n{\n    inline std::atomic<int> pending_preferred_display{-1};\n\n    inline void request_preferred_save(int index)\n    {\n        pending_preferred_display.store(index, std::memory_order_release);\n    }\n\n    inline int take_preferred_save_request()\n    {\n        return pending_preferred_display.exchange(-1, std::memory_order_acq_rel);\n    }\n\n    inline int count()''')
+
+          replace_once(
+              'src/main/main.cpp',
+              'config.take_preferred_display_save_request()',
+              'display_utils::take_preferred_save_request()')
+          replace_once(
+              'src/main/sdl2/rendersurface.cpp',
+              'config.request_preferred_display_save(display_index);',
+              'display_utils::request_preferred_save(display_index);')
+
+          Path('.github/workflows/refine-persist-display.yml').unlink()
+      - name: Commit refinement
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Keep display persistence handoff outside Config"
+          git push origin HEAD:fix/persist-moved-display
