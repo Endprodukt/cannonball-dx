@@ -33,6 +33,7 @@
 // arcade implementation. It is compiled here so no CMake/source-list changes are
 // required while the experiment remains on the test branch.
 #include "hwvideo/hwroad_hires_depth.inc"
+#include "hwvideo/hwroad_hires_romrows.inc"
 
 // The next experimental layer deliberately lives outside the preserved arcade
 // code as well. It rebuilds only the visual X curve from the same track data and
@@ -188,7 +189,7 @@ void ORoad::tick()
     {
         dx_update_hires_road_model(*this);
         hwroad.capture_hires_road_y(&road_y[road_p2]);
-        hwroad.select_hires_depth_renderer();
+        hwroad.select_hires_romrow_renderer();
     }
 
     horizon_base -= applied_offset;
