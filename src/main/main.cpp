@@ -22,6 +22,7 @@
 // SDL Specific Code
 #include "sdl2/timer.hpp"
 #include "sdl2/input.hpp"
+#include "sdl2/display_utils.hpp"
 
 #include "video.hpp"
 
@@ -356,6 +357,16 @@ static void tick()
     tick_frame = (frame % core_divisor) == 0;
 
     process_events();
+
+    // A real cross-monitor move is detected by the renderer, but config.xml
+    // belongs to the main thread. Persist only the latest queued destination.
+    const int moved_display = config.take_preferred_display_save_request();
+    if (moved_display >= 0 && moved_display < display_utils::count())
+    {
+        config.set_preferred_display(moved_display, display_utils::name(moved_display));
+        if (!config.save())
+            std::cerr << "Unable to save preferred display after monitor move." << std::endl;
+    }
 
     if (tick_frame) {
         oinputs.tick();           // Do Controls
