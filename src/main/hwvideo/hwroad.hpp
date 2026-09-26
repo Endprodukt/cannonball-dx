@@ -42,6 +42,22 @@ public:
     // Experimental DX road model. This replaces only the high-resolution
     // fractional HScroll side-buffer; integer Road RAM remains arcade-exact.
     void apply_hires_hscroll_model(const double* road0_h, const double* road1_h);
+
+    // Road 0 scenery in the original engine is positioned from road0_h[] while
+    // the DX high-resolution road is shifted by ramFracBuff. Convert that exact
+    // rendered HScroll correction back to a native-pixel sprite X correction.
+    // This is render-only: object world coordinates and collision stay original.
+    inline int16_t hires_scenery_x_correction(uint16_t depth) const {
+        if (depth >= 0x200)
+            return 0;
+
+        // HScroll is 0x654 - road_x, so its fractional correction has the
+        // opposite sign to the screen-space correction needed by scenery.
+        const int correction64 = -static_cast<int>(ramFracBuff[0x200 + depth]);
+        if (correction64 >= 0)
+            return static_cast<int16_t>((correction64 + 32) / 64);
+        return static_cast<int16_t>(-((-correction64 + 32) / 64));
+    }
   
 private:
     uint8_t road_control;
