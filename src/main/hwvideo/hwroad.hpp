@@ -10,34 +10,23 @@ public:
 
     void init(const uint8_t*, const bool hires);
     inline void write16(uint32_t adr, const uint16_t data) {
-        const uint32_t index = (adr >> 1) & 0x7FF;
-        ram[index] = data;
-        ramFrac[index] = 0;
+        ram[(adr >> 1) & 0x7FF] = data;
     };
     inline void write16(uint32_t* adr, const uint16_t data) {
-        const uint32_t a = *adr;
-        const uint32_t index = (a >> 1) & 0x7FF;
-        ram[index] = data;
-        ramFrac[index] = hscroll_fraction_for_write(a, data);
+        uint32_t a = *adr;
+        ram[(a >> 1) & 0x7FF] = data;
         *adr += 2;
     };
     inline void write32(uint32_t* adr, const uint32_t data) {
-        const uint32_t a = (*adr) >> 1;
+        uint32_t a = (*adr) >> 1;
         ram[a & 0x7FF] = data >> 16;
         ram[(a + 1) & 0x7FF] = data & 0xFFFF;
-        ramFrac[a & 0x7FF] = 0;
-        ramFrac[(a + 1) & 0x7FF] = 0;
         *adr += 4;
     };
     uint16_t read_road_control();
     void write_road_control(const uint8_t);
     void (HWRoad::*render_background)(uint16_t*);
     void (HWRoad::*render_foreground)(uint16_t*);
-
-    // DX high-resolution road path. ORoad snapshots the unquantised road_y
-    // curve that corresponds to the road data just blitted into Road RAM.
-    void capture_hires_road_y(const int16_t* curve);
-    void select_hires_depth_renderer();
   
 private:
     uint8_t road_control;
@@ -52,25 +41,15 @@ private:
     // Decoded road graphics
     uint8_t roads[0x40200];
 
-    // Two halves of RAM. The fractional side-buffer mirrors road RAM word-for-word
-    // and stores only the 1/64-pixel road_x residue used by the high-res renderer.
+    // Two halves of RAM
     uint16_t ram[ROAD_RAM_SIZE / 2];
     uint16_t ramBuff[ROAD_RAM_SIZE / 2];
-    int8_t ramFrac[ROAD_RAM_SIZE / 2];
-    int8_t ramFracBuff[ROAD_RAM_SIZE / 2];
 
-    // Raw ORoad depth curve for the same frame as ramBuff. Values retain the
-    // four fractional bits that do_road_data() normally discards with >> 4.
-    int16_t roadYCurve[0x200];
-    bool roadYCurveValid = false;
-
-    int8_t hscroll_fraction_for_write(uint32_t address, uint16_t data) const;
     void decode_road(const uint8_t*);
     void render_background_lores(uint16_t*);
     void render_foreground_lores(uint16_t*);
     void render_background_hires(uint16_t*);
     void render_foreground_hires(uint16_t*);
-    void render_foreground_hires_depth(uint16_t*);
 };
 
 extern HWRoad hwroad;
