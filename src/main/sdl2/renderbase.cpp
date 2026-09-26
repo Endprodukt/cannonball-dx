@@ -30,21 +30,27 @@ RenderBase::RenderBase()
 }
 
 // Setup screen size
-bool RenderBase::sdl_screen_size()
+bool RenderBase::sdl_screen_size(int display_index)
 {
-    if (orig_width == 0 || orig_height == 0)
+    const int display_count = SDL_GetNumVideoDisplays();
+    if (display_count <= 0)
+        return false;
+
+    if (display_index < 0 || display_index >= display_count)
+        display_index = 0;
+
+    SDL_DisplayMode info{};
+    if (SDL_GetCurrentDisplayMode(display_index, &info) != 0)
     {
-	SDL_DisplayMode info;
-
-	SDL_GetCurrentDisplayMode(0, &info);
-
-        orig_width  = info.w;
-        orig_height = info.h;
+        std::cerr << "Unable to query display " << display_index
+                  << ": " << SDL_GetError() << std::endl;
+        return false;
     }
 
-    scn_width  = orig_width;
-    scn_height = orig_height;
-
+    orig_width  = static_cast<uint16_t>(info.w);
+    orig_height = static_cast<uint16_t>(info.h);
+    scn_width   = orig_width;
+    scn_height  = orig_height;
     return true;
 }
 

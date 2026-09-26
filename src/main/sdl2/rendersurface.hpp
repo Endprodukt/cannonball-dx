@@ -43,6 +43,8 @@ public:
     void swap_buffers();
     void disable();
     void focus_window() override;
+    bool sync_display_state();
+    void mark_display_dirty() { display_dirty.store(true, std::memory_order_release); }
     bool start_frame() {return true;};
     bool finalize_frame();
     void draw_frame(uint16_t* pixels, int fastpass);
@@ -83,6 +85,10 @@ protected:
     long get_video_config();
     int  get_blargg_config();
     void blargg_filter(uint16_t* pixels, uint32_t* outputPixels, int section);
+
+    int resolve_preferred_display() const;
+    bool relocate_fullscreen_to_display(int display_index);
+    static int SDLCALL display_event_watch(void* userdata, SDL_Event* event);
 
     // constants
     const int BPP = 32;
@@ -133,6 +139,15 @@ protected:
 
     // and module status
     bool initialised        = false;
+
+    // Runtime monitor state. The preferred monitor remains in config.xml;
+    // current_display only tracks where this live SDL window actually is.
+    std::atomic<bool> display_dirty{true};
+    bool display_event_watch_registered = false;
+    int current_display = -1;
+    int display_count_cache = 0;
+    int drawable_width_cache = 0;
+    int drawable_height_cache = 0;
 
     // LUTs for init_overlay()
     std::vector<float> dx1, dx2, dx3, dx4, dx5;

@@ -21,6 +21,7 @@
 #include <mutex>
 #include "rendersurface.hpp"
 #include "frontend/config.hpp"
+#include "display_utils.hpp"
 // Aligned Memory Allocation (standard C++17)
 #include <new>        // std::align_val_t, ::operator new/delete
 #include <cstddef>    // std::size_t
@@ -118,6 +119,17 @@ void RenderSurface::swap_buffers()
 
 void RenderSurface::disable()
 {
+    if (display_event_watch_registered)
+    {
+        SDL_DelEventWatch(&RenderSurface::display_event_watch, this);
+        display_event_watch_registered = false;
+    }
+    display_dirty.store(true, std::memory_order_release);
+    current_display = -1;
+    display_count_cache = 0;
+    drawable_width_cache = 0;
+    drawable_height_cache = 0;
+
     // Can only be called from the thread with the SDL context (usuablly the main thread)
     // awaiting threads
     shutting_down.store(true, std::memory_order_release);
@@ -167,6 +179,212 @@ void RenderSurface::focus_window()
     }
 }
 
+
+int RenderSurface::resolve_preferred_display() const
+{
+    return display_utils::resolve_preferred(
+        config.preferred_display_index(),
+        config.preferred_display_name());
+}
+
+int SDLCALL RenderSurface::display_event_watch(void* userdata, SDL_Event* event)
+{
+    auto* self = static_cast<RenderSurface*>(userdata);
+    if (!self || !event)
+        return 0;
+
+    if (event->type == SDL_DISPLAYEVENT)
+    {
+        if (event->display.event == SDL_DISPLAYEVENT_CONNECTED ||
+            event->display.event == SDL_DISPLAYEVENT_DISCONNECTED)
+        {
+            self->mark_display_dirty();
+        }
+        return 0;
+    }
+
+    if (event->type != SDL_WINDOWEVENT || !self->window)
+        return 0;
+
+    if (event->window.windowID != SDL_GetWindowID(self->window))
+        return 0;
+
+    switch (event->window.event)
+    {
+        case SDL_WINDOWEVENT_MOVED:
+        case SDL_WINDOWEVENT_RESIZED:
+        case SDL_WINDOWEVENT_SIZE_CHANGED:
+        case SDL_WINDOWEVENT_DISPLAY_CHANGED:
+            self->mark_display_dirty();
+            break;
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+bool RenderSurface::relocate_fullscreen_to_display(int display_index)
+{
+    if (!window || video_mode == video_settings_t::MODE_WINDOW)
+        return true;
+
+    const int displays = SDL_GetNumVideoDisplays();
+    if (display_index < 0 || display_index >= displays)
+        return false;
+
+    // Win+Shift+Arrow can move a borderless SDL window while retaining the old
+    // monitor's dimensions. Leave fullscreen, place the window on the target
+    // display, then re-enter the configured fullscreen mode there.
+    if (SDL_SetWindowFullscreen(window, 0) != 0)
+    {
+        std::cerr << "Failed to leave fullscreen during display move: "
+                  << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    SDL_SetWindowPosition(
+        window,
+        SDL_WINDOWPOS_CENTERED_DISPLAY(display_index),
+        SDL_WINDOWPOS_CENTERED_DISPLAY(display_index));
+
+    if (video_mode == video_settings_t::MODE_EXCLUSIVE)
+    {
+        SDL_DisplayMode desktop_mode{};
+        if (SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0)
+        {
+            std::cerr << "Failed to query target exclusive display mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        if (SDL_SetWindowDisplayMode(window, &desktop_mode) != 0)
+        {
+            std::cerr << "Failed to set target exclusive display mode: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+
+        if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN) != 0)
+        {
+            std::cerr << "Failed to re-enter exclusive fullscreen: "
+                      << SDL_GetError() << std::endl;
+            return false;
+        }
+    }
+    else if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+    {
+        std::cerr << "Failed to re-enter borderless fullscreen: "
+                  << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool RenderSurface::sync_display_state()
+{
+    if (!window || !initialised)
+        return false;
+
+    // Event callbacks only mark the state dirty. All SDL/GL mutation happens
+    // here, once from the render thread after the event burst has settled.
+    if (!display_dirty.exchange(false, std::memory_order_acq_rel))
+        return false;
+
+    const int displays = SDL_GetNumVideoDisplays();
+    if (displays <= 0)
+        return false;
+
+    int display_index = SDL_GetWindowDisplayIndex(window);
+    if (display_index < 0 || display_index >= displays)
+        display_index = 0;
+
+    const bool display_changed = display_index != current_display;
+
+    if (display_changed && video_mode != video_settings_t::MODE_WINDOW)
+    {
+        const int target_display = display_index;
+        if (!relocate_fullscreen_to_display(target_display))
+        {
+            // Retry on a later frame; the OS may still be settling a hotplug.
+            mark_display_dirty();
+            return false;
+        }
+
+        const int relocated_display = SDL_GetWindowDisplayIndex(window);
+        display_index =
+            (relocated_display >= 0 && relocated_display < displays)
+                ? relocated_display
+                : target_display;
+    }
+
+    int drawable_width = 0;
+    int drawable_height = 0;
+    SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+    if (drawable_width <= 0 || drawable_height <= 0)
+    {
+        mark_display_dirty();
+        return false;
+    }
+
+    const bool drawable_changed =
+        drawable_width != drawable_width_cache ||
+        drawable_height != drawable_height_cache;
+    const bool display_count_changed = displays != display_count_cache;
+
+    const int old_dst_width = dst_rect.w;
+    const int old_dst_height = dst_rect.h;
+
+    if (video_mode == video_settings_t::MODE_WINDOW)
+    {
+        // The windowed aspect-lock code decides the logical window dimensions.
+        // Drawable pixels are authoritative here, especially across mixed-DPI
+        // displays where the logical size may stay unchanged.
+        scn_width = drawable_width;
+        scn_height = drawable_height;
+        dst_rect.x = 0;
+        dst_rect.y = 0;
+        dst_rect.w = drawable_width;
+        dst_rect.h = drawable_height;
+        anchor_x = 0;
+        anchor_y = 0;
+    }
+    else
+    {
+        // Refresh the monitor mode rather than retaining the startup geometry.
+        // Use the GL drawable as the final physical-pixel authority for DPI.
+        if (!RenderBase::sdl_screen_size(display_index))
+        {
+            mark_display_dirty();
+            return false;
+        }
+
+        orig_width = static_cast<uint16_t>(drawable_width);
+        orig_height = static_cast<uint16_t>(drawable_height);
+        set_scaling();
+    }
+
+    if (drawable_changed || display_changed || display_count_changed)
+        glb::on_drawable_resized();
+
+    if (old_dst_width != dst_rect.w || old_dst_height != dst_rect.h)
+    {
+        // Overlay storage and its geometry LUT depend on the destination size.
+        // Rebuild only when that size really changed.
+        const bool was_initialised = initialised;
+        initialised = false;
+        init_overlay();
+        initialised = was_initialised;
+    }
+
+    current_display = display_index;
+    display_count_cache = displays;
+    drawable_width_cache = drawable_width;
+    drawable_height_cache = drawable_height;
+
+    return display_changed || drawable_changed || display_count_changed;
+}
 
 void RenderSurface::create_buffers() {
     uint32_t pixels;
@@ -332,9 +550,12 @@ void RenderSurface::set_scaling()
 
 bool RenderSurface::init_sdl(int video_mode)
 {
-    // First, determine our source and destination dimensions.
-    // RenderBase::sdl_screen_size() should set orig_width and orig_height.
-    if (!RenderBase::sdl_screen_size())
+    // Resolve the configured monitor before the window exists. Once the
+    // window is live, runtime synchronization uses its actual display index.
+    const int target_display = resolve_preferred_display();
+
+    // First, determine our source and destination dimensions for that display.
+    if (!RenderBase::sdl_screen_size(target_display))
         return false;
 
     // Determine the image scaling parameters and image position
@@ -353,13 +574,22 @@ bool RenderSurface::init_sdl(int video_mode)
     // Now create our window (with an OpenGL flag)
 
     window = SDL_CreateWindow("CannonBall DX",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED_DISPLAY(target_display),
+        SDL_WINDOWPOS_CENTERED_DISPLAY(target_display),
         scn_width, scn_height, SDL_WINDOW_OPENGL);
 
     if (!window) {
         std::cerr << "Window creation failed: " << SDL_GetError() << std::endl;
         return false;
     }
+
+    current_display = SDL_GetWindowDisplayIndex(window);
+    if (current_display < 0)
+        current_display = target_display;
+    display_count_cache = SDL_GetNumVideoDisplays();
+
+    SDL_AddEventWatch(&RenderSurface::display_event_watch, this);
+    display_event_watch_registered = true;
 
     // Create the ES context
     glContext = SDL_GL_CreateContext(window);
@@ -475,6 +705,9 @@ bool RenderSurface::init_sdl(int video_mode)
     Uint32 black_color = SDL_MapRGBA(GameSurface[0]->format, 0, 0, 0, 0);
     SDL_FillRect(GameSurface[0], NULL, black_color);
     SDL_FillRect(GameSurface[1], NULL, black_color);
+
+    SDL_GL_GetDrawableSize(window, &drawable_width_cache, &drawable_height_cache);
+    display_dirty.store(false, std::memory_order_release);
 
     // screen_pixels = static_cast<uint32_t*>(surface->pixels);
     return true;
@@ -856,7 +1089,7 @@ void RenderSurface::init_overlay()
 
     // Upload overlay pixels to GPU overlay texture
     glb::set_overlay_pixel_format_a8();
-    glb::reallocate_overlay_storage();
+    glb::reallocate_overlay_storage(dst_rect.w, dst_rect.h);
 
     glb::update_overlay_texture( a8.data(),dst_rect.w,dst_rect.w,dst_rect.h );
     //                           overlaySurfacePixels,pitchBytes*4, w, h
@@ -906,6 +1139,8 @@ bool RenderSurface::finalize_frame()
     std::lock_guard<std::mutex> gpulock(gpuMutex);
 
     int game_width = src_rect.w;
+    sync_display_state();
+
     int game_height = src_rect.h;
 
     // Whether to use off-screen target

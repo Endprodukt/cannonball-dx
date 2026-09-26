@@ -284,6 +284,7 @@ public:
         std::lock_guard<std::mutex> gpulock(gpuMutex);
 
         sync_windowed_size();
+        sync_display_state();
 
         if (FrameCounter++ == 60)
             FrameCounter = 0;
@@ -424,29 +425,10 @@ private:
         window_last_width = adjusted_width;
         window_last_height = adjusted_height;
 
-        int drawable_width = adjusted_width;
-        int drawable_height = adjusted_height;
-        SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
-
-        scn_width = drawable_width;
-        scn_height = drawable_height;
-        dst_rect.x = 0;
-        dst_rect.y = 0;
-        dst_rect.w = drawable_width;
-        dst_rect.h = drawable_height;
-        anchor_x = 0;
-        anchor_y = 0;
-
-        glb::on_drawable_resized();
-
-        // init_overlay() normally rebuilds its LUT only when CRT geometry
-        // changes. A window resize changes the LUT dimensions too, so force one
-        // rebuild without permanently changing the renderer state.
-        const bool was_initialised = initialised;
-        initialised = false;
-        init_overlay();
-        initialised = was_initialised;
-
+        // Defer drawable/viewport/overlay work to the central idempotent
+        // monitor synchronizer. SDL_SetWindowSize can enqueue another event,
+        // but the next sync becomes a no-op once the cached state matches.
+        mark_display_dirty();
         scaler_last_config = -1;
         scaler_ticks = 3;
     }

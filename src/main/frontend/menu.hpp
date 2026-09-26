@@ -21,6 +21,7 @@
 #include "sdl2/input.hpp"
 #include "sdl2/pixel_scaler_state.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
+#include "sdl2/display_utils.hpp"
 #include "engine/audio/osoundint.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
@@ -127,6 +128,33 @@ public:
             menu_sound.insert(music_entry, menu_sounds_menu_text());
         }
 
+        const auto existing_display_device = std::find_if(
+            menu_video.begin(), menu_video.end(),
+            [](const std::string& entry)
+            {
+                return entry.rfind(DISPLAY_DEVICE_LABEL, 0) == 0;
+            });
+        if (existing_display_device == menu_video.end())
+        {
+            auto insert_pos = std::find_if(
+                menu_video.begin(), menu_video.end(),
+                [](const std::string& entry)
+                {
+                    return entry.rfind(ENTRY_FULLSCREEN, 0) == 0;
+                });
+            if (insert_pos != menu_video.end())
+                ++insert_pos;
+            else
+                insert_pos = std::find_if(
+                    menu_video.begin(), menu_video.end(),
+                    [](const std::string& entry)
+                    {
+                        return entry.rfind(ENTRY_WIDESCREEN, 0) == 0;
+                    });
+
+            menu_video.insert(insert_pos, display_device_menu_text());
+        }
+
         // Gameplay is the natural home for detailed run rules and compatibility
         // choices. Keep the main page compact and put both pages before Car Setup.
         auto insert_before_handling = [&]()
@@ -158,6 +186,7 @@ protected:
 
     static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT DEVICE";
     static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
+    static constexpr const char* DISPLAY_DEVICE_LABEL = "DISPLAY DEVICE ";
 
     static int audio_device_count()
     {
@@ -394,6 +423,39 @@ protected:
                 display_message("AUDIO DEVICE UNAVAILABLE - USING DEFAULT");
             }
         }
+    }
+
+    static std::string display_device_menu_text()
+    {
+        const int index = display_utils::resolve_preferred(
+            config.preferred_display_index(),
+            config.preferred_display_name());
+
+        std::string display_name = audio_font_safe(display_utils::name(index));
+        constexpr size_t max_name = 18;
+        if (display_name.size() > max_name)
+            display_name = display_name.substr(0, max_name - 3) + "...";
+
+        std::string text = std::string(DISPLAY_DEVICE_LABEL) +
+            std::to_string(index + 1);
+        if (!display_name.empty())
+            text += " " + display_name;
+        return text;
+    }
+
+    void cycle_display_device(int direction)
+    {
+        const int displays = display_utils::count();
+        if (displays <= 0)
+            return;
+
+        int index = display_utils::resolve_preferred(
+            config.preferred_display_index(),
+            config.preferred_display_name());
+        index = (index + (direction < 0 ? -1 : 1) + displays) % displays;
+
+        config.set_preferred_display(index, display_utils::name(index));
+        config.videoRestartRequired = true;
     }
 
     static const FfbMenuItem* dx_ffb_effect_items(int& count)
