@@ -11,7 +11,6 @@
 // Pre-include config_base.hpp dependencies before temporarily extending the
 // class at its private section. This keeps the macro away from library headers.
 #include <SDL.h>
-#include <atomic>
 #include <set>
 #include <string>
 #include <vector>
@@ -149,15 +148,6 @@
         cfg.put_int("video.display.index", index); \
         cfg.put_string("video.display.name", name); \
     } \
-    void request_preferred_display_save(int index) \
-    { \
-        pending_preferred_display.store(index, std::memory_order_release); \
-    } \
-    int take_preferred_display_save_request() \
-    { \
-        return pending_preferred_display.exchange(-1, std::memory_order_acq_rel); \
-    } \
-    std::atomic<int> pending_preferred_display{-1}; \
     bool menu_sounds_enabled() \
     { \
         return cfg.get_int("sound.menu_sounds", 1) != 0; \

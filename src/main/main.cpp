@@ -360,7 +360,7 @@ static void tick()
 
     // A real cross-monitor move is detected by the renderer, but config.xml
     // belongs to the main thread. Persist only the latest queued destination.
-    const int moved_display = config.take_preferred_display_save_request();
+    const int moved_display = display_utils::take_preferred_save_request();
     if (moved_display >= 0 && moved_display < display_utils::count())
     {
         config.set_preferred_display(moved_display, display_utils::name(moved_display));
