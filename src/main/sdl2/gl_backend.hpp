@@ -489,9 +489,13 @@ inline void auto_configure_pixel_formats(const SDL_Surface* game, const SDL_Surf
     auto_configure_pixel_formats_from_surfaces(game, overlay);
 }
 
-// Reallocate overlay texture storage to match current overlay pixel format.
-// Call if you change overlay format after init().
-inline void reallocate_overlay_storage() {
+// Reallocate overlay texture storage to match the current pixel format and,
+// when supplied, the current presentation geometry. Window/display resizes must
+// update these cached dimensions before uploading the rebuilt CRT overlay.
+inline void reallocate_overlay_storage(int width = 0, int height = 0) {
+    if (width > 0)  G.overlayW = width;
+    if (height > 0) G.overlayH = height;
+
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, G.texOverlay);
     GLenum ov_ifmt = (G.overlayFmt == State::PixFmt::A8) ? GL_LUMINANCE : GL_RGBA;

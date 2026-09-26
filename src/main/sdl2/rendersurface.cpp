@@ -1089,7 +1089,7 @@ void RenderSurface::init_overlay()
 
     // Upload overlay pixels to GPU overlay texture
     glb::set_overlay_pixel_format_a8();
-    glb::reallocate_overlay_storage();
+    glb::reallocate_overlay_storage(dst_rect.w, dst_rect.h);
 
     glb::update_overlay_texture( a8.data(),dst_rect.w,dst_rect.w,dst_rect.h );
     //                           overlaySurfacePixels,pitchBytes*4, w, h
