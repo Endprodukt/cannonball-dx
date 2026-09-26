@@ -1,0 +1,65 @@
+name: Apply last-used display persistence patch
+
+on:
+  push:
+    branches:
+      - fix/persist-moved-display
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/persist-moved-display
+          fetch-depth: 0
+      - name: Apply source patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/main/frontend/config.hpp',
+              '#include <SDL.h>\n#include <set>',
+              '#include <SDL.h>\n#include <atomic>\n#include <set>')
+
+          replace_once(
+              'src/main/frontend/config.hpp',
+              '''    void set_preferred_display(int index, const std::string& name) \\\n    { \\\n        if (index < 0) index = 0; \\\n        cfg.put_int("video.display.index", index); \\\n        cfg.put_string("video.display.name", name); \\\n    } \\\n    bool menu_sounds_enabled()''',
+              '''    void set_preferred_display(int index, const std::string& name) \\\n    { \\\n        if (index < 0) index = 0; \\\n        cfg.put_int("video.display.index", index); \\\n        cfg.put_string("video.display.name", name); \\\n    } \\\n    void request_preferred_display_save(int index) \\\n    { \\\n        pending_preferred_display.store(index, std::memory_order_release); \\\n    } \\\n    int take_preferred_display_save_request() \\\n    { \\\n        return pending_preferred_display.exchange(-1, std::memory_order_acq_rel); \\\n    } \\\n    std::atomic<int> pending_preferred_display{-1}; \\\n    bool menu_sounds_enabled()''')
+
+          replace_once(
+              'src/main/main.cpp',
+              '#include "sdl2/input.hpp"\n\n#include "video.hpp"',
+              '#include "sdl2/input.hpp"\n#include "sdl2/display_utils.hpp"\n\n#include "video.hpp"')
+
+          replace_once(
+              'src/main/main.cpp',
+              '''    process_events();\n\n    if (tick_frame) {''',
+              '''    process_events();\n\n    // A real cross-monitor move is detected by the renderer, but config.xml\n    // belongs to the main thread. Persist only the latest queued destination.\n    const int moved_display = config.take_preferred_display_save_request();\n    if (moved_display >= 0 && moved_display < display_utils::count())\n    {\n        config.set_preferred_display(moved_display, display_utils::name(moved_display));\n        if (!config.save())\n            std::cerr << "Unable to save preferred display after monitor move." << std::endl;\n    }\n\n    if (tick_frame) {''')
+
+          replace_once(
+              'src/main/sdl2/rendersurface.cpp',
+              '''    current_display = display_index;\n    display_count_cache = displays;''',
+              '''    // Remember an intentional move for the next launch, but never\n    // overwrite the user's preference when Windows relocates the window because\n    // a monitor was connected or disconnected. The main thread performs the\n    // actual config write outside the renderer/GPU lock.\n    if (display_changed && !display_count_changed)\n        config.request_preferred_display_save(display_index);\n\n    current_display = display_index;\n    display_count_cache = displays;''')
+
+          Path('.github/workflows/apply-persist-display.yml').unlink()
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remember manually selected monitor"
+          git push origin HEAD:fix/persist-moved-display
