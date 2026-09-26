@@ -12,12 +12,18 @@
 // ROM row as its own geometry and interpolates corresponding edges only when the
 // two neighbouring rows have exactly the same topology.
 //
-// Keep the two changes independently switchable so screenshots can compare all
-// four combinations without touching gameplay or the low-resolution renderer.
+// Keep the changes independently switchable so screenshots can compare the
+// geometry/depth behaviour without touching gameplay or the low-resolution path.
 namespace
 {
     constexpr bool DX_USE_ROM_ROW_EDGES = true;
     constexpr bool DX_DEPTH_TOWARDS_ABOVE = true;
+
+    // A 9-bit hardware selector addresses a 256-row ROM with selector >> 1.
+    // Treat selector / 2 as a continuous ROM-row coordinate in the DX path.
+    // Keeping odd integer selectors pixel-identical to the lower ROM row freezes
+    // half of the high-resolution intervals and makes the road look vanilla.
+    constexpr bool DX_CONTINUOUS_ROM_ROW_PHASE = true;
 
     struct DxRomRoadRow
     {
@@ -85,7 +91,7 @@ namespace
                 row.codes[row.edge_count] = source[x];
             }
 
-            // Cheap one-time invariant test: rebuilding any integer ROM row from
+            // Cheap one-time invariant test: rebuilding any native ROM row from
             // its run list must reproduce roads[] pixel-for-pixel. If it does not,
             // mark only that row invalid and let the established clean renderer
             // handle it as a fallback.
@@ -140,16 +146,36 @@ namespace
             0,
             0x1ff * DX_DEPTH_FP_ONE);
 
-        // Preserve the hardware convention exactly at every integer selector.
-        // The road ROM row is selector >> 1, so even and odd integer selectors
-        // both map pixel-identically to the same decoded ROM row. Geometry only
-        // interpolates in the fractional interval where the next integer selector
-        // actually changes to a different ROM row.
-        const int selector0 = selector_fp / DX_DEPTH_FP_ONE;
-        const int fraction = selector_fp % DX_DEPTH_FP_ONE;
-        const int selector1 = std::min(selector0 + 1, 0x1ff);
-        const int row0_index = std::min(selector0 >> 1, DX_ROAD_ROWS - 1);
-        const int row1_index = std::min(selector1 >> 1, DX_ROAD_ROWS - 1);
+        int row0_index = 0;
+        int row1_index = 0;
+        int fraction = 0;
+        int denominator = DX_DEPTH_FP_ONE;
+
+        if (DX_CONTINUOUS_ROM_ROW_PHASE)
+        {
+            // Continuous ROM coordinate: row = selector / 2. This keeps every
+            // real ROM row as an exact anchor at selectors 0,2,4,... while using
+            // the whole two-selector interval to move edges toward the next row.
+            // It restores the visible 2x/3x/4x benefit without returning to the
+            // incorrect single-reference-row scaling model.
+            denominator = 2 * DX_DEPTH_FP_ONE;
+            row0_index = std::min(
+                selector_fp / denominator,
+                DX_ROAD_ROWS - 1);
+            fraction = selector_fp % denominator;
+            row1_index = std::min(row0_index + 1, DX_ROAD_ROWS - 1);
+        }
+        else
+        {
+            // Comparison mode: preserve the previous hardware-selector phase,
+            // where both even and odd integer selectors reproduce the same ROM
+            // row exactly and interpolation happens only in the second half.
+            const int selector0 = selector_fp / DX_DEPTH_FP_ONE;
+            fraction = selector_fp % DX_DEPTH_FP_ONE;
+            const int selector1 = std::min(selector0 + 1, 0x1ff);
+            row0_index = std::min(selector0 >> 1, DX_ROAD_ROWS - 1);
+            row1_index = std::min(selector1 >> 1, DX_ROAD_ROWS - 1);
+        }
 
         const DxRomRoadRow& row0 = dx_rom_road_rows[road_index][row0_index];
         const DxRomRoadRow& row1 = dx_rom_road_rows[road_index][row1_index];
@@ -163,9 +189,9 @@ namespace
         if (!dx_same_topology(row0, row1))
         {
             // A topology change is a real discrete ROM event. Do not match
-            // unrelated edges; switch at the nearest half-way point instead.
+            // unrelated edges; switch to whichever native row is nearest.
             const DxRomRoadRow& nearest =
-                (fraction * 2 < DX_DEPTH_FP_ONE) ? row0 : row1;
+                (fraction * 2 < denominator) ? row0 : row1;
             return dx_copy_rom_row_profile(nearest, render_scale, output);
         }
 
@@ -179,11 +205,11 @@ namespace
         {
             const int64_t weighted =
                 static_cast<int64_t>(row0.edge_x[i]) *
-                    (DX_DEPTH_FP_ONE - fraction) +
+                    (denominator - fraction) +
                 static_cast<int64_t>(row1.edge_x[i]) * fraction;
             int position_scaled = dx_round_div(
                 weighted * render_scale,
-                DX_DEPTH_FP_ONE);
+                denominator);
             position_scaled = std::clamp(
                 position_scaled,
                 0,
