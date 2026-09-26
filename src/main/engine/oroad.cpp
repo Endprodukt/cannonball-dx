@@ -189,7 +189,11 @@ void ORoad::tick()
     {
         dx_update_hires_road_model(*this);
         hwroad.capture_hires_road_y(&road_y[road_p2]);
-        hwroad.select_hires_romrow_renderer();
+        // Keep the visually superior clean high-resolution profile active while
+        // the per-ROM-row geometry remains available as an experimental reference.
+        // The next iteration will smooth each real ROM edge across depth instead
+        // of drawing the raw quantised edge positions directly.
+        hwroad.select_hires_depth_renderer();
     }
 
     horizon_base -= applied_offset;
