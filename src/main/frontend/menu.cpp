@@ -625,6 +625,15 @@ void Menu::tick()
         }
     }
 
+    if (!menu_video.empty())
+    {
+        for (std::string& entry : menu_video)
+        {
+            if (starts_with_label(entry, DISPLAY_DEVICE_LABEL))
+                entry = display_device_menu_text();
+        }
+    }
+
     // Fundamental render scale stays on the VIDEO root.
     if (!menu_video.empty())
     {
@@ -863,6 +872,19 @@ bool Menu::select_pressed()
         return false;
     }
 
+    if (menu_selected == &menu_video &&
+        cursor >= 0 &&
+        cursor < static_cast<int>(menu_video.size()) &&
+        starts_with_label(menu_video[cursor], DISPLAY_DEVICE_LABEL) &&
+        (input.has_pressed(Input::LEFT) || input.has_pressed(Input::RIGHT)))
+    {
+        cycle_display_device(input.has_pressed(Input::RIGHT) ? 1 : -1);
+        menu_video[cursor] = display_device_menu_text();
+        config_save_pending = true;
+        osoundint.queue_sound(sound::BEEP1);
+        return false;
+    }
+
     // INPUT MODE uses left/right like the other value-style settings. Keyboard
     // arrows remain active in both modes; the selected physical input family
     // may also provide them when appropriate.
@@ -942,6 +964,13 @@ bool Menu::select_pressed()
         cursor < static_cast<int>(menu_video.size()))
     {
         const std::string& option = menu_video[cursor];
+
+        if (starts_with_label(option, DISPLAY_DEVICE_LABEL))
+        {
+            cycle_display_device(1);
+            menu_video[cursor] = display_device_menu_text();
+            return false;
+        }
 
         if (starts_with_label(option, ENTRY_FRAME_RATE))
         {

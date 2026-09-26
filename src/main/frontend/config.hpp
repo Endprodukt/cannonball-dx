@@ -133,6 +133,21 @@
     { \
         set_radio_binding(group, -1, -1, 0, "!"); \
     } \
+    int preferred_display_index() \
+    { \
+        int index = cfg.get_int("video.display.index", 0); \
+        return index < 0 ? 0 : index; \
+    } \
+    std::string preferred_display_name() \
+    { \
+        return cfg.get_string("video.display.name", ""); \
+    } \
+    void set_preferred_display(int index, const std::string& name) \
+    { \
+        if (index < 0) index = 0; \
+        cfg.put_int("video.display.index", index); \
+        cfg.put_string("video.display.name", name); \
+    } \
     bool menu_sounds_enabled() \
     { \
         return cfg.get_int("sound.menu_sounds", 1) != 0; \

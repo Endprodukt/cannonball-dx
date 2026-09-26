@@ -88,5 +88,5 @@ protected:
     // Shadow intensity multiplier
     int shadow_multi;
 
-    bool sdl_screen_size();
+    bool sdl_screen_size(int display_index = 0);
 };

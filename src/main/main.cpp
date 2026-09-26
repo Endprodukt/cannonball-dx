@@ -1027,6 +1027,11 @@ int main(int argc, char* argv[]) {
 #ifdef __linux__
     install_segv_handler();
 #endif
+#ifdef _WIN32
+    // Keep SDL drawable pixels aligned with the monitor the window is actually
+    // on. Do not enable SDL_HINT_WINDOWS_DPI_SCALING: DX uses pixel coordinates.
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+#endif
     std::cout << "CannonBall DX " << CANNONBALL_DX_VERSION << "\n";
     std::cout << "  An enhanced build of the SEGA Outrun engine by Chris White (https://github.com/djyt/cannonball)\n";
     std::cout << "  Based on CannonBall-SE, Copyright (c) 2025, James Pearce (https://github.com/J1mbo/cannonball)\n";
