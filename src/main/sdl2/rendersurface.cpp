@@ -378,6 +378,13 @@ bool RenderSurface::sync_display_state()
         initialised = was_initialised;
     }
 
+    // Remember an intentional move for the next launch, but never
+    // overwrite the user's preference when Windows relocates the window because
+    // a monitor was connected or disconnected. The main thread performs the
+    // actual config write outside the renderer/GPU lock.
+    if (display_changed && !display_count_changed)
+        display_utils::request_preferred_save(display_index);
+
     current_display = display_index;
     display_count_cache = displays;
     drawable_width_cache = drawable_width;

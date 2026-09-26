@@ -3,11 +3,24 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <vector>
 
 namespace display_utils
 {
+    inline std::atomic<int> pending_preferred_display{-1};
+
+    inline void request_preferred_save(int index)
+    {
+        pending_preferred_display.store(index, std::memory_order_release);
+    }
+
+    inline int take_preferred_save_request()
+    {
+        return pending_preferred_display.exchange(-1, std::memory_order_acq_rel);
+    }
+
     inline int count()
     {
         const int displays = SDL_GetNumVideoDisplays();
