@@ -34,6 +34,11 @@
 // required while the experiment remains on the test branch.
 #include "hwvideo/hwroad_hires_depth.inc"
 
+// The next experimental layer deliberately lives outside the preserved arcade
+// code as well. It rebuilds only the visual X curve from the same track data and
+// feeds a bounded fractional correction to the high-resolution renderer.
+#include "oroad_hires_model.inc"
+
 namespace
 {
     struct BumperHeightPreset
@@ -181,6 +186,7 @@ void ORoad::tick()
     // this depth mapping; their horizontal positions remain independent.
     if (config.video.hires > 0)
     {
+        dx_update_hires_road_model(*this);
         hwroad.capture_hires_road_y(&road_y[road_p2]);
         hwroad.select_hires_depth_renderer();
     }
