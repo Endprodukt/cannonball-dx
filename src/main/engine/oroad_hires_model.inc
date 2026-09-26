@@ -437,6 +437,10 @@ void HWRoad::apply_hires_hscroll_model(
 
     auto apply = [this](int table_base, const double* source)
     {
+        constexpr double hard_limit = 127.0 / 64.0;
+        constexpr double soft_knee = 1.5;
+        constexpr double soft_range = hard_limit - soft_knee;
+
         for (int i = 0; i < DX_HIRES_ROAD_SAMPLES; ++i)
         {
             const int integer_hpos = ramBuff[table_base + i] & 0x0fff;
@@ -451,11 +455,20 @@ void HWRoad::apply_hires_hscroll_model(
             else if (delta < -2048.0)
                 delta += 4096.0;
 
-            // Keep the integer Road RAM untouched so the low-resolution path is
-            // still bit-for-bit arcade data. The existing int8 side-buffer gives
-            // the model almost +/-2 native pixels of correction (up to +/-8
-            // physical pixels at 4x), which is ample for the segment kinks this
-            // experiment targets.
+            // The original experimental model used a hard +/-127/64-pixel clamp.
+            // When the smooth curve diverged slightly more than that from the
+            // arcade polygon in the far field, entering/leaving the clamp created
+            // a visible wobble. Preserve corrections up to +/-1.5 pixels exactly,
+            // then approach the same safety limit continuously with matching slope.
+            const double magnitude = std::abs(delta);
+            if (magnitude > soft_knee)
+            {
+                const double excess = magnitude - soft_knee;
+                const double softened = soft_knee +
+                    soft_range * (1.0 - std::exp(-excess / soft_range));
+                delta = std::copysign(softened, delta);
+            }
+
             const int fraction = std::clamp(
                 static_cast<int>(std::lround(delta * 64.0)),
                 -127,
