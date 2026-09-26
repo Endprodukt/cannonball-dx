@@ -39,6 +39,10 @@ public:
     void capture_hires_road_y(const int16_t* curve);
     void select_hires_depth_renderer();
 
+    // Exact-ROM-row follow-up renderer. Kept separate from the first depth
+    // experiment so the two approaches remain directly comparable.
+    void select_hires_romrow_renderer();
+
     // Experimental DX road model. This replaces only the high-resolution
     // fractional HScroll side-buffer; integer Road RAM remains arcade-exact.
     void apply_hires_hscroll_model(const double* road0_h, const double* road1_h);
@@ -91,6 +95,7 @@ private:
     void render_background_hires(uint16_t*);
     void render_foreground_hires(uint16_t*);
     void render_foreground_hires_depth(uint16_t*);
+    void render_foreground_hires_romrows(uint16_t*);
 };
 
 extern HWRoad hwroad;
