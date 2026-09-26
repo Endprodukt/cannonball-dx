@@ -33,6 +33,12 @@
 // arcade implementation. It is compiled here so no CMake/source-list changes are
 // required while the experiment remains on the test branch.
 #include "hwvideo/hwroad_hires_depth.inc"
+#include "hwvideo/hwroad_hires_romrows.inc"
+
+// The next experimental layer deliberately lives outside the preserved arcade
+// code as well. It rebuilds only the visual X curve from the same track data and
+// feeds a bounded fractional correction to the high-resolution renderer.
+#include "oroad_hires_model.inc"
 
 namespace
 {
@@ -181,7 +187,12 @@ void ORoad::tick()
     // this depth mapping; their horizontal positions remain independent.
     if (config.video.hires > 0)
     {
+        dx_update_hires_road_model(*this);
         hwroad.capture_hires_road_y(&road_y[road_p2]);
+        // Keep the visually superior clean high-resolution profile active while
+        // the per-ROM-row geometry remains available as an experimental reference.
+        // The next iteration will smooth each real ROM edge across depth instead
+        // of drawing the raw quantised edge positions directly.
         hwroad.select_hires_depth_renderer();
     }
 
