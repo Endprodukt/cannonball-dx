@@ -38,6 +38,10 @@ public:
     // curve that corresponds to the road data just blitted into Road RAM.
     void capture_hires_road_y(const int16_t* curve);
     void select_hires_depth_renderer();
+
+    // Experimental DX road model. This replaces only the high-resolution
+    // fractional HScroll side-buffer; integer Road RAM remains arcade-exact.
+    void apply_hires_hscroll_model(const double* road0_h, const double* road1_h);
   
 private:
     uint8_t road_control;
