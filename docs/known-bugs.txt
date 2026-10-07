@@ -1,10 +1,10 @@
 As of October 2026:
 
 - ROAD ENHANCEMENT (VIDEO ENHANCEMENTS menu, 2X engine resolution and above) smooths the
-  road edges and markings between native scanlines. The road data itself is still only
-  accurate to one native pixel, so a slight waviness of about one native pixel remains
-  visible along road edges on very large displays. Native scanlines are rendered exactly
-  as before, so sprite and shadow alignment is unaffected. The option can be switched off.
+  road edges and markings between native scanlines and filters the whole-pixel jitter of
+  the original road data. The filter is limited to 0.75 native pixels, so road and
+  roadside sprites cannot drift apart, but a faint remaining unevenness of under one
+  native pixel may still be seen on very large displays. The option can be switched off.
 
 As of September 2025:
 

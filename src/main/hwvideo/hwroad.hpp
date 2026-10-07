@@ -37,6 +37,7 @@ public:
         int16_t  count;      // -1 = too many transitions, row is used unsmoothed
         uint8_t  first_code;
         uint16_t pos[ROW_MAX_EDGES];  // x where the colour changes to code[i]
+        int16_t  pos16[ROW_MAX_EDGES]; // pos smoothed across neighbouring rows, 1/16 px
         uint8_t  code[ROW_MAX_EDGES];
     };
 
@@ -61,6 +62,7 @@ private:
 
     void decode_road(const uint8_t*);
     void build_row_edges();
+    int  smoothed_hpos_fp(int road, int yy, int render_scale) const;
     void build_hires_road_line(int road, int yy, int sub, int render_scale,
                                uint8_t* vrow, int& hpos_fp);
     void render_background_lores(uint16_t*);

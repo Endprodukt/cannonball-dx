@@ -197,6 +197,30 @@ void HWRoad::decode_road(const uint8_t* src_road)
     }
 }
 
+namespace
+{
+    // The hi-res road smoothing never moves anything further than half a native
+    // pixel away from the original data, so road and sprites cannot drift apart.
+    constexpr int ROAD_SMOOTH_RADIUS = 2;
+    constexpr int ROAD_SMOOTH_WEIGHTS[ROAD_SMOOTH_RADIUS * 2 + 1] = { 1, 2, 3, 2, 1 };
+
+    inline int round_div(int value, int divisor)
+    {
+        return value >= 0 ? (value + divisor / 2) / divisor
+                          : -((-value + divisor / 2) / divisor);
+    }
+
+    inline bool same_edge_sequence(const HWRoad::RowEdges& a, const HWRoad::RowEdges& b)
+    {
+        if (a.count < 0 || a.count != b.count || a.first_code != b.first_code)
+            return false;
+        for (int i = 0; i < a.count; i++)
+            if (a.code[i] != b.code[i])
+                return false;
+        return true;
+    }
+}
+
 // DX: record where the colour code changes within each decoded ROM row
 // (including the dummy row). Rows with more transitions than the table holds
 // are flagged and rendered unsmoothed by the hi-res road renderer.
@@ -221,6 +245,42 @@ void HWRoad::build_row_edges()
             edges.pos[edges.count]  = static_cast<uint16_t>(x);
             edges.code[edges.count] = src[x];
             edges.count++;
+        }
+    }
+
+    // The ROM stores edge positions rounded to whole pixels, which makes the
+    // road width grow in irregular 1/2 pixel steps from row to row. Smooth each
+    // edge across neighbouring rows of the same road with the same stripe
+    // layout, limited to +-0.25 px of the original position. Together with the
+    // +-0.5 px horizontal smoothing in smoothed_hpos_fp() no road edge ever
+    // moves more than 0.75 native pixels from where the original renderer put it.
+    for (int row = 0; row < 256 * 2 + 1; row++)
+    {
+        RowEdges& edges = row_edges[row];
+        for (int i = 0; i < ROW_MAX_EDGES; i++)
+            edges.pos16[i] = static_cast<int16_t>(edges.pos[i] * 16);
+        if (edges.count <= 0 || row >= 512)
+            continue;
+
+        const int road_first = (row / 256) * 256;
+        const int road_last  = road_first + 255;
+        for (int i = 0; i < edges.count; i++)
+        {
+            int sum = 0, weight_sum = 0;
+            for (int k = -ROAD_SMOOTH_RADIUS; k <= ROAD_SMOOTH_RADIUS; k++)
+            {
+                const int other = row + k;
+                if (other < road_first || other > road_last)
+                    continue;
+                if (!same_edge_sequence(edges, row_edges[other]))
+                    continue;
+                const int w = ROAD_SMOOTH_WEIGHTS[k + ROAD_SMOOTH_RADIUS];
+                sum += w * (row_edges[other].pos[i] - edges.pos[i]);
+                weight_sum += w;
+            }
+            int delta16 = round_div(sum * 16, weight_sum);
+            delta16 = std::clamp(delta16, -4, 4);
+            edges.pos16[i] = static_cast<int16_t>(edges.pos[i] * 16 + delta16);
         }
     }
 }
@@ -813,9 +873,10 @@ namespace
         unsigned code = a.first_code;
         for (int i = 0; i < a.count; i++)
         {
-            int pos = a.pos[i] * render_scale;
+            int pos16 = a.pos16[i] * render_scale;
             if (b)
-                pos += (b->pos[i] - a.pos[i]) * frac;
+                pos16 += (b->pos16[i] - a.pos16[i]) * frac;
+            int pos = (pos16 + 8) >> 4;
             if (pos > total) pos = total;
             if (pos > x)
             {
@@ -833,16 +894,46 @@ namespace
         for (int x = 0; x < 512; x++)
             std::fill_n(vrow + x * render_scale, render_scale, row[x]);
     }
+}
 
-    inline bool same_edge_sequence(const HWRoad::RowEdges& a, const HWRoad::RowEdges& b)
+// Horizontal road position of one native scanline in 1/render_scale pixels,
+// smoothed across neighbouring valid scanlines. The ROM curve tables move the
+// road back and forth by whole pixels from line to line; the filter removes
+// that but never leaves +-0.5 native pixel of the original value.
+int HWRoad::smoothed_hpos_fp(int road, int yy, int render_scale) const
+{
+    const bool direct = (road_control & 4) != 0;
+    const int ram_base  = road * 0x100;
+    const int hpos_base = 0x200 + road * 0x200;
+
+    auto hpos_at = [&](int line, int& out) -> bool
     {
-        if (a.count < 0 || a.count != b.count || a.first_code != b.first_code)
+        if (line < 0 || line >= S16_HEIGHT)
             return false;
-        for (int i = 0; i < a.count; i++)
-            if (a.code[i] != b.code[i])
-                return false;
+        const uint32_t d = ramBuff[ram_base + line];
+        if (d & 0x800)
+            return false;
+        out = ramBuff[hpos_base + (direct ? (ram_base + line) : (d & 0x1ff))] & 0xfff;
         return true;
+    };
+
+    int centre = 0;
+    hpos_at(yy, centre);
+
+    int sum = 0, weight_sum = 0;
+    for (int k = -ROAD_SMOOTH_RADIUS; k <= ROAD_SMOOTH_RADIUS; k++)
+    {
+        int v;
+        if (!hpos_at(yy + k, v))
+            continue;
+        const int w = ROAD_SMOOTH_WEIGHTS[k + ROAD_SMOOTH_RADIUS];
+        sum += w * wrapped_delta(centre, v, 0x1000);
+        weight_sum += w;
     }
+
+    int delta_fp = round_div(sum * render_scale, weight_sum);
+    delta_fp = std::clamp(delta_fp, -(render_scale / 2), render_scale / 2);
+    return centre * render_scale + delta_fp;
 }
 
 // Build the hi-res source line for one road at output scanline (yy, sub):
@@ -853,9 +944,7 @@ void HWRoad::build_hires_road_line(
     int road, int yy, int sub, int render_scale, uint8_t* vrow, int& hpos_fp)
 {
     const uint16_t* roadram = ramBuff;
-    const bool direct = (road_control & 4) != 0;
     const int ram_base = road * 0x100;     // 0x000 / 0x100: line select
-    const int hpos_base = 0x200 + road * 0x200; // 0x200 / 0x400: hscroll
     const int row_base = road * 256;
 
     const uint32_t data = roadram[ram_base + yy];
@@ -867,10 +956,9 @@ void HWRoad::build_hires_road_line(
         return;
     }
 
-    const int hpos = roadram[hpos_base + (direct ? (ram_base + yy) : (data & 0x1ff))] & 0xfff;
     const int line = (data >> 1) & 0xff;
 
-    hpos_fp     = hpos * render_scale;
+    hpos_fp     = smoothed_hpos_fp(road, yy, render_scale);
     int line_fp = line * render_scale;
 
     if (sub != 0 && yy < S16_HEIGHT - 1)
@@ -878,10 +966,11 @@ void HWRoad::build_hires_road_line(
         const uint32_t next = roadram[ram_base + yy + 1];
         if (!(next & 0x800))
         {
-            const int next_hpos = roadram[hpos_base +
-                (direct ? (ram_base + yy + 1) : (next & 0x1ff))] & 0xfff;
+            const int next_hpos_fp = smoothed_hpos_fp(road, yy + 1, render_scale);
             const int next_line = (next >> 1) & 0xff;
-            hpos_fp += wrapped_delta(hpos, next_hpos, 0x1000) * sub;
+            hpos_fp += round_div(
+                wrapped_delta(hpos_fp, next_hpos_fp, 0x1000 * render_scale) * sub,
+                render_scale);
             line_fp += wrapped_delta(line, next_line, 0x100) * sub;
         }
     }
