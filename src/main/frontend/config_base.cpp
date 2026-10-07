@@ -234,6 +234,7 @@ void Config::load()
     video.hires_next    =
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
     video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution
+    video.hiresroad     = cfg.get_int("video.hiresroad",       1); // DX: smooth road edges at 2X and above
     video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence
     video.x_offset      = cfg.get_int("video.x_offset",        0); // Offset from calculated image X position
     video.y_offset      = cfg.get_int("video.y_offset",        0); // Offset from calculated image Y position
@@ -460,6 +461,7 @@ bool Config::save()
     cfg.put_int("video.vsync",              video.vsync);         // V-Sync (1)
     cfg.put_int("video.hires",              video.hires);         // Game engine hires mode (1=enabled)
     cfg.put_int("video.hiresprites",        video.hiresprites);   // hi-res sprites (1=enabled)
+    cfg.put_int("video.hiresroad",          video.hiresroad);     // DX smooth hi-res road (1=enabled)
     cfg.put_int("video.x_offset",           video.x_offset);      // X offset
     cfg.put_int("video.y_offset",           video.y_offset);      // Y offset
     // JJP Additional configuration for CRT emulation

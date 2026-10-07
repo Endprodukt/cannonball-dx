@@ -1,3 +1,11 @@
+As of October 2026:
+
+- ROAD ENHANCEMENT (VIDEO ENHANCEMENTS menu, 2X engine resolution and above) smooths the
+  road edges and markings between native scanlines. The road data itself is still only
+  accurate to one native pixel, so a slight waviness of about one native pixel remains
+  visible along road edges on very large displays. Native scanlines are rendered exactly
+  as before, so sprite and shadow alignment is unaffected. The option can be switched off.
+
 As of September 2025:
 
 - Audio may not play after system restart. This is caused by the SDL device ordering

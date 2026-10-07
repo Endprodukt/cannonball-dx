@@ -133,6 +133,7 @@ struct video_settings_t
     int desaturate_edges;
     int brightboost;
     int hiresprites;        // 0 = original; 1 = hires mode
+    int hiresroad;          // DX: 0 = block-scaled road; 1 = smooth hi-res road edges
 };
 
 struct sound_settings_t

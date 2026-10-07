@@ -27,7 +27,19 @@ public:
     void write_road_control(const uint8_t);
     void (HWRoad::*render_background)(uint16_t*);
     void (HWRoad::*render_foreground)(uint16_t*);
-  
+
+    // DX: colour transitions of every decoded road ROM row. The smooth hi-res
+    // renderer interpolates these edge positions between the ROM rows of two
+    // adjacent native scanlines instead of switching rows in whole steps.
+    static const int ROW_MAX_EDGES = 48;
+    struct RowEdges
+    {
+        int16_t  count;      // -1 = too many transitions, row is used unsmoothed
+        uint8_t  first_code;
+        uint16_t pos[ROW_MAX_EDGES];  // x where the colour changes to code[i]
+        uint8_t  code[ROW_MAX_EDGES];
+    };
+
 private:
     uint8_t road_control;
     uint16_t color_offset1;
@@ -45,11 +57,17 @@ private:
     uint16_t ram[ROAD_RAM_SIZE / 2];
     uint16_t ramBuff[ROAD_RAM_SIZE / 2];
 
+    RowEdges row_edges[256 * 2 + 1];
+
     void decode_road(const uint8_t*);
+    void build_row_edges();
+    void build_hires_road_line(int road, int yy, int sub, int render_scale,
+                               uint8_t* vrow, int& hpos_fp);
     void render_background_lores(uint16_t*);
     void render_foreground_lores(uint16_t*);
     void render_background_hires(uint16_t*);
     void render_foreground_hires(uint16_t*);
+    void render_foreground_hires_smooth(uint16_t*);
 };
 
 extern HWRoad hwroad;

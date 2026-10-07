@@ -233,6 +233,9 @@ public:
                 std::string("SPRITE ENHANCEMENT ") +
                 (config.video.hiresprites ? "ON" : "OFF"));
             menu_video_enhancements.push_back(
+                std::string("ROAD ENHANCEMENT ") +
+                (config.video.hiresroad ? "ON" : "OFF"));
+            menu_video_enhancements.push_back(
                 std::string("OBJECT ENHANCEMENT ") +
                 (config.engine.level_objects ? "ON" : "OFF"));
             menu_video_enhancements.push_back(

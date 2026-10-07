@@ -134,6 +134,7 @@ void HWRoad::init(const uint8_t* src_road, const bool hires)
         color_offset3 = 0x780;
         x_offset = 0;
         decode_road(src_road);
+        build_row_edges();
     }
 
     if (hires)
@@ -190,9 +191,37 @@ void HWRoad::decode_road(const uint8_t* src_road)
     }
 
     // set up a dummy road in the last entry
-    for (int i = 0; i < 512; i++) 
+    for (int i = 0; i < 512; i++)
     {
         roads[256 * 2 * 512 + i] = 3;
+    }
+}
+
+// DX: record where the colour code changes within each decoded ROM row
+// (including the dummy row). Rows with more transitions than the table holds
+// are flagged and rendered unsmoothed by the hi-res road renderer.
+void HWRoad::build_row_edges()
+{
+    for (int row = 0; row < 256 * 2 + 1; row++)
+    {
+        const uint8_t* src = roads + row * 512;
+        RowEdges& edges = row_edges[row];
+        edges.count = 0;
+        edges.first_code = src[0];
+
+        for (int x = 1; x < 512; x++)
+        {
+            if (src[x] == src[x - 1])
+                continue;
+            if (edges.count == ROW_MAX_EDGES)
+            {
+                edges.count = -1;
+                break;
+            }
+            edges.pos[edges.count]  = static_cast<uint16_t>(x);
+            edges.code[edges.count] = src[x];
+            edges.count++;
+        }
     }
 }
 
@@ -587,6 +616,12 @@ namespace
 // ------------------------------------------------------------------------------------------------
 void HWRoad::render_foreground_hires(uint16_t* pixels)
 {
+    if (config.video.hiresroad)
+    {
+        render_foreground_hires_smooth(pixels);
+        return;
+    }
+
     const int render_scale = std::clamp(config.video.hires + 1, 2, 4);
     const int width = config.s16_width;
     const int logical_width = width / render_scale;
@@ -737,6 +772,263 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
             std::fill_n(out + (x * render_scale), render_scale, colour);
             h0 = (h0 + 1) & 0xfff;
             h1 = (h1 + 1) & 0xfff;
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Render Road Foreground - Smooth High Resolution Version (DX "ROAD ENHANCEMENT")
+//
+// Every native System 16 scanline is reproduced exactly as the original renderer
+// draws it. Only the intermediate hi-res scanlines are refined:
+//   - the horizontal road position is interpolated with 1/render_scale pixel
+//     precision instead of being rounded to whole native pixels
+//   - the road ROM row is not switched in whole steps; instead the colour
+//     transitions (edges) of the two neighbouring ROM rows are interpolated
+// Everything else (priorities, colours, solid fills, road RAM) is untouched, so
+// sprites and shadows keep lining up with the road at native scanlines.
+// ------------------------------------------------------------------------------------------------
+namespace
+{
+    inline int wrapped_delta(int current, int next, int period)
+    {
+        const int half = period >> 1;
+        int delta = next - current;
+        if (delta > half) delta -= period;
+        else if (delta < -half) delta += period;
+        return delta;
+    }
+
+    // Expand one ROM row to render_scale pixels per native pixel. When 'b' is
+    // given, edge positions are blended towards it by frac/render_scale.
+    inline void expand_row_edges(
+        const HWRoad::RowEdges& a,
+        const HWRoad::RowEdges* b,
+        int frac,
+        int render_scale,
+        uint8_t* vrow)
+    {
+        const int total = 512 * render_scale;
+        int x = 0;
+        unsigned code = a.first_code;
+        for (int i = 0; i < a.count; i++)
+        {
+            int pos = a.pos[i] * render_scale;
+            if (b)
+                pos += (b->pos[i] - a.pos[i]) * frac;
+            if (pos > total) pos = total;
+            if (pos > x)
+            {
+                std::fill_n(vrow + x, pos - x, static_cast<uint8_t>(code));
+                x = pos;
+            }
+            code = a.code[i];
+        }
+        if (x < total)
+            std::fill_n(vrow + x, total - x, static_cast<uint8_t>(code));
+    }
+
+    inline void expand_row_raw(const uint8_t* row, int render_scale, uint8_t* vrow)
+    {
+        for (int x = 0; x < 512; x++)
+            std::fill_n(vrow + x * render_scale, render_scale, row[x]);
+    }
+
+    inline bool same_edge_sequence(const HWRoad::RowEdges& a, const HWRoad::RowEdges& b)
+    {
+        if (a.count < 0 || a.count != b.count || a.first_code != b.first_code)
+            return false;
+        for (int i = 0; i < a.count; i++)
+            if (a.code[i] != b.code[i])
+                return false;
+        return true;
+    }
+}
+
+// Build the hi-res source line for one road at output scanline (yy, sub):
+// 'vrow' receives 512 * render_scale colour codes, 'hpos_fp' the horizontal
+// scroll in 1/render_scale native pixels. At sub == 0 both match the original
+// renderer exactly.
+void HWRoad::build_hires_road_line(
+    int road, int yy, int sub, int render_scale, uint8_t* vrow, int& hpos_fp)
+{
+    const uint16_t* roadram = ramBuff;
+    const bool direct = (road_control & 4) != 0;
+    const int ram_base = road * 0x100;     // 0x000 / 0x100: line select
+    const int hpos_base = 0x200 + road * 0x200; // 0x200 / 0x400: hscroll
+    const int row_base = road * 256;
+
+    const uint32_t data = roadram[ram_base + yy];
+    if (data & 0x800)
+    {
+        // Solid fill: behaves like the dummy row (all exterior)
+        std::fill_n(vrow, 512 * render_scale, static_cast<uint8_t>(3));
+        hpos_fp = 0;
+        return;
+    }
+
+    const int hpos = roadram[hpos_base + (direct ? (ram_base + yy) : (data & 0x1ff))] & 0xfff;
+    const int line = (data >> 1) & 0xff;
+
+    hpos_fp     = hpos * render_scale;
+    int line_fp = line * render_scale;
+
+    if (sub != 0 && yy < S16_HEIGHT - 1)
+    {
+        const uint32_t next = roadram[ram_base + yy + 1];
+        if (!(next & 0x800))
+        {
+            const int next_hpos = roadram[hpos_base +
+                (direct ? (ram_base + yy + 1) : (next & 0x1ff))] & 0xfff;
+            const int next_line = (next >> 1) & 0xff;
+            hpos_fp += wrapped_delta(hpos, next_hpos, 0x1000) * sub;
+            line_fp += wrapped_delta(line, next_line, 0x100) * sub;
+        }
+    }
+
+    // Split the fractional ROM row into base row + fraction (0..render_scale-1)
+    int row_a = line_fp / render_scale;
+    int frac  = line_fp - row_a * render_scale;
+    if (frac < 0) { frac += render_scale; row_a--; }
+    row_a &= 0xff;
+
+    const RowEdges& a = row_edges[row_base + row_a];
+    if (frac == 0 || row_a == 255)
+    {
+        if (a.count < 0) expand_row_raw(roads + (row_base + row_a) * 512, render_scale, vrow);
+        else             expand_row_edges(a, nullptr, 0, render_scale, vrow);
+        return;
+    }
+
+    const RowEdges& b = row_edges[row_base + row_a + 1];
+    if (same_edge_sequence(a, b))
+    {
+        expand_row_edges(a, &b, frac, render_scale, vrow);
+        return;
+    }
+
+    // Differing stripe layout between the two rows: use the nearer row as is
+    const int nearest = (frac * 2 >= render_scale) ? row_a + 1 : row_a;
+    const RowEdges& n = row_edges[row_base + nearest];
+    if (n.count < 0) expand_row_raw(roads + (row_base + nearest) * 512, render_scale, vrow);
+    else             expand_row_edges(n, nullptr, 0, render_scale, vrow);
+}
+
+void HWRoad::render_foreground_hires_smooth(uint16_t* pixels)
+{
+    const int render_scale = std::clamp(config.video.hires + 1, 2, 4);
+    const int width = config.s16_width;
+    uint16_t* roadram = ramBuff;
+
+    static const uint8_t priority_map[2][8] =
+    {
+        { 0x80,0x81,0x81,0x87,0,0,0,0x00 },
+        { 0x81,0x81,0x81,0x8f,0,0,0,0x80 }
+    };
+    static const ALIGN64 uint8_t priority_lookup[8][8] =
+    {
+        { 0,0,0,0,0,0,0,1 },
+        { 1,0,0,0,0,0,0,1 },
+        { 1,0,0,0,0,0,0,1 },
+        { 1,1,1,0,0,0,0,1 },
+        { 0,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,0 }
+    };
+
+    const int scaled_period  = 0x1000 * render_scale;
+    const int scaled_visible = 0x200 * render_scale;
+    const int screen_offset_fp = (0x5f8 + config.s16_x_off + x_offset) * render_scale;
+
+    static uint8_t vrow0[512 * 4];
+    static uint8_t vrow1[512 * 4];
+
+    for (int y = 0; y < config.s16_height; ++y)
+    {
+        const int yy = y / render_scale;
+        const int sub = y % render_scale;
+
+        const uint32_t data0 = roadram[0x000 + yy];
+        const uint32_t data1 = roadram[0x100 + yy];
+
+        if ((data0 & 0x800) && (data1 & 0x800))
+            continue;
+
+        const int control = road_control & 3;
+        if ((control == 0 && (data0 & 0x800)) ||
+            (control == 3 && (data1 & 0x800)))
+        {
+            continue;
+        }
+
+        const bool use0 = control != 3 && !(data0 & 0x800);
+        const bool use1 = control != 0 && !(data1 & 0x800);
+
+        int hpos0_fp = 0, hpos1_fp = 0;
+        if (control != 3) build_hires_road_line(0, yy, sub, render_scale, vrow0, hpos0_fp);
+        if (control != 0) build_hires_road_line(1, yy, sub, render_scale, vrow1, hpos1_fp);
+
+        uint16_t color_table[32]{};
+        const int color0 = roadram[0x600 +
+            (((road_control & 4) != 0) ? yy : (data0 & 0x1ff))];
+        const int color1 = roadram[0x600 +
+            (((road_control & 4) != 0) ? (0x100 + yy) : (data1 & 0x1ff))];
+        int bgcolor = (color0 >> 8) & 0xf;
+
+        color_table[0x00] = color_offset1 ^ 0x00 ^ ((color0 >> 0) & 1);
+        color_table[0x01] = color_offset1 ^ 0x02 ^ ((color0 >> 1) & 1);
+        color_table[0x02] = color_offset1 ^ 0x04 ^ ((color0 >> 2) & 1);
+        color_table[0x03] = (data0 & 0x200)
+            ? color_table[0x00]
+            : (color_offset2 ^ 0x00 ^ bgcolor);
+        color_table[0x07] = color_offset1 ^ 0x06 ^ ((color0 >> 3) & 1);
+
+        bgcolor = (color1 >> 8) & 0xf;
+        color_table[0x10] = color_offset1 ^ 0x08 ^ ((color1 >> 4) & 1);
+        color_table[0x11] = color_offset1 ^ 0x0a ^ ((color1 >> 5) & 1);
+        color_table[0x12] = color_offset1 ^ 0x0c ^ ((color1 >> 6) & 1);
+        color_table[0x13] = (data1 & 0x200)
+            ? color_table[0x10]
+            : (color_offset2 ^ 0x10 ^ bgcolor);
+        color_table[0x17] = color_offset1 ^ 0x0e ^ ((color1 >> 7) & 1);
+
+        int h0 = (hpos0_fp - screen_offset_fp) % scaled_period;
+        if (h0 < 0) h0 += scaled_period;
+        int h1 = (hpos1_fp - screen_offset_fp) % scaled_period;
+        if (h1 < 0) h1 += scaled_period;
+
+        uint16_t* out = pixels + (y * width);
+
+        for (int x = 0; x < width; ++x)
+        {
+            const unsigned pix0 = (use0 && h0 < scaled_visible) ? vrow0[h0] : 3u;
+            const unsigned pix1 = (use1 && h1 < scaled_visible) ? vrow1[h1] : 3u;
+            uint16_t colour;
+
+            switch (control)
+            {
+                case 0:
+                    colour = color_table[pix0];
+                    break;
+                case 1:
+                    colour = priority_lookup[pix0][pix1]
+                        ? color_table[0x10 + pix1]
+                        : color_table[pix0];
+                    break;
+                case 2:
+                    colour = ((priority_map[1][pix0] >> pix1) & 1)
+                        ? color_table[0x10 + pix1]
+                        : color_table[pix0];
+                    break;
+                default:
+                    colour = color_table[0x10 + pix1];
+                    break;
+            }
+
+            out[x] = colour;
+            if (++h0 == scaled_period) h0 = 0;
+            if (++h1 == scaled_period) h1 = 0;
         }
     }
 }

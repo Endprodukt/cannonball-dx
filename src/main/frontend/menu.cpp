@@ -66,6 +66,7 @@ namespace
     const char* SELECTION_TIMER_LABEL = "SELECTION TIMER ";
     const char* BUMPER_HEIGHT_LABEL = "BUMPER HEIGHT ";
     const char* SPRITE_ENHANCEMENT_LABEL = "SPRITE ENHANCEMENT ";
+    const char* ROAD_ENHANCEMENT_LABEL = "ROAD ENHANCEMENT ";
     const char* OBJECT_ENHANCEMENT_LABEL = "OBJECT ENHANCEMENT ";
     const char* FERRARI_MIRROR_FIX_LABEL = "FERRARI LOGO FIX ";
     // 0x10 is OutRun's copyright glyph, also used by the attract-mode copyright text.
@@ -184,6 +185,12 @@ namespace
     {
         return std::string(SPRITE_ENHANCEMENT_LABEL) +
             (config.video.hiresprites ? "ON" : "OFF");
+    }
+
+    std::string road_enhancement_menu_text()
+    {
+        return std::string(ROAD_ENHANCEMENT_LABEL) +
+            (config.video.hiresroad ? "ON" : "OFF");
     }
 
     std::string object_enhancement_menu_text()
@@ -658,6 +665,8 @@ void Menu::tick()
             if (starts_with_label(entry, ENTRY_SPRITERES) ||
                 starts_with_label(entry, SPRITE_ENHANCEMENT_LABEL))
                 entry = sprite_enhancement_menu_text();
+            else if (starts_with_label(entry, ROAD_ENHANCEMENT_LABEL))
+                entry = road_enhancement_menu_text();
             else if (starts_with_label(entry, ENTRY_OBJECTS) ||
                      starts_with_label(entry, OBJECT_ENHANCEMENT_LABEL))
                 entry = object_enhancement_menu_text();
@@ -1009,6 +1018,18 @@ bool Menu::select_pressed()
             {
                 config.video.hiresprites ^= 1;
                 menu_video_enhancements[cursor] = sprite_enhancement_menu_text();
+            }
+            return false;
+        }
+
+        if (starts_with_label(option, ROAD_ENHANCEMENT_LABEL))
+        {
+            if (config.video.hires == 0)
+                display_message("SET ENGINE RESOLUTION TO 2X OR HIGHER FIRST");
+            else
+            {
+                config.video.hiresroad ^= 1;
+                menu_video_enhancements[cursor] = road_enhancement_menu_text();
             }
             return false;
         }
