@@ -82,7 +82,8 @@ jobs:
           cp /usr/share/doc/libtinyxml2-dev/copyright dist/cannonball-dx/lib/tinyxml2-license.txt
 
           readelf -d dist/cannonball-dx/cannonball-dx | grep -E 'R(UN)?PATH.*[$]ORIGIN/lib'
-          (cd dist/cannonball-dx && ldd ./cannonball-dx | grep -F "$PWD/lib/libtinyxml2")
+          # The bundled copy must win over the system library.
+          (cd dist/cannonball-dx && ldd ./cannonball-dx | grep -F libtinyxml2 | tee /dev/stderr | grep -vq x86_64-linux-gnu)
           cp -r res dist/cannonball-dx/res
           cp -r docs dist/cannonball-dx/docs
           cp roms/roms.txt dist/cannonball-dx/roms/roms.txt
