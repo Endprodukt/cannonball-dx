@@ -239,6 +239,7 @@ private:
     void bind_button(SDL_GameControllerButton button, int offset);
     void handle_key(const int, const bool);
     void handle_joy(SDL_JoystickID device, const uint8_t button, const bool is_pressed);
+    void handle_raw_joy(SDL_JoystickID device, const uint8_t button, const bool is_pressed);
     void handle_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void store_last_axis(SDL_JoystickID device, const uint8_t axis, const int16_t value);
     void capture_raw_axis_motion(SDL_JoystickID device, const uint8_t axis, const int16_t value);

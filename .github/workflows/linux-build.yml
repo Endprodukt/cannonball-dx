@@ -53,7 +53,8 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DWITH_MARCH_NATIVE=OFF
+            -DWITH_MARCH_NATIVE=OFF \
+            '-DCMAKE_BUILD_RPATH=$ORIGIN/lib'
 
       - name: Build
         run: cmake --build build --parallel
@@ -70,6 +71,18 @@ jobs:
           mkdir -p dist/cannonball-dx/roms
 
           cp build/cannonball-dx dist/cannonball-dx/
+
+          # TinyXML2 changes its soname between distributions (SteamOS has no
+          # libtinyxml2.so.10), so ship the one the executable was linked
+          # against. The executable finds it through its $ORIGIN/lib rpath.
+          mkdir -p dist/cannonball-dx/lib
+          tinyxml2_lib="$(ldd build/cannonball-dx | awk '/libtinyxml2[.]so/ { print $3 }')"
+          test -f "$tinyxml2_lib"
+          cp -L "$tinyxml2_lib" "dist/cannonball-dx/lib/$(basename "$tinyxml2_lib")"
+          cp /usr/share/doc/libtinyxml2-dev/copyright dist/cannonball-dx/lib/tinyxml2-license.txt
+
+          readelf -d dist/cannonball-dx/cannonball-dx | grep -E 'R(UN)?PATH.*[$]ORIGIN/lib'
+          (cd dist/cannonball-dx && ldd ./cannonball-dx | grep -F "$PWD/lib/libtinyxml2")
           cp -r res dist/cannonball-dx/res
           cp -r docs dist/cannonball-dx/docs
           cp roms/roms.txt dist/cannonball-dx/roms/roms.txt
@@ -94,10 +107,13 @@ jobs:
           echo "Linux package contents:"
           find dist/cannonball-dx -maxdepth 3 -type f | sort
 
+          # Artifact uploads drop the executable bit; a tarball keeps it.
+          tar -C dist -czf dist/cannonball-dx-linux-x64.tar.gz cannonball-dx
+
       - name: Upload Linux release package
         uses: actions/upload-artifact@v4
         with:
           name: cannonball-dx-linux-${{ github.ref_name }}-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
-          path: dist/cannonball-dx
+          path: dist/cannonball-dx-linux-x64.tar.gz

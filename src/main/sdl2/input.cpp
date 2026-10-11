@@ -670,6 +670,87 @@ void Input::normalize_device_bindings()
         }
     }
 
+    // GAMEPAD bindings use standardized SDL GameController numbering, so they
+    // stay meaningful on any controller. Steam Input (Steam Deck, non-Steam
+    // shortcuts) replaces the physical pad with a virtual one that reports a
+    // different GUID, which would otherwise leave every stored binding
+    // orphaned. If no connected GameController owns the stored GAMEPAD
+    // bindings, hand them to the active one. Raw-axis fallbacks describe one
+    // physical device and are left untouched.
+    const InputDevice* active_pad = find_device(get_gamepad_device());
+
+    if (active_pad)
+    {
+        auto binding_owned_by_connected_pad = [&](const device_binding_t& binding)
+        {
+            const std::string stored_signature =
+                raw_binding_signature(binding.device);
+
+            for (const auto& device : devices)
+            {
+                if (!is_gamepad_device(device.instance_id))
+                    continue;
+
+                const std::string signature = make_device_signature(device);
+
+                if (stored_signature == signature)
+                    return true;
+
+                if (binding.vid && binding.pid &&
+                    binding.vid == device.vid &&
+                    binding.pid == device.pid &&
+                    signature_shape(stored_signature) == signature_shape(signature))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        bool has_gamepad_binding = false;
+        bool gamepad_binding_owned = false;
+
+        for (const auto& binding : bindings)
+        {
+            if (!binding_is_group(binding.device, BINDING_GAMEPAD))
+                continue;
+
+            has_gamepad_binding = true;
+            if (binding_owned_by_connected_pad(binding))
+            {
+                gamepad_binding_owned = true;
+                break;
+            }
+        }
+
+        if (has_gamepad_binding && !gamepad_binding_owned)
+        {
+            const std::string adopted_device =
+                std::string(GAMEPAD_PREFIX) + make_device_signature(*active_pad);
+
+            for (auto& binding : bindings)
+            {
+                if (!binding_is_group(binding.device, BINDING_GAMEPAD))
+                    continue;
+
+                if (binding.type == device_binding_t::TYPE_AXIS &&
+                    binding.index >= RAW_GAMEPAD_AXIS_BASE)
+                {
+                    continue;
+                }
+
+                binding.device = adopted_device;
+                binding.vid = active_pad->vid;
+                binding.pid = active_pad->pid;
+            }
+
+            std::cout
+                << "GAMEPAD bindings adopted by: " << active_pad->name
+                << std::endl;
+        }
+    }
+
     // Every matrix cell represents exactly one logical assignment. Older
     // versions allowed WHEEL bindings to accumulate and could therefore show
     // MULTI after rebinding. Keep only the most recently stored binding for
@@ -1449,6 +1530,29 @@ void Input::handle_controller_axis(SDL_ControllerAxisEvent* evt)
         BINDING_GAMEPAD);
 }
 
+void Input::handle_raw_joy(SDL_JoystickID device,
+    const uint8_t button,
+    const bool is_pressed)
+{
+    // Directional slots 8-11 hold SDL GameController D-pad values (11-14) by
+    // default. Raw joystick button numbers are unrelated, so a wheel shifter
+    // or paddle reporting button 13/14 must not steer. Only a direction that
+    // was explicitly bound to this physical device may match a raw button.
+    int saved[4];
+
+    for (int slot = 8; slot <= 11; slot++)
+    {
+        saved[slot - 8] = pad_config[slot];
+        if (button_device[slot] != device)
+            pad_config[slot] = -1;
+    }
+
+    handle_joy(device, button, is_pressed);
+
+    for (int slot = 8; slot <= 11; slot++)
+        pad_config[slot] = saved[slot - 8];
+}
+
 void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
 {
     const bool controller_side =
@@ -1464,7 +1568,7 @@ void Input::handle_joy_down(SDL_JoyButtonEvent* evt)
     }
 
     if (!controller_side && wheel_runtime)
-        handle_joy(evt->which, evt->button, true);
+        handle_raw_joy(evt->which, evt->button, true);
 
     apply_device_button(
         evt->which,
@@ -1524,7 +1628,7 @@ void Input::handle_joy_up(SDL_JoyButtonEvent* evt)
     }
 
     if (!controller_side && wheel_runtime)
-        handle_joy(evt->which, evt->button, false);
+        handle_raw_joy(evt->which, evt->button, false);
 
     apply_device_button(
         evt->which,

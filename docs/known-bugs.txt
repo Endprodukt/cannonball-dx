@@ -6,6 +6,17 @@ As of October 2026:
   roadside sprites cannot drift apart, but a faint remaining unevenness of under one
   native pixel may still be seen on very large displays. The option can be switched off.
 
+- Linux / Steam Deck (untested by the maintainer, community reports only):
+  - The Linux package now ships its own TinyXML2 in lib/, so no extra library has to be
+    installed on SteamOS.
+  - GAMEPAD bindings stored for a controller that is no longer connected are handed to the
+    connected controller. This covers Steam Input, which replaces the physical pad with a
+    virtual one when the game is started as a non-Steam shortcut. Needs confirmation on a
+    real Steam Deck. Raw-axis fallback bindings and custom MENU ACCEPT/BACK/PAUSE bindings
+    stay tied to their original device and have to be rebound.
+  - Random crashes were reported on SteamOS. No log or reproduction is available yet, so
+    this is still open.
+
 As of September 2025:
 
 - Audio may not play after system restart. This is caused by the SDL device ordering

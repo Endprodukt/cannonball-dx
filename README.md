@@ -417,6 +417,8 @@ Then copy either the extracted OutRun Revision B ROMs or a suitable `outrun.zip`
 build/cannonball-dx
 ```
 
+A prebuilt x64 package is produced by the **Linux Build** workflow under GitHub Actions. Extract `cannonball-dx-linux-x64.tar.gz`, add the ROMs to `roms/` and start `./cannonball-dx` from that directory. TinyXML2 is bundled in `lib/`; SDL2 and mpg123 come from the system (both are present on SteamOS).
+
 ---
 
 ## Credits
