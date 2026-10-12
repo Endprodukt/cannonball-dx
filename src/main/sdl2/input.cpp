@@ -1852,22 +1852,32 @@ void Input::set_rumble(bool enable, float strength, int mode)
     if (!controller)
         ensure_gamecontroller_open();
 
-    if (!controller || !rumble_supported)
-    {
 #ifdef __ANDROID__
-        // Without a controller the same contextual effects play on the phone
-        // itself. The GAMEPAD RUMBLE switch belongs to pads and is not shown
-        // without one, so it must not silence the phone; the Touch Controls
-        // menu has its own switch.
-        if (!has_game_controller())
+    {
+        // One mixer run feeds both outputs: the phone's own vibrator always
+        // (it has its own switch in the Touch Controls menu), and the pad
+        // when it supports rumble and GAMEPAD RUMBLE is on.
+        SDL_GameController* pad =
+            (controller && rumble_supported) ? controller : nullptr;
+
+        const bool pad_rumble_enabled = gamepad_rumble::enabled;
+        gamepad_rumble::pad_muted = !pad_rumble_enabled || strength <= 0.0f;
+        gamepad_rumble::enabled = true;
+        const int result = gamepad_rumble::dispatch(pad, 0, 0, 45);
+        gamepad_rumble::enabled = pad_rumble_enabled;
+
+        if (pad && result != 0)
         {
-            const bool pad_rumble_enabled = gamepad_rumble::enabled;
-            gamepad_rumble::enabled = true;
-            gamepad_rumble::dispatch(nullptr, 0, 0, 45);
-            gamepad_rumble::enabled = pad_rumble_enabled;
+            SDL_GameControllerClose(controller);
+            controller = nullptr;
+            rumble_supported = false;
         }
         return;
+    }
 #endif
+
+    if (!controller || !rumble_supported)
+    {
 #ifndef WIN32
         // Preserve the legacy Linux-specific hidraw/evdev fallback. Windows is
         // intentionally excluded: its DirectInput backend is wheel FFB, not

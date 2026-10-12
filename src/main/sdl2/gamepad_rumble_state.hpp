@@ -74,9 +74,13 @@ namespace gamepad_rumble
     }
 
 #ifdef __ANDROID__
-    // Implemented in input.cpp: the phone's own vibrator, used by the mixer
-    // when it is dispatched without a controller.
+    // Implemented in input.cpp: the phone's own vibrator. It mirrors every
+    // mixer output, with or without a controller.
     int phone_rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 duration_ms);
+
+    // The mixer always runs for the phone. This keeps the pad silent when
+    // GAMEPAD RUMBLE is switched off.
+    inline bool pad_muted = false;
 #endif
 
     inline int write_rumble(
@@ -86,8 +90,15 @@ namespace gamepad_rumble
         Uint32 duration_ms)
     {
 #ifdef __ANDROID__
+        phone_rumble(low_frequency, high_frequency, duration_ms);
         if (!controller)
-            return phone_rumble(low_frequency, high_frequency, duration_ms);
+            return 0;
+        if (pad_muted)
+        {
+            low_frequency = 0;
+            high_frequency = 0;
+            duration_ms = 0;
+        }
 #endif
         int result = SDL_GameControllerRumble(
             controller, low_frequency, high_frequency, duration_ms);

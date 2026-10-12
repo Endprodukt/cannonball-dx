@@ -411,7 +411,7 @@ All files live in `Android/data/io.github.endprodukt.cannonballdx/files/` (`roms
 | Tilt Steering | Steer by turning the phone like a steering wheel (accelerometer). The steering buttons still work and take priority while held; hide them in the layout editor if you do not want them. Inactive while a game controller is connected. |
 | Tilt Range | Tilt angle in degrees for full steering lock, 10-60. Smaller is more sensitive. |
 | Touch Vibration | A short vibration tick whenever a touch button is pressed. |
-| Phone Rumble | Plays the game's rumble effects (off-road, crashes, skids, gear shifts) on the phone's own vibrator while no game controller is connected. |
+| Phone Rumble | Plays the game's rumble effects (off-road, crashes, skids, gear shifts) on the phone's own vibrator, with or without a game controller connected. |
 | Edit Layout | Opens the layout editor. |
 | Reset Layout | Restores the default positions and sizes. |
 
