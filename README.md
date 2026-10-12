@@ -407,12 +407,15 @@ All files live in `Android/data/io.github.endprodukt.cannonballdx/files/` (`roms
 | Touch Controls | Switches the overlay on or off. |
 | Hide With Gamepad | Hides the overlay while a game controller is connected. |
 | Opacity | 10-100 %. |
+| Gear Shift | `2 Buttons` shows separate LO and HI buttons, `1 Button` a single button that toggles the gear and shows the current one. |
 | Edit Layout | Opens the layout editor. |
 | Reset Layout | Restores the default positions and sizes. |
 
 In the layout editor, drag a button to move it, pinch it (or use **Size -** / **Size +**) to resize it and use **Hide** / **Show** to remove buttons you do not need. **Game Page** / **Menu Page** switches between the two layouts; **Done** saves.
 
 While the overlay is switched off or hidden, touching the screen brings it back for a few seconds, so a device without a controller can always reach the menus. The Android Back button or gesture opens the menu in game and goes back inside the menus.
+
+**Display.** The aspect ratio list has an additional **20-9** entry for phone displays (the default on Android). It shows the centre of the 21:9 picture, so nothing is stretched. Options that make no sense on a phone are not shown: display mode, display device, vsync, audio output device, input mode (wheel) and all force-feedback settings.
 
 The touch controls exist only in the Android build. The Windows and Linux builds are unchanged.
 

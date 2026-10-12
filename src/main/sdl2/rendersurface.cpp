@@ -536,6 +536,21 @@ void RenderSurface::set_scaling()
                 anchor_x   = 0;
             }
         }
+#ifdef __ANDROID__
+        // 20:9: the engine renders its 21:9 frame and the centre 20:9 of it is
+        // scaled to fit the display. The sides are cropped by the screen edge.
+        if (config.video.widescreen == 2 && config.aspect_20_9()) {
+            const float visible_width = float(src_height) * 20.0f / 9.0f;
+            const float fit = std::min(float(scn_width) / visible_width,
+                                       float(scn_height) / float(src_height));
+            dst_rect.w = int(float(src_width) * fit + 0.5f);
+            dst_rect.h = int(float(src_height) * fit + 0.5f);
+            dst_rect.x = (scn_width - dst_rect.w) / 2;
+            dst_rect.y = (scn_height - dst_rect.h) / 2;
+            anchor_x   = dst_rect.x;
+            anchor_y   = dst_rect.y;
+        }
+#endif
         SDL_ShowCursor(SDL_DISABLE);
     }
     else  // Windowed mode
@@ -670,6 +685,16 @@ bool RenderSurface::init_sdl(int video_mode)
         // shader is enabled
         vs = loadTextFile(VERTEX_SHADER);
         fs = loadTextFile((config.video.shader_mode == 2) ? FRAGMENT_SHADER : FRAGMENT_SHADER_FAST);
+#ifdef __ANDROID__
+        // Mobile GPUs implement mediump as 16-bit floats. That is too coarse
+        // for the per-pixel position maths of the shadow mask and the noise
+        // generator on a 2000+ pixel wide display, so run the shader in highp.
+        for (std::string::size_type pos = 0;
+             (pos = fs.find("mediump", pos)) != std::string::npos; )
+        {
+            fs.replace(pos, 7, "highp");
+        }
+#endif
         if (vs.empty() || fs.empty()) {
             std::cerr << "Failed to load shader sources.\n";
             return false;

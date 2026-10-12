@@ -105,6 +105,7 @@ public:
                 }) != menu_sound.end();
         };
 
+#ifndef __ANDROID__  // Android routes audio itself; there is no device to pick.
         if (std::find(menu_sound.begin(), menu_sound.end(), AUDIO_OUTPUT_HEADING) == menu_sound.end())
         {
             auto music_entry = std::find_if(
@@ -118,6 +119,7 @@ public:
             menu_sound.insert(menu_sound.begin() + output_pos, AUDIO_OUTPUT_HEADING);
             menu_sound.insert(menu_sound.begin() + output_pos + 1, audio_output_menu_text());
         }
+#endif
 
         if (!has_sound_entry(MENU_SOUNDS_LABEL))
         {
@@ -159,14 +161,16 @@ public:
         }
 
 #ifdef __ANDROID__
-        // An Android surface always fills the device's own display, so there
-        // is no display mode or monitor to choose.
+        // An Android surface always fills the device's own display and is
+        // always synchronised to it, so there is no display mode, monitor or
+        // vsync setting to choose.
         std::erase_if(
             menu_video,
             [](const std::string& entry)
             {
                 return entry.rfind(ENTRY_FULLSCREEN, 0) == 0 ||
-                       entry.rfind(DISPLAY_DEVICE_LABEL, 0) == 0;
+                       entry.rfind(DISPLAY_DEVICE_LABEL, 0) == 0 ||
+                       entry.rfind(ENTRY_VSYNC, 0) == 0;
             });
 #endif
 
@@ -914,6 +918,39 @@ protected:
     }
 
 #ifdef __ANDROID__
+    // 20-9 is the 21:9 engine mode plus a crop flag, so the inherited label
+    // has to be corrected after every menu refresh.
+    void fix_aspect_label()
+    {
+        if (config.video.widescreen != 2 || !config.aspect_20_9())
+            return;
+
+        for (std::string& entry : menu_video)
+        {
+            if (entry.rfind(ENTRY_WIDESCREEN, 0) == 0)
+                entry = std::string(ENTRY_WIDESCREEN) + "20-9";
+        }
+    }
+
+    // Steering wheels and force feedback do not exist on Android.
+    void remove_desktop_control_entries()
+    {
+        const auto removed = std::erase_if(
+            menu_controls,
+            [](const std::string& entry)
+            {
+                return entry == "FFB TUNING" ||
+                       entry.rfind("INPUT MODE ", 0) == 0 ||
+                       entry.rfind("FFB MODE ", 0) == 0 ||
+                       entry.rfind(ENTRY_FFB, 0) == 0 ||
+                       entry.rfind(ENTRY_FFB_STRENGTH, 0) == 0 ||
+                       entry.rfind(ENTRY_CENTERING_STRENGTH, 0) == 0;
+            });
+
+        if (removed && menu_selected == &menu_controls)
+            cursor = 0;
+    }
+
     void populate_touch_settings()
     {
         menu_touch.clear();
@@ -921,6 +958,9 @@ protected:
         menu_touch.push_back(bool_text("HIDE WITH GAMEPAD", touchcontrols.hide_with_gamepad()));
         menu_touch.push_back(
             std::string("OPACITY ") + std::to_string(touchcontrols.opacity()) + "%");
+        menu_touch.push_back(
+            std::string("GEAR SHIFT ") +
+            (touchcontrols.gear_buttons() == 1 ? "1 BUTTON" : "2 BUTTONS"));
         menu_touch.push_back("EDIT LAYOUT");
         menu_touch.push_back("RESET LAYOUT");
         menu_touch.push_back(ENTRY_BACK);
@@ -958,6 +998,11 @@ protected:
                 break;
             }
 
+            case 3:
+                touchcontrols.set_gear_buttons(
+                    touchcontrols.gear_buttons() == 1 ? 2 : 1);
+                break;
+
             default:
                 return false;
         }
@@ -992,6 +1037,9 @@ protected:
             radio_button::stop_engine_vibration();
 
 #ifdef __ANDROID__
+        remove_desktop_control_entries();
+        fix_aspect_label();
+
         // The layout editor is driven entirely by touch on the overlay. Its
         // DONE button ends the edit while this page is still active; Menu
         // Back has already left the page when it is noticed here.
@@ -1044,7 +1092,7 @@ protected:
                 return;
             }
 
-            if (cursor >= 0 && cursor <= 2)
+            if (cursor >= 0 && cursor <= 3)
             {
                 if (adjust_touch_value(cursor, 0))
                 {
@@ -1054,7 +1102,7 @@ protected:
                 return;
             }
 
-            if (cursor == 3)
+            if (cursor == 4)
             {
                 touchcontrols.begin_edit();
                 set_menu(&menu_touch_edit);
@@ -1063,7 +1111,7 @@ protected:
                 return;
             }
 
-            if (cursor == 4)
+            if (cursor == 5)
             {
                 touchcontrols.reset_layout();
                 config.save();
@@ -1072,7 +1120,7 @@ protected:
                 return;
             }
 
-            if (cursor == 5)
+            if (cursor == 6)
             {
                 menu_back();
                 refresh_menu();
@@ -1188,6 +1236,40 @@ protected:
             const bool selected = direction == 0 && select_pressed();
             if (direction != 0 || selected)
             {
+#ifdef __ANDROID__
+                // 20-9 is the 21:9 engine mode shown cropped to its centre.
+                struct AspectChoice { int widescreen; bool crop_20_9; };
+                static const AspectChoice ASPECT_ORDER[6] =
+                {
+                    { 0, false }, { 1, false }, { 4, false },
+                    { 2, true },  { 2, false }, { 3, false },
+                };
+
+                int order_index = 0;
+                for (int i = 0; i < 6; ++i)
+                {
+                    if (ASPECT_ORDER[i].widescreen == config.video.widescreen &&
+                        (config.video.widescreen != 2 ||
+                         ASPECT_ORDER[i].crop_20_9 == config.aspect_20_9()))
+                    {
+                        order_index = i;
+                        break;
+                    }
+                }
+
+                const int step = direction < 0 ? -1 : 1;
+                order_index = (order_index + step + 6) % 6;
+
+                config.video.widescreen = ASPECT_ORDER[order_index].widescreen;
+                config.set_aspect_20_9(ASPECT_ORDER[order_index].crop_20_9);
+                config.videoRestartRequired = true;
+                directional_save_pending = true;
+
+                osoundint.queue_sound(sound::BEEP1);
+                refresh_menu();
+                fix_aspect_label();
+                return;
+#else
                 static const int ASPECT_ORDER[5] = { 0, 1, 4, 2, 3 };
                 int order_index = 0;
                 for (int i = 0; i < 5; ++i)
@@ -1213,6 +1295,7 @@ protected:
                 osoundint.queue_sound(sound::BEEP1);
                 refresh_menu();
                 return;
+#endif
             }
         }
 
@@ -1364,6 +1447,12 @@ protected:
         }
 
         MenuLegacy::tick_menu();
+
+#ifdef __ANDROID__
+        // The inherited handlers may just have rebuilt or refreshed a page.
+        remove_desktop_control_entries();
+        fix_aspect_label();
+#endif
     }
 
     void populate_controls() override;

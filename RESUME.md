@@ -53,6 +53,15 @@ What a later session needs to continue efficiently. Repository-only.
 - The version code counts minutes since 2026-01-01, so any newer build installs
   over any older one regardless of where it was built.
 
+- Android-only menu/video behaviour lives behind `__ANDROID__`: wheel, FFB,
+  display mode/device, vsync and audio-device entries are removed
+  (`remove_desktop_control_entries()` and `populate()` in `frontend/menu.hpp`),
+  the input mode is forced to GAMEPAD in `main.cpp`, and the fragment shader is
+  promoted from mediump to highp when it is loaded (`rendersurface.cpp`).
+- 20-9 is not a separate engine width: it is `video.widescreen == 2` (21:9, 536
+  pixels) plus `video.aspect_20_9`, cropped in `RenderSurface::set_scaling()`.
+  This reuses every 21:9 special case (side art, tile wrap, sprite clipping).
+
 ## Touch controls
 
 - Android only by explicit decision (2026-10-12): the desktop builds must not

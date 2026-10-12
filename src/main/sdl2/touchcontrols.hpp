@@ -54,6 +54,11 @@ public:
     void set_hide_with_gamepad(bool value);
     int  opacity();
     void set_opacity(int percent);
+
+    // Gear shifting by touch: one button that toggles between low and high,
+    // or two separate LO / HI buttons.
+    int  gear_buttons();
+    void set_gear_buttons(int count);
     void reset_layout();
 
     // Layout editor. While editing, touches move and resize the buttons
@@ -77,6 +82,7 @@ private:
         EL_BRAKE,
         EL_GEAR_LOW,
         EL_GEAR_HIGH,
+        EL_GEAR_TOGGLE,
         EL_START,
         EL_COIN,
         EL_MENU,
@@ -159,6 +165,12 @@ private:
     bool setting_enabled = false;
     bool setting_hide_with_gamepad = true;
     int  setting_opacity = 50;
+    int  setting_gear_buttons = 2;
+
+    // Single gear button: the key it is currently holding down, and the
+    // engine's gear as last seen by tick(), shown as the button label.
+    int  gear_toggle_press = -1;
+    bool gear_is_high = false;
 
     // Overlay state derived once per tick
     bool shown = false;
@@ -187,6 +199,7 @@ private:
     bool gl_failed = false;
 
     void set_defaults(int page_filter);
+    bool element_active(int index) const;
     void load_layout();
     void save_layout();
 

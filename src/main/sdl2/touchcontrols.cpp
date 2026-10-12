@@ -18,6 +18,7 @@
 #include "main.hpp"
 #include "frontend/config.hpp"
 #include "sdl2/input.hpp"
+#include "engine/oinputs.hpp"
 
 TouchControls touchcontrols;
 
@@ -286,6 +287,8 @@ void TouchControls::set_defaults(int page_filter)
         { "brake",       "BRAKE",     "BRAKE",       PAGE_GAME, Input::BRAKE,     -1, 0.740f, 0.800f, 0.22f },
         { "gear_low",    "LO",        "GEAR LOW",    PAGE_GAME, Input::GEAR1,     -1, 0.930f, 0.440f, 0.16f },
         { "gear_high",   "HI",        "GEAR HIGH",   PAGE_GAME, Input::GEAR2,     -1, 0.930f, 0.250f, 0.16f },
+        // Presses GEAR1 or GEAR2 depending on the current gear; see update_pressed().
+        { "gear_toggle", "GEAR",      "GEAR SHIFT",  PAGE_GAME, -1,               -1, 0.930f, 0.380f, 0.20f },
         { "start",       "START",     "START",       PAGE_GAME, Input::START,     -1, 0.150f, 0.100f, 0.13f },
         { "coin",        "COIN",      "COIN",        PAGE_GAME, Input::COIN,      -1, 0.060f, 0.100f, 0.13f },
         { "menu",        "MENU",      "MENU",        PAGE_GAME, Input::MENU,      -1, 0.940f, 0.100f, 0.13f },
@@ -319,6 +322,16 @@ void TouchControls::set_defaults(int page_filter)
         el.visible = true;
         el.pressed = false;
     }
+}
+
+// Only one of the two gear button styles exists at a time.
+bool TouchControls::element_active(int index) const
+{
+    if (index == EL_GEAR_TOGGLE)
+        return setting_gear_buttons == 1;
+    if (index == EL_GEAR_LOW || index == EL_GEAR_HIGH)
+        return setting_gear_buttons != 1;
+    return true;
 }
 
 void TouchControls::load_layout()
@@ -360,6 +373,7 @@ void TouchControls::init()
     setting_hide_with_gamepad = config.touch_setting("hide_with_gamepad", 1) != 0;
     setting_opacity = std::clamp(
         config.touch_setting("opacity", 50), OPACITY_MIN, OPACITY_MAX);
+    setting_gear_buttons = config.touch_setting("gear_buttons", 2) == 1 ? 1 : 2;
 
     set_defaults(-1);
     load_layout();
@@ -403,6 +417,21 @@ void TouchControls::set_opacity(int percent)
     std::lock_guard<std::mutex> lock(mutex);
     setting_opacity = std::clamp(percent, OPACITY_MIN, OPACITY_MAX);
     config.set_touch_setting("opacity", setting_opacity);
+}
+
+int TouchControls::gear_buttons()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return setting_gear_buttons;
+}
+
+void TouchControls::set_gear_buttons(int count)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    release_all();
+    mark_fingers_stale();
+    setting_gear_buttons = count == 1 ? 1 : 2;
+    config.set_touch_setting("gear_buttons", setting_gear_buttons);
 }
 
 void TouchControls::reset_layout()
@@ -457,8 +486,11 @@ int TouchControls::hit_test(float x, float y, int on_page, bool include_hidden) 
     for (int i = 0; i < EL_COUNT; ++i)
     {
         const Element& el = elements[i];
-        if (el.page != on_page || (!el.visible && !include_hidden))
+        if (el.page != on_page || !element_active(i) ||
+            (!el.visible && !include_hidden))
+        {
             continue;
+        }
 
         const float dx = (x - el.x) * w;
         const float dy = (y - el.y) * h;
@@ -492,6 +524,31 @@ void TouchControls::update_pressed()
             continue;
 
         el.pressed = now_pressed[i];
+
+        if (i == EL_GEAR_TOGGLE)
+        {
+            // With separate gear buttons configured in the game, the single
+            // touch button presses whichever one changes the current gear.
+            // In the other gear modes GEAR1 already toggles (or is held).
+            if (el.pressed)
+            {
+                gear_toggle_press =
+                    (config.controls.gear == config.controls.GEAR_SEPARATE &&
+                     !oinputs.gear)
+                        ? Input::GEAR2
+                        : Input::GEAR1;
+                input.set_touch_key(
+                    static_cast<Input::presses>(gear_toggle_press), true);
+            }
+            else if (gear_toggle_press >= 0)
+            {
+                input.set_touch_key(
+                    static_cast<Input::presses>(gear_toggle_press), false);
+                gear_toggle_press = -1;
+            }
+            continue;
+        }
+
         for (int press : el.press)
         {
             if (press >= 0)
@@ -620,6 +677,8 @@ void TouchControls::tick()
         !(setting_hide_with_gamepad && input.has_game_controller());
 
     const bool want_shown = edit_mode || configured || wake_until != 0;
+
+    gear_is_high = oinputs.gear;
 
     const bool frontend =
         cannonball::state == cannonball::STATE_MENU ||
@@ -1041,6 +1100,8 @@ void TouchControls::render(int fb_width, int fb_height)
     int  shown_page = PAGE_GAME;
     int  selected = -1;
     int  opacity_percent = 50;
+    bool gear_high = false;
+    bool active[EL_COUNT] = {};
 
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -1053,6 +1114,9 @@ void TouchControls::render(int fb_width, int fb_height)
         shown_page = edit_mode ? edit_page : page;
         selected = edit_selected;
         opacity_percent = setting_opacity;
+        gear_high = gear_is_high;
+        for (int i = 0; i < EL_COUNT; ++i)
+            active[i] = element_active(i);
     }
 
     if (!gl_init())
@@ -1074,8 +1138,13 @@ void TouchControls::render(int fb_width, int fb_height)
     for (int i = 0; i < EL_COUNT; ++i)
     {
         const Element& el = snapshot[i];
-        if (el.page != shown_page || (!el.visible && !editing_now))
+        if (el.page != shown_page || !active[i] || (!el.visible && !editing_now))
             continue;
+
+        // The single gear button shows the gear the car is in.
+        const char* label = el.label;
+        if (i == EL_GEAR_TOGGLE && !editing_now)
+            label = gear_high ? "HI" : "LO";
 
         Color color = { 1.0f, 1.0f, 1.0f, opacity };
         if (editing_now && i == selected)
@@ -1092,15 +1161,15 @@ void TouchControls::render(int fb_width, int fb_height)
                      cx + diameter * 0.5f, cy + diameter * 0.5f,
                      u0, 0.0f, u0 + 0.5f, 1.0f, color);
 
-        if (is_arrow(el.label))
+        if (is_arrow(label))
         {
-            add_arrow(glyphs, cx, cy, diameter * 0.20f, el.label, color);
+            add_arrow(glyphs, cx, cy, diameter * 0.20f, label, color);
         }
         else
         {
             add_text(glyphs, cx, cy,
-                     fit_text(el.label, diameter * 0.66f, diameter * 0.30f),
-                     el.label, color);
+                     fit_text(label, diameter * 0.66f, diameter * 0.30f),
+                     label, color);
         }
     }
 

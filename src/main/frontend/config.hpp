@@ -462,9 +462,9 @@
         cfg.put_int("endless.max_traffic", ENDLESS_DEFAULT_MAX_TRAFFIC); \
     }
 
-// Touch-control settings exist only in the Android build.
+// Touch-control and 20:9 settings exist only in the Android build.
 #ifdef __ANDROID__
-#define CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS \
+#define CANNONBALL_DX_ANDROID_CONFIG_EXTENSIONS \
     int touch_setting(const char* name, int fallback) \
     { \
         return cfg.get_int(std::string("touch.") + name, fallback); \
@@ -480,13 +480,21 @@
     void set_touch_layout(const char* element, const std::string& value) \
     { \
         cfg.put_string(std::string("touch.layout.") + element, value); \
+    } \
+    bool aspect_20_9() \
+    { \
+        return cfg.get_int("video.aspect_20_9", 0) != 0; \
+    } \
+    void set_aspect_20_9(bool enabled) \
+    { \
+        cfg.put_int("video.aspect_20_9", enabled ? 1 : 0); \
     }
 #else
-#define CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS
+#define CANNONBALL_DX_ANDROID_CONFIG_EXTENSIONS
 #endif
 
-#define private public: CANNONBALL_DX_CONFIG_EXTENSIONS CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS private
+#define private public: CANNONBALL_DX_CONFIG_EXTENSIONS CANNONBALL_DX_ANDROID_CONFIG_EXTENSIONS private
 #include "config_base.hpp"
 #undef private
 #undef CANNONBALL_DX_CONFIG_EXTENSIONS
-#undef CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS
+#undef CANNONBALL_DX_ANDROID_CONFIG_EXTENSIONS

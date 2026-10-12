@@ -1120,6 +1120,11 @@ int main(int argc, char* argv[]) {
 #ifdef __ANDROID__
         // An Android surface always covers the display; there is no window mode.
         config.video.mode = video_settings_t::MODE_FULL;
+
+        // No steering wheels or force feedback on Android: controllers always
+        // use the GAMEPAD input family, and the menus do not offer the others.
+        config.set_input_mode(Config::INPUT_GAMEPAD);
+        config.controls.haptic = 0;
 #endif
 
         if (!roms.load_revb_roms(config.sound.fix_samples)) {
