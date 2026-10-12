@@ -1,0 +1,2 @@
+# The Gradle wrapper script runs on Linux CI and must keep LF line endings.
+android/gradlew text eol=lf

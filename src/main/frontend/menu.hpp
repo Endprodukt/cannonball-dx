@@ -22,6 +22,7 @@
 #include "sdl2/pixel_scaler_state.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "sdl2/display_utils.hpp"
+#include "sdl2/touchcontrols.hpp"
 #include "engine/audio/osoundint.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
@@ -155,6 +156,18 @@ public:
             menu_video.insert(insert_pos, display_device_menu_text());
         }
 
+#ifdef __ANDROID__
+        // An Android surface always fills the device's own display, so there
+        // is no display mode or monitor to choose.
+        std::erase_if(
+            menu_video,
+            [](const std::string& entry)
+            {
+                return entry.rfind(ENTRY_FULLSCREEN, 0) == 0 ||
+                       entry.rfind(DISPLAY_DEVICE_LABEL, 0) == 0;
+            });
+#endif
+
         // Gameplay is the natural home for detailed run rules and compatibility
         // choices. Keep the main page compact and put both pages before Car Setup.
         auto insert_before_handling = [&]()
@@ -183,6 +196,13 @@ public:
 protected:
     std::vector<std::string> menu_endless;
     std::vector<std::string> menu_bugfixes;
+
+    // Touch-control settings, and the deliberately empty page that is active
+    // while the on-screen layout editor owns the display.
+    std::vector<std::string> menu_touch;
+    std::vector<std::string> menu_touch_edit;
+
+    static constexpr const char* TOUCH_CONTROLS_ENTRY = "TOUCH CONTROLS";
 
     static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT DEVICE";
     static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
@@ -889,6 +909,74 @@ protected:
         return true;
     }
 
+    void populate_touch_settings()
+    {
+        menu_touch.clear();
+        menu_touch.push_back(bool_text("TOUCH CONTROLS", touchcontrols.enabled()));
+        menu_touch.push_back(bool_text("HIDE WITH GAMEPAD", touchcontrols.hide_with_gamepad()));
+        menu_touch.push_back(
+            std::string("OPACITY ") + std::to_string(touchcontrols.opacity()) + "%");
+        menu_touch.push_back("EDIT LAYOUT");
+        menu_touch.push_back("RESET LAYOUT");
+        menu_touch.push_back(ENTRY_BACK);
+    }
+
+    // direction: -1 = LEFT, +1 = RIGHT, 0 = Accept (toggle / step and wrap).
+    bool adjust_touch_value(int row, int direction)
+    {
+        switch (row)
+        {
+            case 0:
+            {
+                const bool enabled = direction == 0
+                    ? !touchcontrols.enabled()
+                    : direction > 0;
+                touchcontrols.set_enabled(enabled);
+                if (!enabled)
+                    display_message("TOUCH THE SCREEN TO SHOW THEM BRIEFLY");
+                break;
+            }
+
+            case 1:
+                touchcontrols.set_hide_with_gamepad(direction == 0
+                    ? !touchcontrols.hide_with_gamepad()
+                    : direction > 0);
+                break;
+
+            case 2:
+            {
+                int value = touchcontrols.opacity() +
+                    (direction < 0 ? -1 : 1) * TouchControls::OPACITY_STEP;
+                if (direction == 0 && value > TouchControls::OPACITY_MAX)
+                    value = TouchControls::OPACITY_MIN;
+                touchcontrols.set_opacity(value);
+                break;
+            }
+
+            default:
+                return false;
+        }
+
+        const int old_cursor = cursor;
+        populate_touch_settings();
+        cursor = old_cursor;
+        return true;
+    }
+
+    void finish_touch_edit(bool leave_page)
+    {
+        touchcontrols.end_edit();
+        if (!config.save())
+            display_message("ERROR SAVING SETTINGS!");
+
+        if (leave_page)
+        {
+            menu_back();
+            refresh_menu();
+        }
+        osoundint.queue_sound(sound::BEEP1);
+    }
+
     void tick_menu() override
     {
         // F5 may leave the underlying game_state at GS_INGAME while the
@@ -896,6 +984,95 @@ protected:
         // every frontend menu tick so no periodic force can leak into menus.
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
+
+        // The layout editor is driven entirely by touch on the overlay. Its
+        // DONE button ends the edit while this page is still active; Menu
+        // Back has already left the page when it is noticed here.
+        if (menu_selected == &menu_touch_edit)
+        {
+            if (!touchcontrols.editing())
+                finish_touch_edit(true);
+            return;
+        }
+
+        if (touchcontrols.editing())
+            finish_touch_edit(false);
+
+        if (!config.smartypi.enabled &&
+            menu_selected == &menu_controls &&
+            cursor >= 0 &&
+            cursor < static_cast<int>(menu_controls.size()) &&
+            menu_controls[cursor] == TOUCH_CONTROLS_ENTRY)
+        {
+            if (!select_pressed())
+            {
+                MenuLegacy::tick_menu();
+                return;
+            }
+
+            populate_touch_settings();
+            set_menu(&menu_touch);
+            refresh_menu();
+            return;
+        }
+
+        if (!config.smartypi.enabled && menu_selected == &menu_touch)
+        {
+            int direction = 0;
+            if (input.has_pressed(Input::RIGHT))
+                direction = 1;
+            else if (input.has_pressed(Input::LEFT))
+                direction = -1;
+
+            if (direction && adjust_touch_value(cursor, direction))
+            {
+                config.save();
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
+
+            if (!select_pressed())
+            {
+                MenuBase::tick_menu();
+                return;
+            }
+
+            if (cursor >= 0 && cursor <= 2)
+            {
+                if (adjust_touch_value(cursor, 0))
+                {
+                    config.save();
+                    osoundint.queue_sound(sound::BEEP1);
+                }
+                return;
+            }
+
+            if (cursor == 3)
+            {
+                touchcontrols.begin_edit();
+                set_menu(&menu_touch_edit);
+                is_text_menu = true;
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
+
+            if (cursor == 4)
+            {
+                touchcontrols.reset_layout();
+                config.save();
+                display_message("TOUCH LAYOUT RESET");
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
+
+            if (cursor == 5)
+            {
+                menu_back();
+                refresh_menu();
+                osoundint.queue_sound(sound::BEEP1);
+                return;
+            }
+        }
 
         // Audio output and frontend beeps are DX-facing controls for the SE
         // playback-device support. LEFT/RIGHT changes values directly; Enter

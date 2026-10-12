@@ -22,6 +22,7 @@
 // SDL Specific Code
 #include "sdl2/timer.hpp"
 #include "sdl2/input.hpp"
+#include "sdl2/touchcontrols.hpp"
 #include "sdl2/display_utils.hpp"
 
 #include "video.hpp"
@@ -55,6 +56,12 @@
 #include <algorithm>
 #include <atomic>
 
+// Android also defines __linux__, but has no hardware watchdog, backtrace()
+// or thread-affinity API. Those desktop/Pi facilities use this guard instead.
+#if defined(__linux__) && !defined(__ANDROID__)
+  #define CB_DESKTOP_LINUX 1
+#endif
+
 #ifdef _WIN32
   #include <thread>
 #else
@@ -87,7 +94,7 @@ static uint32_t perf_end_frame = 0;
 // In that scenario, systemd should restart cannonball. Watchdog is there to catch code or system
 // lock-up.
 // ------------------------------------------------------------------------------------------------
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
   #include <signal.h>
   #include <sys/ioctl.h>
   #include <linux/watchdog.h>
@@ -138,7 +145,7 @@ static uint32_t perf_end_frame = 0;
 // ------------------------------------------------------------------------------------------------
 // Diagnostics - displays info on crash
 // ------------------------------------------------------------------------------------------------
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     #include <execinfo.h>
     #include <signal.h>
     #include <unistd.h>
@@ -253,6 +260,13 @@ static void show_rom_load_error()
         "Optional early/Japanese program ROMs and corrected PCM ROM data are also supported when present.\n\n"
         "See roms/roms.txt for details. Please use ROM data you legally own.";
 
+#ifdef __ANDROID__
+    // Tell the Java launcher that the imported ROM set was rejected, so the
+    // next start offers the ROM import again instead of failing the same way.
+    if (FILE* marker = std::fopen("rom_error.flag", "w"))
+        std::fclose(marker);
+#endif
+
     // ROM validation happens before the normal SDL/video startup. Bring up only
     // the minimum SDL subsystems needed for a friendly native error dialog, then
     // shut them down again because the application exits immediately afterwards.
@@ -340,6 +354,12 @@ static void process_events(void)
                 input.remove_joystick(event.jdevice.which);
                 break;
 
+            case SDL_FINGERDOWN:
+            case SDL_FINGERMOTION:
+            case SDL_FINGERUP:
+                touchcontrols.handle_finger(&event.tfinger);
+                break;
+
             case SDL_QUIT:
                 // Handle quit requests (like Ctrl-c).
                 cannonball::state = STATE_QUIT;
@@ -357,6 +377,7 @@ static void tick()
     tick_frame = (frame % core_divisor) == 0;
 
     process_events();
+    touchcontrols.tick();
 
     // A real cross-monitor move is detected by the renderer, but config.xml
     // belongs to the main thread. Persist only the latest queued destination.
@@ -571,7 +592,7 @@ static void tick()
 }
 
 
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -584,7 +605,7 @@ static void play_stats_and_watchdog_updater() {
     // and we don't want to hold up the game engine.
     // Also kicks system watchdog when compiled for Linux
 
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     // Open the watchdog device. Note - device name is defined in globals.hpp
     g_watchdog_fd = open(SYSTEM_WATCHDOG, O_WRONLY);
     if (g_watchdog_fd < 0) {
@@ -613,7 +634,7 @@ static void play_stats_and_watchdog_updater() {
         }
         SDL_Delay(500); // wait 0.5 seconds before next check
 
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
         // Kick the watchdog device if it's open.
         if (g_watchdog_fd >= 0) {
             if (write(g_watchdog_fd, "\0", 1) < 0) {
@@ -622,7 +643,7 @@ static void play_stats_and_watchdog_updater() {
         }
 #endif
     }
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     // Disable the watchdog on exit.
     cleanup_watchdog();
 #endif
@@ -667,9 +688,9 @@ void prepare_thread() {
 
 
 void pin_thread_to_core(std::thread& t, int core_id) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__ANDROID__)
         std::cerr << "Error setting affinity for thread to core: "
-                  << "CannonBall DX does not support thread pinning on Windows" << "\n";
+                  << "CannonBall DX does not support thread pinning on this platform" << "\n";
     return;
 #else
     cpu_set_t cpuset;
@@ -714,9 +735,10 @@ static int main_loop() {
     // Determine if we'll be using threaded or sequential rendering
     int threads = cannonball::game_threads;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__ANDROID__)
     // On Windows, input must be on the main thread. We therefore cap the thread-count to 3,
-    // thereby setting prepare_threads to 0 (below)
+    // thereby setting prepare_threads to 0 (below). Android needs the same: SDL restores
+    // the GL context from its event pump when the app returns from the background.
     if (threads > 3) threads = 3;
 #else
     // On Linux, we can use up to 4 threads
@@ -1034,9 +1056,40 @@ static bool parse_command_line(int argc, char* argv[]) {
 }
 
 
+#ifdef __ANDROID__
+// Relative roms/, res/ and config.xml paths resolve inside the app's own files
+// directory, which the Java launcher fills before SDL starts. stdout/stderr are
+// otherwise discarded on Android, so keep them in a log file next to the config.
+static void android_prepare_storage()
+{
+    const char* dir = SDL_AndroidGetExternalStoragePath();
+    if (!dir || chdir(dir) != 0)
+    {
+        dir = SDL_AndroidGetInternalStoragePath();
+        if (dir && chdir(dir) != 0)
+            dir = nullptr;
+    }
+
+    if (dir && std::freopen("cannonball-dx.log", "w", stdout))
+    {
+        dup2(fileno(stdout), fileno(stderr));
+        setvbuf(stdout, nullptr, _IOLBF, 0);
+        setvbuf(stderr, nullptr, _IONBF, 0);
+    }
+}
+#endif
+
 int main(int argc, char* argv[]) {
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     install_segv_handler();
+#endif
+#ifdef __ANDROID__
+    android_prepare_storage();
+    // The tilt sensor would otherwise register as a permanently connected
+    // joystick and hide the touch controls. Back is handled as a normal key.
+    SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #endif
 #ifdef _WIN32
     // Keep SDL drawable pixels aligned with the monitor the window is actually
@@ -1057,6 +1110,11 @@ int main(int argc, char* argv[]) {
         config.load();
 
         std::cout << "DEBUG: AFTER CONFIG LOAD" << std::endl;
+
+#ifdef __ANDROID__
+        // An Android surface always covers the display; there is no window mode.
+        config.video.mode = video_settings_t::MODE_FULL;
+#endif
 
         if (!roms.load_revb_roms(config.sound.fix_samples)) {
             show_rom_load_error();
@@ -1104,7 +1162,7 @@ int main(int argc, char* argv[]) {
     // Initialize timer and video systems
     // On Linux with RPi4 in desktop environment, x11 is default but will cap full-screen to 30fps with vsync enabled.
     // Wayland allows 60fps full-screen.
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     //SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
     //#define SDL_HINT_QTWAYLAND_WINDOW_FLAGS "StaysOnTop BypassWindowManager"
     SDL_SetHint(SDL_HINT_QTWAYLAND_WINDOW_FLAGS,
@@ -1156,6 +1214,8 @@ int main(int argc, char* argv[]) {
     input.restore_axis_bindings();
     input.sync_bound_axes();
 
+    touchcontrols.init();
+
     // Regardless to rumble, if haptic is enabled in config.xml, this is handled via ffeedback.cpp using either
     // DirectX (Windows) or /dev/input/event on Linux. This also includes control of real cabinet hardware via
     // SmartyPi. Therefore, haptic takes priority over simple rumble.
@@ -1185,7 +1245,7 @@ int main(int argc, char* argv[]) {
     menu->populate();
 
     // start the game threads
-#ifdef __linux__
+#ifdef CB_DESKTOP_LINUX
     register_watchdog_signal_handlers();
 #endif
     std::thread stats(play_stats_and_watchdog_updater); // Play stats file updater thread

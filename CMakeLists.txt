@@ -191,6 +191,7 @@ set(src_sdl
     "${main_cpp_base}/sdl2/renderbase.hpp"
     "${main_cpp_base}/sdl2/snes_ntsc.h"
     "${main_cpp_base}/sdl2/pixel_scaler_state.hpp"
+    "${main_cpp_base}/sdl2/touchcontrols.hpp"
 
     "${main_cpp_base}/sdl2/audio.cpp"
     "${main_cpp_base}/sdl2/wav123.cpp"
@@ -198,6 +199,7 @@ set(src_sdl
     "${main_cpp_base}/sdl2/input.cpp"
     "${main_cpp_base}/sdl2/renderbase.cpp"
     "${main_cpp_base}/sdl2/snes_ntsc.cpp"
+    "${main_cpp_base}/sdl2/touchcontrols.cpp"
     )
 
 set(src_render
@@ -351,7 +353,13 @@ SOURCE_GROUP(src\\engine FILES ${src_engine})
 SOURCE_GROUP(src\\engine\\data FILES ${src_engine_data})
 SOURCE_GROUP(src\\engine\\audio FILES ${src_engine_audio})
 
-add_executable(cannonball-dx ${SRCS})
+if(ANDROID)
+    # SDL's Android activity loads the game as libmain.so and calls SDL_main.
+    add_library(cannonball-dx SHARED ${SRCS})
+    set_target_properties(cannonball-dx PROPERTIES OUTPUT_NAME main)
+else()
+    add_executable(cannonball-dx ${SRCS})
+endif()
 
 # --- ZIP ROM support -----------------------------------------------------------
 # miniz is used only for reading ROMs directly from ZIP archives. Keep it pinned
@@ -391,6 +399,43 @@ else()
     target_compile_definitions(cannonball-dx PRIVATE PIXEL_ACCURACY=0)
 endif()
 
+# --- Android: SDL2, TinyXML2 and mpg123 are built from source ----------------------
+# The NDK has no system packages for these. android/app/build.gradle fetches the
+# pinned SDL2 release (its Java activity must match the native library exactly)
+# and passes the location in CB_SDL2_SOURCE_DIR.
+if(ANDROID)
+    if(NOT CB_SDL2_SOURCE_DIR OR NOT EXISTS "${CB_SDL2_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "CB_SDL2_SOURCE_DIR must point at the SDL2 source tree. "
+            "Build through the Gradle project in android/, which sets it.")
+    endif()
+
+    set(SDL_SHARED ON CACHE BOOL "Build SDL2 as libSDL2.so" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "Build SDL2 as a static library" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "Build the SDL2 test library" FORCE)
+    set(SDL2_DISABLE_INSTALL ON CACHE BOOL "Disable installation of SDL2" FORCE)
+    add_subdirectory("${CB_SDL2_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sdl2")
+
+    set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "Build tests for tinyxml2" FORCE)
+    FetchContent_Declare(
+        cannonball_tinyxml2
+        GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+        GIT_TAG 9148bdf719e997d1f474be6bcc7943881046dba1 # 11.0.0
+    )
+    FetchContent_MakeAvailable(cannonball_tinyxml2)
+
+    set(BUILD_LIBOUT123 OFF CACHE BOOL "build libout123" FORCE)
+    set(BUILD_PROGRAMS OFF CACHE BOOL "Build mpg123 programs" FORCE)
+    FetchContent_Declare(
+        cannonball_mpg123
+        GIT_REPOSITORY https://github.com/libsdl-org/mpg123.git
+        GIT_TAG 6e97a7fdf112a950977dad73de10be0d17ddb6b8 # v1.33.4-SDL
+        SOURCE_SUBDIR ports/cmake
+    )
+    FetchContent_MakeAvailable(cannonball_mpg123)
+    set(CMAKE_VERBOSE_MAKEFILE OFF CACHE BOOL "Do not echo full compile/link commands" FORCE)
+endif()
+
 # --- Dependencies: SDL2 (robust handling), TinyXML2, EGL/GLESv2 -------------------
 
 # SDL2: Prefer modern imported targets; fall back to MODULE or pkg-config.
@@ -398,7 +443,9 @@ set(_SDL2_TARGETS "")
 set(_SDL2_INCLUDE_DIRS "")
 set(_SDL2_LINK_TARGET "")
 
-find_package(SDL2 QUIET CONFIG)
+if(NOT TARGET SDL2::SDL2)
+    find_package(SDL2 QUIET CONFIG)
+endif()
 if(TARGET SDL2::SDL2)
     list(APPEND _SDL2_TARGETS SDL2::SDL2)
     if(WIN32 AND TARGET SDL2::SDL2main)
@@ -419,8 +466,10 @@ else()
 endif()
 
 # --- TinyXML2 for XML config I/O (replaces Boost.PropertyTree in config.cpp) ---
-find_package(TinyXML2 QUIET)
-if(NOT TARGET TinyXML2::TinyXML2)
+if(NOT TARGET tinyxml2::tinyxml2)
+    find_package(TinyXML2 QUIET)
+endif()
+if(NOT TARGET TinyXML2::TinyXML2 AND NOT TARGET tinyxml2::tinyxml2)
     find_package(tinyxml2 QUIET) # alternate export name on some distros
 endif()
 
@@ -446,7 +495,10 @@ target_include_directories(cannonball-dx PRIVATE
   ${_SDL2_INCLUDE_DIRS}               # present on all platforms
 )
 
-if(NOT WIN32)
+if(ANDROID)
+  # EGL and GLES2 are NDK system libraries.
+  target_link_libraries(cannonball-dx PRIVATE EGL GLESv2 android log)
+elseif(NOT WIN32)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
   pkg_check_modules(GLESv2 REQUIRED IMPORTED_TARGET glesv2)
@@ -478,12 +530,12 @@ target_link_libraries(cannonball-dx PRIVATE
   ${_TINYXML2_TARGET}
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libEGL>
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libGLESv2>
-  $<$<NOT:$<PLATFORM_ID:Windows>>:PkgConfig::EGL>
-  $<$<NOT:$<PLATFORM_ID:Windows>>:PkgConfig::GLESv2>
+  $<$<NOT:$<OR:$<PLATFORM_ID:Windows>,$<PLATFORM_ID:Android>>>:PkgConfig::EGL>
+  $<$<NOT:$<OR:$<PLATFORM_ID:Windows>,$<PLATFORM_ID:Android>>>:PkgConfig::GLESv2>
 )
 
 # --- Linux: udev for joystick hotplugging ---
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
     find_library(UDEV_LIBRARY udev)
     if(UDEV_LIBRARY)
         target_link_libraries(cannonball-dx PRIVATE ${UDEV_LIBRARY})
@@ -495,7 +547,10 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # --- Optional MPG123/MP3 support ---
-if(WITH_MP3)
+if(ANDROID)
+    target_compile_definitions(cannonball-dx PRIVATE WITH_MP3)
+    target_link_libraries(cannonball-dx PRIVATE libmpg123)
+elseif(WITH_MP3)
     find_path(MPG123_INCLUDE_DIR mpg123.h)
     find_library(MPG123_LIBRARY NAMES mpg123 libmpg123)
     if(MPG123_INCLUDE_DIR AND MPG123_LIBRARY)
@@ -532,7 +587,11 @@ endif()
 # No explicit -msse4.1 here: the SIMD code detects SSE4.1 at compile time via
 # __SSE4_1__ and falls back to an SSE2 path automatically.  Release builds with
 # WITH_MARCH_NATIVE=ON enable SSE4.1 on capable hosts through -march=native.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(ANDROID)
+  # Gradle's debug variant must still be playable on a phone: keep it optimised
+  # and free of the desktop sanitizers, which need extra runtime packaging.
+  target_compile_options(cannonball-dx PRIVATE $<$<CONFIG:Debug>:-O2>)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # Compile-time flags (Debug only)
   target_compile_options(cannonball-dx PRIVATE
     $<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer -ftrapv>
@@ -577,7 +636,7 @@ endif()
 
 
 # Add -march=native for GCC/Clang, only in Release builds
-if(WITH_MARCH_NATIVE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(WITH_MARCH_NATIVE AND NOT ANDROID AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
     target_compile_options(cannonball-dx PRIVATE
       $<$<COMPILE_LANGUAGE:C>:-march=native>
@@ -671,6 +730,10 @@ endif()
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(cannonball-dx PRIVATE OpenMP::OpenMP_CXX)
+    if(ANDROID)
+        # The NDK only ships libomp for static linking into the app library.
+        target_link_options(cannonball-dx PRIVATE -static-openmp)
+    endif()
 endif()
 
 # Copy out DLLs on Windows

@@ -24,7 +24,7 @@
   namespace forcefeedback { bool init(int,int,int); int set(int,int); void close(); bool is_supported(); }
 #endif
 
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__ANDROID__)
 // JJP - Includes for udev, to find gamepad haptics where not supported by SDL
 #include <stdio.h>
 #include <stdlib.h>
@@ -321,7 +321,7 @@ void Input::open_joy()
 
 
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__ANDROID__)
             std::cout << " without SDL rumble support." << std::endl;
 #else
             // Linux only - Check for rumble support
@@ -1074,7 +1074,7 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
 void Input::set_rumble(bool enable, float strength, int mode)
 {
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__ANDROID__)
     if (hidraw_device >= 0) {
         // takes precidence over SDL native support
 

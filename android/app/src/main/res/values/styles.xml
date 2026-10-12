@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ROM import screen -->
+    <style name="LauncherTheme" parent="android:Theme.Material.NoActionBar" />
+
+    <!-- The game: SDL switches to immersive fullscreen itself. -->
+    <style name="GameTheme" parent="android:Theme.Material.NoActionBar.Fullscreen" />
+</resources>

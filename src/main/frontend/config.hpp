@@ -448,6 +448,22 @@
         const int seconds = endless_start_time(); \
         return static_cast<uint8_t>(((seconds / 10) << 4) | (seconds % 10)); \
     } \
+    int touch_setting(const char* name, int fallback) \
+    { \
+        return cfg.get_int(std::string("touch.") + name, fallback); \
+    } \
+    void set_touch_setting(const char* name, int value) \
+    { \
+        cfg.put_int(std::string("touch.") + name, value); \
+    } \
+    std::string touch_layout(const char* element) \
+    { \
+        return cfg.get_string(std::string("touch.layout.") + element, ""); \
+    } \
+    void set_touch_layout(const char* element, const std::string& value) \
+    { \
+        cfg.put_string(std::string("touch.layout.") + element, value); \
+    } \
     void reset_endless_settings() \
     { \
         cfg.put_int("endless.random_start", ENDLESS_DEFAULT_RANDOM_START); \

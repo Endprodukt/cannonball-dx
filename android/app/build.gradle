@@ -1,0 +1,154 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ----------------------------------------------------------------------------
+// SDL2
+//
+// SDL's Java activity and its native library must come from exactly the same
+// release, so both are taken from one pinned checkout: Gradle compiles the
+// Java glue from it and the root CMakeLists.txt builds libSDL2.so from it.
+// ----------------------------------------------------------------------------
+def sdlVersion = '2.32.10'
+def sdlCommit = '5d249570393f7a37e037abf22cd6012a4cc56a71'
+def depsDir = new File(rootDir, 'deps')
+def sdlDir = new File(depsDir, "SDL2-${sdlVersion}")
+
+if (!new File(sdlDir, 'CMakeLists.txt').exists()) {
+    logger.lifecycle("Fetching SDL2 ${sdlVersion} into ${sdlDir}")
+    project.delete(sdlDir)
+    depsDir.mkdirs()
+    providers.exec {
+        commandLine 'git', 'clone', '--depth', '1', '--branch', "release-${sdlVersion}",
+                'https://github.com/libsdl-org/SDL.git', sdlDir.absolutePath
+    }.result.get()
+}
+
+def sdlHead = providers.exec {
+    workingDir sdlDir
+    commandLine 'git', 'rev-parse', 'HEAD'
+}.standardOutput.asText.get().trim()
+
+if (sdlHead != sdlCommit) {
+    throw new GradleException(
+            "Unexpected SDL2 checkout in ${sdlDir}: ${sdlHead} (expected ${sdlCommit}). " +
+            "Delete the directory to fetch it again.")
+}
+
+// ----------------------------------------------------------------------------
+// Game data shipped inside the APK. The launcher activity unpacks it into the
+// app's files directory, where the engine reads it with ordinary file I/O.
+// ----------------------------------------------------------------------------
+def repoDir = rootDir.parentFile
+def gameAssetsDir = layout.buildDirectory.dir('generated/gameAssets').get().asFile
+
+project.sync {
+    from(new File(repoDir, 'res')) {
+        into 'res'
+        exclude 'cannonball.ico', 'cannonball.rc.in'
+    }
+    from(new File(repoDir, 'roms/roms.txt')) {
+        into 'roms'
+    }
+    into gameAssetsDir
+}
+
+// globals.hpp stays the single source of truth for the version, as it is for
+// the Windows resource file.
+def globals = new File(repoDir, 'src/main/globals.hpp').getText('UTF-8')
+def versionMatch = globals =~ /CANNONBALL_DX_VERSION\s+"([^"]+)"/
+if (!versionMatch.find()) {
+    throw new GradleException('Could not parse CANNONBALL_DX_VERSION from globals.hpp')
+}
+def gameVersion = versionMatch.group(1)
+
+// Every CI build must be installable over the previous one.
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int
+
+def abiList = (project.findProperty('abiFilters') ?: 'arm64-v8a').toString().split(',').collect { it.trim() }
+
+android {
+    namespace 'io.github.endprodukt.cannonballdx'
+    compileSdk 34
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'io.github.endprodukt.cannonballdx'
+        minSdk 21
+        targetSdk 34
+        versionCode buildNumber
+        versionName gameVersion
+
+        ndk {
+            abiFilters(*abiList)
+        }
+
+        externalNativeBuild {
+            cmake {
+                // Always an optimised native build: an unoptimised engine is
+                // not playable, whatever the Gradle build type.
+                arguments '-DANDROID_STL=c++_static',
+                        '-DCMAKE_BUILD_TYPE=Release',
+                        '-DWITH_MARCH_NATIVE=OFF',
+                        "-DCB_SDL2_SOURCE_DIR=${sdlDir.absolutePath.replace('\\', '/')}"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    // One signing identity for every build type, so any APK from this
+    // repository installs over any other without uninstalling (which would
+    // delete the imported ROMs and settings). The bundled keystore is a
+    // public test key. Set the CB_KEYSTORE_* environment variables to sign
+    // with a private key instead.
+    signingConfigs {
+        shared {
+            def externalStore = System.getenv('CB_KEYSTORE_FILE')
+            if (externalStore) {
+                storeFile file(externalStore)
+                storePassword System.getenv('CB_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('CB_KEY_ALIAS')
+                keyPassword System.getenv('CB_KEY_PASSWORD') ?: System.getenv('CB_KEYSTORE_PASSWORD')
+            } else {
+                storeFile file('../cannonball-dx-test.keystore')
+                storePassword 'cannonball-dx'
+                keyAlias 'cannonball-dx-test'
+                keyPassword 'cannonball-dx'
+            }
+            storeType 'pkcs12'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shared
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += new File(sdlDir, 'android-project/app/src/main/java')
+            assets.srcDirs += gameAssetsDir
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

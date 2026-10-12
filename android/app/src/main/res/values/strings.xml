@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CannonBall DX</string>
+
+    <string name="import_intro">CannonBall DX needs the ROM data of the original OutRun arcade board (Revision B). It is not included.\n\nTap “Import files” and choose your MAME outrun.zip, or all extracted ROM files. Custom music such as 04_My_Track.mp3 can be imported the same way.\n\nThe files are stored in:\n%1$s</string>
+
+    <string name="button_import">Import files</string>
+    <string name="button_play">Play</string>
+
+    <string name="status_no_roms">No ROM set has been imported yet.</string>
+    <string name="status_ready">A ROM set is installed. Tap Play to start.</string>
+    <string name="status_rom_rejected">The imported ROM set is incomplete or not supported. Please import a complete OutRun Revision B set. A current merged MAME outrun.zip is recommended.</string>
+    <string name="status_importing">Importing…</string>
+    <string name="status_imported">Files imported: %1$d. Tap Play to start.</string>
+    <string name="status_import_failed">Import failed: %1$s</string>
+    <string name="status_assets_failed">The game resources could not be unpacked: %1$s</string>
+    <string name="status_no_picker">No file picker is available on this device.</string>
+
+    <string name="shortcut_import_short">Import files</string>
+    <string name="shortcut_import_long">Import ROMs or music</string>
+</resources>

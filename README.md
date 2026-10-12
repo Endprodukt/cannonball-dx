@@ -114,6 +114,10 @@ CannonBall already included steering-wheel force feedback. CannonBall DX **exten
 
 - **Windows 10/11 (64-bit)**
 
+### Experimental
+
+- **Android (arm64)** - built automatically by GitHub Actions; see [Android](#android). Not yet verified on real devices.
+
 ### Not tested with CannonBall DX
 
 - Linux
@@ -385,6 +389,41 @@ If you find a crash, graphical problem, input issue or behaviour that differs fr
 - `-x` - Disable single-core Raspberry Pi detection
 - `-1` - Use single-core mode
 - `-perftest` - Maximum frame-rate performance test
+
+---
+
+## Android
+
+The Android version is the same engine, built as an APK by the **Android Build** GitHub Actions workflow. Download the APK from the workflow run's artifacts and install it (sideloading must be allowed for your browser or file manager).
+
+**ROMs.** The app contains no ROM data. On first start it asks for your ROM set: tap **Import files** and pick a MAME `outrun.zip`, or all extracted Revision B ROM files. Custom music such as `04_My_Track.mp3` is imported the same way. To import more files later, long-press the app icon and choose **Import files**.
+
+All files live in `Android/data/io.github.endprodukt.cannonballdx/files/` (`roms/`, `res/`, `config.xml`, high scores and `cannonball-dx.log`), which is also reachable from a PC over USB.
+
+**Touch controls.** An on-screen button overlay drives the game on touchscreens. It has two independent layouts: driving controls in game and navigation controls in the menus. Everything is configured under **Settings > Controls > Touch Controls**:
+
+| Option | Meaning |
+|---|---|
+| Touch Controls | Switches the overlay on or off. |
+| Hide With Gamepad | Hides the overlay while a game controller is connected. |
+| Opacity | 10-100 %. |
+| Edit Layout | Opens the layout editor. |
+| Reset Layout | Restores the default positions and sizes. |
+
+In the layout editor, drag a button to move it, pinch it (or use **Size -** / **Size +**) to resize it and use **Hide** / **Show** to remove buttons you do not need. **Game Page** / **Menu Page** switches between the two layouts; **Done** saves.
+
+While the overlay is switched off or hidden, touching the screen brings it back for a few seconds, so a device without a controller can always reach the menus. The Android Back button or gesture opens the menu in game and goes back inside the menus.
+
+The Touch Controls page is also available in the desktop builds, where it is off by default; it is intended for Windows and Linux devices with a touchscreen.
+
+**Building locally** needs JDK 17 and the Android SDK with NDK 28.2.13676358 and CMake 3.22.1:
+
+```bash
+cd android
+./gradlew assembleRelease
+```
+
+SDL2 is fetched on the first build. APKs are signed with the public test key in `android/cannonball-dx-test.keystore`, so every build installs over the previous one; set the `CB_KEYSTORE_*` environment variables to sign with a private key instead.
 
 ---
 

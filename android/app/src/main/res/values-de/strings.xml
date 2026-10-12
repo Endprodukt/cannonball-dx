@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_intro">CannonBall DX benötigt die ROM-Daten der originalen OutRun-Arcade-Platine (Revision B). Sie sind nicht enthalten.\n\nTippe auf „Dateien importieren“ und wähle dein MAME-outrun.zip oder alle entpackten ROM-Dateien aus. Eigene Musik wie 04_Mein_Titel.mp3 lässt sich genauso importieren.\n\nDie Dateien werden hier gespeichert:\n%1$s</string>
+
+    <string name="button_import">Dateien importieren</string>
+    <string name="button_play">Spielen</string>
+
+    <string name="status_no_roms">Es wurde noch kein ROM-Set importiert.</string>
+    <string name="status_ready">Ein ROM-Set ist installiert. Tippe auf Spielen.</string>
+    <string name="status_rom_rejected">Das importierte ROM-Set ist unvollständig oder wird nicht unterstützt. Bitte importiere ein vollständiges OutRun-Revision-B-Set. Empfohlen wird ein aktuelles zusammengeführtes MAME-outrun.zip.</string>
+    <string name="status_importing">Importiere…</string>
+    <string name="status_imported">Importierte Dateien: %1$d. Tippe auf Spielen.</string>
+    <string name="status_import_failed">Import fehlgeschlagen: %1$s</string>
+    <string name="status_assets_failed">Die Spielressourcen konnten nicht entpackt werden: %1$s</string>
+    <string name="status_no_picker">Auf diesem Gerät ist keine Dateiauswahl verfügbar.</string>
+
+    <string name="shortcut_import_short">Dateien importieren</string>
+    <string name="shortcut_import_long">ROMs oder Musik importieren</string>
+</resources>

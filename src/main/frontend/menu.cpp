@@ -854,6 +854,21 @@ void Menu::populate_controls()
     erase_entry(ENTRY_REDEFJOY);
     menu_controls.insert(menu_controls.begin(), input_mode_menu_text());
     menu_controls.insert(menu_controls.begin() + 1, std::string(ENTRY_REDEFJOY));
+
+    // On-screen touch controls have their own page directly above BACK. They
+    // work on any touchscreen, so the entry is not limited to Android.
+    erase_entry(TOUCH_CONTROLS_ENTRY);
+    if (!config.smartypi.enabled)
+    {
+        const auto back_entry = std::find_if(
+            menu_controls.begin(),
+            menu_controls.end(),
+            [](const std::string& entry)
+            {
+                return starts_with_label(entry, ENTRY_BACK);
+            });
+        menu_controls.insert(back_entry, std::string(TOUCH_CONTROLS_ENTRY));
+    }
 }
 
 bool Menu::select_pressed()

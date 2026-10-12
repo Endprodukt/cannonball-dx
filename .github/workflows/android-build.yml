@@ -1,0 +1,113 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Android arm64 APK
+    runs-on: ubuntu-24.04
+
+    env:
+      # Keep in sync with android/app/build.gradle.
+      ANDROID_NDK_VERSION: 28.2.13676358
+      ANDROID_CMAKE_VERSION: 3.22.1
+      SDL_VERSION: 2.32.10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;${ANDROID_CMAKE_VERSION}"
+
+      - name: Cache Gradle and SDL2
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/deps
+          key: android-${{ env.SDL_VERSION }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Verify build tools
+        run: |
+          java -version
+          git --version
+          ls "$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}/source.properties"
+          "$ANDROID_HOME/cmake/${ANDROID_CMAKE_VERSION}/bin/cmake" --version
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Verify APK
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+
+          unzip -l "$APK" > apk-contents.txt
+          for entry in \
+            lib/arm64-v8a/libmain.so \
+            lib/arm64-v8a/libSDL2.so \
+            assets/res/tilemap.bin \
+            assets/res/tilepatch.bin \
+            assets/res/gamecontrollerdb.txt \
+            assets/res/Cannonball-Shader-Vertex.glsl \
+            classes.dex; do
+            if ! grep -q " ${entry}\$" apk-contents.txt; then
+              echo "Missing from APK: ${entry}"
+              cat apk-contents.txt
+              exit 1
+            fi
+          done
+
+          # ROM data must never be packaged.
+          if grep -Ei " assets/roms/.*\.(zip|[0-9]+)\$" apk-contents.txt; then
+            echo "ROM data found in the APK."
+            exit 1
+          fi
+
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
+
+          mkdir -p dist
+          VERSION=$(sed -n 's/.*CANNONBALL_DX_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' src/main/globals.hpp | head -n 1)
+          cp "$APK" "dist/cannonball-dx-android-${VERSION}-build${GITHUB_RUN_NUMBER}.apk"
+          ls -l dist
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: cannonball-dx-android-build${{ github.run_number }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/*.apk

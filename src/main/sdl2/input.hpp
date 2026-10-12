@@ -192,6 +192,15 @@ public:
     int get_axis_config(SDL_JoystickID* device = nullptr);
     void set_rumble(bool, float strength = 1.0f, int mode = 0);
 
+    // On-screen touch buttons drive the same logical key states as the keyboard.
+    void set_touch_key(presses p, bool is_pressed) { set_key_state(p, is_pressed); }
+
+    // True while an SDL GameController is open, not merely any joystick device.
+    bool has_game_controller() const
+    {
+        return controller != nullptr || !secondary_controllers.empty();
+    }
+
 private:
     SDL_JoystickID axis_device[4];
     SDL_JoystickID button_device[18];

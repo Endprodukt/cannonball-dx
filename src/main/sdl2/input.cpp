@@ -1302,6 +1302,16 @@ void Input::handle_key_down(SDL_Keysym* keysym)
     {
         set_key_state(BACK, true);
     }
+
+#ifdef __ANDROID__
+    // System Back gesture/button: Menu Back in the frontend, Menu Access in game.
+    if (keysym->sym == SDLK_AC_BACK)
+    {
+        set_key_state(
+            cannonball::state == cannonball::STATE_GAME ? MENU : BACK,
+            true);
+    }
+#endif
 }
 
 void Input::handle_key_up(SDL_Keysym* keysym)
@@ -1324,6 +1334,14 @@ void Input::handle_key_up(SDL_Keysym* keysym)
         set_key_state(ACCEPT, false);
     if (keysym->sym == config.system_action_key(Config::SYSTEM_ACTION_BACK))
         set_key_state(BACK, false);
+
+#ifdef __ANDROID__
+    if (keysym->sym == SDLK_AC_BACK)
+    {
+        set_key_state(MENU, false);
+        set_key_state(BACK, false);
+    }
+#endif
 }
 
 void Input::handle_joy_axis(SDL_JoyAxisEvent* evt)

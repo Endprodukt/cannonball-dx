@@ -19,7 +19,7 @@
 #include <iostream>
 #include <string>
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
 
 #include <fcntl.h>
 #include <linux/input.h>

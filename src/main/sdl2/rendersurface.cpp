@@ -22,6 +22,7 @@
 #include "rendersurface.hpp"
 #include "frontend/config.hpp"
 #include "display_utils.hpp"
+#include "touchcontrols.hpp"
 // Aligned Memory Allocation (standard C++17)
 #include <new>        // std::align_val_t, ::operator new/delete
 #include <cstddef>    // std::size_t
@@ -140,6 +141,7 @@ void RenderSurface::disable()
     // ensure we have exclusive access to the SDL context
     std::lock_guard<std::mutex> gpulock(gpuMutex);
 
+    touchcontrols.gl_release();
     glb::shutdown();
 
     // delete the SDL‑GL context
@@ -1248,9 +1250,14 @@ bool RenderSurface::finalize_frame()
     int y0 = anchor_y + config.video.y_offset;
     glb::set_present_rect_pixels_top_left(x0, y0, dst_rect.w, dst_rect.h);
     glb::set_overlay_rect_pixels_top_left(x0, y0, dst_rect.w, dst_rect.h);
+    if (touchcontrols.needs_clear())
+        glb::clear(/*rgba*/ 0.f, 0.f, 0.f, 1.f);
+
     // Draw to the window; gl_backend handles overlay multiply as a second pass.
     glb::draw( /*useOffscreen=*/(offscreen_rendering==1),
                /*drawOverlay=*/((config.video.crt_shape != 0)||(config.video.shadow_mask==1)) );
+
+    touchcontrols.render(glb::G.fbW, glb::G.fbH);
 
     // ultimately calls SDL_GL_SwapWindow
     glb::present();

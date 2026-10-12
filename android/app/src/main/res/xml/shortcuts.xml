@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon to reach the import screen once a ROM set exists. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="import_files"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_import_short"
+        android:shortcutLongLabel="@string/shortcut_import_long">
+        <intent
+            android:action="io.github.endprodukt.cannonballdx.IMPORT"
+            android:targetPackage="io.github.endprodukt.cannonballdx"
+            android:targetClass="io.github.endprodukt.cannonballdx.LauncherActivity" />
+    </shortcut>
+</shortcuts>
