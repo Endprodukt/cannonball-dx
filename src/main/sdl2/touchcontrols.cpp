@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <SDL_opengles2.h>
+#include <jni.h>
 
 #include "main.hpp"
 #include "frontend/config.hpp"
@@ -260,6 +261,39 @@ namespace
     {
         return value < low ? low : (value > high ? high : value);
     }
+
+    // Vibrate the phone through GameActivity.vibratePhone(), which marks the
+    // vibration as game/media output. SDL's own haptic path is classed as
+    // touch feedback by Android and is then scaled, or silenced, by the
+    // user's system touch-feedback setting. duration_ms <= 0 stops it.
+    void phone_vibrate(int duration_ms, float strength)
+    {
+        JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+        jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+        if (!env || !activity)
+            return;
+
+        static jmethodID method = nullptr;
+        jclass activity_class = env->GetObjectClass(activity);
+        if (!method)
+        {
+            method = env->GetMethodID(activity_class, "vibratePhone", "(IF)V");
+            if (!method)
+                env->ExceptionClear();
+        }
+
+        if (method)
+        {
+            env->CallVoidMethod(activity, method,
+                                static_cast<jint>(duration_ms),
+                                static_cast<jfloat>(strength));
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+        }
+
+        env->DeleteLocalRef(activity_class);
+        env->DeleteLocalRef(activity);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -468,61 +502,17 @@ void TouchControls::set_rumble_enabled(bool value)
     config.set_touch_setting("rumble", value ? 1 : 0);
 }
 
-// SDL exposes the phone's own vibrator as a haptic device with this name.
-// It can appear a moment after startup, so a failed lookup is retried.
-SDL_Haptic* TouchControls::phone_vibrator()
-{
-    if (vibrator)
-        return vibrator;
-
-    const Uint32 now = SDL_GetTicks();
-    if (vibrator_retry_at != 0 && !SDL_TICKS_PASSED(now, vibrator_retry_at))
-        return nullptr;
-    vibrator_retry_at = now + 2000;
-
-    if ((SDL_WasInit(SDL_INIT_HAPTIC) & SDL_INIT_HAPTIC) == 0 &&
-        SDL_InitSubSystem(SDL_INIT_HAPTIC) != 0)
-    {
-        return nullptr;
-    }
-
-    const int count = SDL_NumHaptics();
-    for (int i = 0; i < count; ++i)
-    {
-        const char* name = SDL_HapticName(i);
-        if (!name || std::strcmp(name, "VIBRATOR_SERVICE") != 0)
-            continue;
-
-        SDL_Haptic* candidate = SDL_HapticOpen(i);
-        if (!candidate)
-            continue;
-
-        if (SDL_HapticRumbleInit(candidate) != 0)
-        {
-            SDL_HapticClose(candidate);
-            continue;
-        }
-
-        vibrator = candidate;
-        break;
-    }
-
-    return vibrator;
-}
-
 // Short tick confirming a touch-button press.
 void TouchControls::pulse()
 {
     if (!setting_haptics)
         return;
 
-    if (SDL_Haptic* device = phone_vibrator())
-    {
-        SDL_HapticRumblePlay(device, 0.6f, 18);
-        // The tick replaced any running rumble; let the mixer restart it.
-        rumble_issued_at = 0;
-        rumble_strength = 0.0f;
-    }
+    phone_vibrate(18, 0.6f);
+
+    // The tick replaced any running rumble; let the mixer restart it.
+    rumble_issued_at = 0;
+    rumble_strength = 0.0f;
 }
 
 int TouchControls::rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 duration_ms)
@@ -535,16 +525,12 @@ int TouchControls::rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 du
 
     if (strength <= 0.0f)
     {
-        if (rumble_playing && vibrator)
-            SDL_HapticRumbleStop(vibrator);
+        if (rumble_playing)
+            phone_vibrate(0, 0.0f);
         rumble_playing = false;
         rumble_strength = 0.0f;
         return 0;
     }
-
-    SDL_Haptic* device = phone_vibrator();
-    if (!device)
-        return 0;
 
     // The mixer calls this on every logic tick. Restarting the vibrator that
     // often makes it stutter, so a request runs for a while and is renewed
@@ -557,7 +543,7 @@ int TouchControls::rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 du
 
     if (renew)
     {
-        SDL_HapticRumblePlay(device, strength, 240);
+        phone_vibrate(240, strength);
         rumble_playing = true;
         rumble_strength = strength;
         rumble_issued_at = now;

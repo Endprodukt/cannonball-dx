@@ -208,8 +208,6 @@ private:
     // Phone vibrator
     bool setting_haptics = true;
     bool setting_rumble = true;
-    SDL_Haptic* vibrator = nullptr;
-    Uint32 vibrator_retry_at = 0;
     bool   rumble_playing = false;
     float  rumble_strength = 0.0f;
     Uint32 rumble_issued_at = 0;
@@ -243,7 +241,6 @@ private:
     void set_defaults(int page_filter);
     bool element_active(int index) const;
     void update_tilt();
-    SDL_Haptic* phone_vibrator();
     void pulse();
     void load_layout();
     void save_layout();

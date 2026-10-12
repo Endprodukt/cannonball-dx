@@ -380,9 +380,11 @@ static void tick()
     const int core_divisor = std::max(1, config.fps / 30);
     tick_frame = (frame % core_divisor) == 0;
 
-    process_events();
 #ifdef __ANDROID__
+    // Events are pumped by main_loop() on Android; see there.
     touchcontrols.tick();
+#else
+    process_events();
 #endif
 
     // A real cross-monitor move is detected by the renderer, but config.xml
@@ -744,10 +746,9 @@ static int main_loop() {
     // Determine if we'll be using threaded or sequential rendering
     int threads = cannonball::game_threads;
 
-#if defined(WIN32) || defined(__ANDROID__)
+#ifdef WIN32
     // On Windows, input must be on the main thread. We therefore cap the thread-count to 3,
-    // thereby setting prepare_threads to 0 (below). Android needs the same: SDL restores
-    // the GL context from its event pump when the app returns from the background.
+    // thereby setting prepare_threads to 0 (below)
     if (threads > 3) threads = 3;
 #else
     // On Linux, we can use up to 4 threads
@@ -846,6 +847,15 @@ static int main_loop() {
             ProfilerStop();
         }
         #endif
+
+#ifdef __ANDROID__
+        // SDL restores the GL context from its event pump when the app returns
+        // from the background, so events are always pumped here, on the thread
+        // that owns the context. Game logic and frame preparation can then run
+        // on the prepare worker like on desktop Linux; without that, a phone
+        // cannot hold 120 fps at 3X/4X engine resolution.
+        process_events();
+#endif
 
         frameCounter++;
         auto now = std::chrono::steady_clock::now();

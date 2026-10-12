@@ -24,12 +24,20 @@ Built but not yet seen running on the phone (2026-10-12):
 - CRT shader in highp on Android (fix for the broken shadow mask / noise caused by
   16-bit mediump floats on mobile GPUs). The overlay-based mask and the Blargg
   filter itself were not changed.
-- Touch vibration and phone rumble (`touch.haptics`, `touch.rumble`): build, never
-  felt on a device. Rumble strength follows `controls.rumble`.
+- Touch vibration and phone rumble (`touch.haptics`, `touch.rumble`): confirmed in
+  Android's vibrator log (media usage, unscaled), not yet judged by feel.
 - Tilt steering (`touch.tilt`, `touch.tilt_range`): builds, never run on a device.
   The steering direction is derived from geometry, not yet confirmed by hand.
 
 ## Known bugs and limitations
+
+- Android performance (Pixel 9 Pro XL, Tensor G4, 21:9 frame, measured
+  2026-10-12 with the in-game FPS counter): at 120 fps 2X holds 119, 3X only 48
+  and 4X 34; at 60 fps 3X holds 60 and 4X about 54-59. The engine renders in
+  software and frame preparation (sprites, road, tiles) is single-threaded; at
+  3X/4X it does not fit into the 8.3 ms of a 120 Hz frame. When a frame is late
+  the inherited main loop skips up to three of four renders, which is why the
+  rate collapses instead of settling slightly below 120.
 
 - Android 20-9: the CRT shape overlay and screen curvature are computed for the
   full 21:9 frame, so their left and right edges are cropped with the picture.

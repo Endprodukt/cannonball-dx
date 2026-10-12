@@ -35,8 +35,14 @@ What a later session needs to continue efficiently. Repository-only.
   `main.cpp` must agree.
 - stdout/stderr go to `cannonball-dx.log` in that directory - ask for this file
   when debugging a device-only problem.
-- Worker threads are capped at 3 on Android (as on Windows) so SDL events and the
-  GL context stay on the main thread.
+- Threading on Android: `main_loop()` pumps SDL events itself (SDL restores the GL
+  context from the event pump after a pause, so that must stay on the main
+  thread); `tick()` and frame preparation then run on the prepare worker as on
+  Linux. Measured on a Pixel 9 Pro XL at 120 Hz before this: 2X 114 fps, 3X 41,
+  4X 38, with the main thread as the only busy core.
+- Phone vibration goes through `GameActivity.vibratePhone()` (JNI from
+  `touchcontrols.cpp`) with media/game usage. SDL's haptic API is classed as
+  touch feedback by Android and scaled by that system setting.
 - Local toolchain on the development PC: `F:\AndroidSdk` (JDK 17, Gradle 8.9,
   NDK 28.2.13676358, CMake 3.22.1, platform/build-tools 34). Build from Git Bash:
 
