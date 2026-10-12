@@ -191,7 +191,6 @@ set(src_sdl
     "${main_cpp_base}/sdl2/renderbase.hpp"
     "${main_cpp_base}/sdl2/snes_ntsc.h"
     "${main_cpp_base}/sdl2/pixel_scaler_state.hpp"
-    "${main_cpp_base}/sdl2/touchcontrols.hpp"
 
     "${main_cpp_base}/sdl2/audio.cpp"
     "${main_cpp_base}/sdl2/wav123.cpp"
@@ -199,8 +198,15 @@ set(src_sdl
     "${main_cpp_base}/sdl2/input.cpp"
     "${main_cpp_base}/sdl2/renderbase.cpp"
     "${main_cpp_base}/sdl2/snes_ntsc.cpp"
-    "${main_cpp_base}/sdl2/touchcontrols.cpp"
     )
+
+# On-screen touch controls exist only in the Android build.
+if(ANDROID)
+    list(APPEND src_sdl
+        "${main_cpp_base}/sdl2/touchcontrols.hpp"
+        "${main_cpp_base}/sdl2/touchcontrols.cpp"
+    )
+endif()
 
 set(src_render
     "${main_cpp_base}/sdl2/rendersurface.hpp"

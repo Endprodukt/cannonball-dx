@@ -42,6 +42,9 @@ What a later session needs to continue efficiently. Repository-only.
 
 ## Touch controls
 
+- Android only by explicit decision (2026-10-12): the desktop builds must not
+  change. Every call site, the menu page, the `Input`/`Config` helpers and the
+  CMake source entries are behind `__ANDROID__` / `if(ANDROID)`.
 - `TouchControls` (`sdl2/touchcontrols.*`) receives `SDL_FINGER*` events from
   `process_events()` and sets the ordinary `Input` key states through
   `Input::set_touch_key()`. Engine and menus need no touch-specific code.
@@ -51,6 +54,6 @@ What a later session needs to continue efficiently. Repository-only.
 - Settings are stored under `<touch>` in `config.xml`; each button is
   `x,y,size,visible` in permille (position of the centre relative to the screen,
   diameter relative to the screen height).
-- To test without a touchscreen, inject `SDL_TouchFingerEvent`s into
-  `touchcontrols.handle_finger()`. Posting Win32 mouse messages to the SDL window
+- To test without a phone, temporarily lift the guards in a local desktop build
+  and inject `SDL_TouchFingerEvent`s into `touchcontrols.handle_finger()`. Posting Win32 mouse messages to the SDL window
   with `SDL_MOUSE_TOUCH_EVENTS=1` was unreliable.

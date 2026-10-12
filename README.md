@@ -414,7 +414,7 @@ In the layout editor, drag a button to move it, pinch it (or use **Size -** / **
 
 While the overlay is switched off or hidden, touching the screen brings it back for a few seconds, so a device without a controller can always reach the menus. The Android Back button or gesture opens the menu in game and goes back inside the menus.
 
-The Touch Controls page is also available in the desktop builds, where it is off by default; it is intended for Windows and Linux devices with a touchscreen.
+The touch controls exist only in the Android build. The Windows and Linux builds are unchanged.
 
 **Building locally** needs JDK 17 and the Android SDK with NDK 28.2.13676358 and CMake 3.22.1:
 

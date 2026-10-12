@@ -9,8 +9,9 @@ Repository-only working notes. Not shipped in release packages.
 - **Android (arm64-v8a)**: new. Project in `android/`, built by
   `.github/workflows/android-build.yml`. **Not yet built by CI and not yet run on a
   device** - see "Outstanding" below.
-- **Touch controls**: implemented in `src/main/sdl2/touchcontrols.*`, available on
-  every platform (default on for Android, off elsewhere). Verified on Windows with
+- **Touch controls**: implemented in `src/main/sdl2/touchcontrols.*`, compiled
+  **only for Android** (`__ANDROID__` guards; the Windows/Linux binaries contain
+  none of it). The logic was verified once in a temporary Windows build with
   injected finger events: menu navigation, settings page, layout editor (drag,
   size buttons, pinch, hide/show, page switch, done/save), persistence in
   `config.xml`, and driving input in game.

@@ -22,7 +22,9 @@
 #include "sdl2/pixel_scaler_state.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "sdl2/display_utils.hpp"
+#ifdef __ANDROID__
 #include "sdl2/touchcontrols.hpp"
+#endif
 #include "engine/audio/osoundint.hpp"
 #include "engine/car_palette_state.hpp"
 #include "engine/radio_button.hpp"
@@ -197,12 +199,14 @@ protected:
     std::vector<std::string> menu_endless;
     std::vector<std::string> menu_bugfixes;
 
+#ifdef __ANDROID__
     // Touch-control settings, and the deliberately empty page that is active
     // while the on-screen layout editor owns the display.
     std::vector<std::string> menu_touch;
     std::vector<std::string> menu_touch_edit;
 
     static constexpr const char* TOUCH_CONTROLS_ENTRY = "TOUCH CONTROLS";
+#endif
 
     static constexpr const char* AUDIO_OUTPUT_HEADING = "AUDIO OUTPUT DEVICE";
     static constexpr const char* MENU_SOUNDS_LABEL = "MENU SOUNDS ";
@@ -909,6 +913,7 @@ protected:
         return true;
     }
 
+#ifdef __ANDROID__
     void populate_touch_settings()
     {
         menu_touch.clear();
@@ -976,6 +981,7 @@ protected:
         }
         osoundint.queue_sound(sound::BEEP1);
     }
+#endif
 
     void tick_menu() override
     {
@@ -985,6 +991,7 @@ protected:
         if (cannonball::state != cannonball::STATE_GAME)
             radio_button::stop_engine_vibration();
 
+#ifdef __ANDROID__
         // The layout editor is driven entirely by touch on the overlay. Its
         // DONE button ends the edit while this page is still active; Menu
         // Back has already left the page when it is noticed here.
@@ -1073,6 +1080,7 @@ protected:
                 return;
             }
         }
+#endif
 
         // Audio output and frontend beeps are DX-facing controls for the SE
         // playback-device support. LEFT/RIGHT changes values directly; Enter

@@ -192,6 +192,7 @@ public:
     int get_axis_config(SDL_JoystickID* device = nullptr);
     void set_rumble(bool, float strength = 1.0f, int mode = 0);
 
+#ifdef __ANDROID__
     // On-screen touch buttons drive the same logical key states as the keyboard.
     void set_touch_key(presses p, bool is_pressed) { set_key_state(p, is_pressed); }
 
@@ -200,6 +201,7 @@ public:
     {
         return controller != nullptr || !secondary_controllers.empty();
     }
+#endif
 
 private:
     SDL_JoystickID axis_device[4];

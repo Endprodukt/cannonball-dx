@@ -30,10 +30,6 @@ namespace
     // A touch slightly outside the drawn circle still counts as a press.
     const float HIT_SLOP = 1.12f;
 
-    // Frames to keep clearing the backbuffer after the overlay disappears, so
-    // no stale button survives in the letterbox area of any swap-chain buffer.
-    const int CLEAR_FRAMES_AFTER_HIDE = 4;
-
     // Direction buttons carry one of these marker labels and are drawn as a
     // solid triangle instead of text.
     const char ARROW_LEFT[]  = "<";
@@ -360,13 +356,7 @@ void TouchControls::init()
 {
     std::lock_guard<std::mutex> lock(mutex);
 
-#ifdef __ANDROID__
-    const int default_enabled = 1;
-#else
-    const int default_enabled = 0;
-#endif
-
-    setting_enabled = config.touch_setting("enabled", default_enabled) != 0;
+    setting_enabled = config.touch_setting("enabled", 1) != 0;
     setting_hide_with_gamepad = config.touch_setting("hide_with_gamepad", 1) != 0;
     setting_opacity = std::clamp(
         config.touch_setting("opacity", 50), OPACITY_MIN, OPACITY_MAX);
@@ -868,27 +858,10 @@ void TouchControls::editor_up(Finger& finger)
 
 bool TouchControls::needs_clear()
 {
-#ifdef __ANDROID__
-    // The surface is recreated whenever the app returns from the background,
-    // and its fresh buffers hold undefined pixels outside the game image.
+    // Always: translucent buttons in the letterbox area would otherwise
+    // accumulate from frame to frame, and the surface is recreated whenever
+    // the app returns from the background, leaving undefined pixels there.
     return true;
-#else
-    std::lock_guard<std::mutex> lock(mutex);
-
-    if (initialised && shown)
-    {
-        clear_frames = CLEAR_FRAMES_AFTER_HIDE;
-        return true;
-    }
-
-    if (clear_frames > 0)
-    {
-        --clear_frames;
-        return true;
-    }
-
-    return false;
-#endif
 }
 
 bool TouchControls::gl_init()

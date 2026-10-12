@@ -2,7 +2,9 @@
 
 #include "sdl2/rendersurface.hpp"
 #include "sdl2/pixel_scaler_state.hpp"
+#ifdef __ANDROID__
 #include "sdl2/touchcontrols.hpp"
+#endif
 #include "frontend/config.hpp"
 #include "xbrz.h"
 #include "hqx.h"
@@ -346,14 +348,18 @@ public:
         glb::set_overlay_rect_pixels_top_left(
             x0, y0, dst_rect.w, dst_rect.h);
 
+#ifdef __ANDROID__
         if (touchcontrols.needs_clear())
             glb::clear(0.f, 0.f, 0.f, 1.f);
+#endif
 
         glb::draw(
             false,
             (config.video.crt_shape != 0) ||
             (config.video.shadow_mask == 1));
+#ifdef __ANDROID__
         touchcontrols.render(glb::G.fbW, glb::G.fbH);
+#endif
         glb::present();
 
         activity_counter.fetch_sub(1, std::memory_order_acq_rel);

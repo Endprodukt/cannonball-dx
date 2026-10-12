@@ -1,8 +1,7 @@
 /***************************************************************************
-    On-screen touch controls - CannonBall DX.
+    On-screen touch controls - CannonBall DX (Android build only).
 
-    An optional overlay of virtual buttons for touchscreens (primarily the
-    Android build). The buttons drive the same logical Input key states as
+    An optional overlay of virtual buttons for touchscreens. The buttons drive the same logical Input key states as
     the keyboard, so the engine and frontend need no touch-specific code.
 
     Two independent layouts exist: the driving controls shown in game and
@@ -186,7 +185,6 @@ private:
     unsigned int gl_tex_font = 0;
     int gl_loc_tex = -1;
     bool gl_failed = false;
-    int clear_frames = 0;
 
     void set_defaults(int page_filter);
     void load_layout();

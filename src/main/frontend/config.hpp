@@ -448,6 +448,23 @@
         const int seconds = endless_start_time(); \
         return static_cast<uint8_t>(((seconds / 10) << 4) | (seconds % 10)); \
     } \
+    void reset_endless_settings() \
+    { \
+        cfg.put_int("endless.random_start", ENDLESS_DEFAULT_RANDOM_START); \
+        cfg.put_int("endless.start_time", ENDLESS_DEFAULT_START_TIME); \
+        cfg.put_int("endless.checkpoint_time", ENDLESS_DEFAULT_CHECKPOINT_TIME); \
+        cfg.put_int("endless.time_decrease", ENDLESS_DEFAULT_TIME_DECREASE); \
+        cfg.put_int("endless.time_interval", ENDLESS_DEFAULT_TIME_INTERVAL); \
+        cfg.put_int("endless.min_checkpoint", ENDLESS_DEFAULT_MIN_CHECKPOINT); \
+        cfg.put_int("endless.start_traffic", ENDLESS_DEFAULT_START_TRAFFIC); \
+        cfg.put_int("endless.traffic_increase", ENDLESS_DEFAULT_TRAFFIC_INCREASE); \
+        cfg.put_int("endless.traffic_interval", ENDLESS_DEFAULT_TRAFFIC_INTERVAL); \
+        cfg.put_int("endless.max_traffic", ENDLESS_DEFAULT_MAX_TRAFFIC); \
+    }
+
+// Touch-control settings exist only in the Android build.
+#ifdef __ANDROID__
+#define CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS \
     int touch_setting(const char* name, int fallback) \
     { \
         return cfg.get_int(std::string("touch.") + name, fallback); \
@@ -463,22 +480,13 @@
     void set_touch_layout(const char* element, const std::string& value) \
     { \
         cfg.put_string(std::string("touch.layout.") + element, value); \
-    } \
-    void reset_endless_settings() \
-    { \
-        cfg.put_int("endless.random_start", ENDLESS_DEFAULT_RANDOM_START); \
-        cfg.put_int("endless.start_time", ENDLESS_DEFAULT_START_TIME); \
-        cfg.put_int("endless.checkpoint_time", ENDLESS_DEFAULT_CHECKPOINT_TIME); \
-        cfg.put_int("endless.time_decrease", ENDLESS_DEFAULT_TIME_DECREASE); \
-        cfg.put_int("endless.time_interval", ENDLESS_DEFAULT_TIME_INTERVAL); \
-        cfg.put_int("endless.min_checkpoint", ENDLESS_DEFAULT_MIN_CHECKPOINT); \
-        cfg.put_int("endless.start_traffic", ENDLESS_DEFAULT_START_TRAFFIC); \
-        cfg.put_int("endless.traffic_increase", ENDLESS_DEFAULT_TRAFFIC_INCREASE); \
-        cfg.put_int("endless.traffic_interval", ENDLESS_DEFAULT_TRAFFIC_INTERVAL); \
-        cfg.put_int("endless.max_traffic", ENDLESS_DEFAULT_MAX_TRAFFIC); \
     }
+#else
+#define CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS
+#endif
 
-#define private public: CANNONBALL_DX_CONFIG_EXTENSIONS private
+#define private public: CANNONBALL_DX_CONFIG_EXTENSIONS CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS private
 #include "config_base.hpp"
 #undef private
 #undef CANNONBALL_DX_CONFIG_EXTENSIONS
+#undef CANNONBALL_DX_TOUCH_CONFIG_EXTENSIONS

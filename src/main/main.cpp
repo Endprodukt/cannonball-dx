@@ -22,7 +22,9 @@
 // SDL Specific Code
 #include "sdl2/timer.hpp"
 #include "sdl2/input.hpp"
+#ifdef __ANDROID__
 #include "sdl2/touchcontrols.hpp"
+#endif
 #include "sdl2/display_utils.hpp"
 
 #include "video.hpp"
@@ -354,11 +356,13 @@ static void process_events(void)
                 input.remove_joystick(event.jdevice.which);
                 break;
 
+#ifdef __ANDROID__
             case SDL_FINGERDOWN:
             case SDL_FINGERMOTION:
             case SDL_FINGERUP:
                 touchcontrols.handle_finger(&event.tfinger);
                 break;
+#endif
 
             case SDL_QUIT:
                 // Handle quit requests (like Ctrl-c).
@@ -377,7 +381,9 @@ static void tick()
     tick_frame = (frame % core_divisor) == 0;
 
     process_events();
+#ifdef __ANDROID__
     touchcontrols.tick();
+#endif
 
     // A real cross-monitor move is detected by the renderer, but config.xml
     // belongs to the main thread. Persist only the latest queued destination.
@@ -690,7 +696,7 @@ void prepare_thread() {
 void pin_thread_to_core(std::thread& t, int core_id) {
 #if defined(_WIN32) || defined(__ANDROID__)
         std::cerr << "Error setting affinity for thread to core: "
-                  << "CannonBall DX does not support thread pinning on this platform" << "\n";
+                  << "CannonBall DX does not support thread pinning on Windows" << "\n";
     return;
 #else
     cpu_set_t cpuset;
@@ -1214,7 +1220,9 @@ int main(int argc, char* argv[]) {
     input.restore_axis_bindings();
     input.sync_bound_axes();
 
+#ifdef __ANDROID__
     touchcontrols.init();
+#endif
 
     // Regardless to rumble, if haptic is enabled in config.xml, this is handled via ffeedback.cpp using either
     // DirectX (Windows) or /dev/input/event on Linux. This also includes control of real cabinet hardware via
