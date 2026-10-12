@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <vector>
 
@@ -374,6 +375,8 @@ void TouchControls::init()
     setting_opacity = std::clamp(
         config.touch_setting("opacity", 50), OPACITY_MIN, OPACITY_MAX);
     setting_gear_buttons = config.touch_setting("gear_buttons", 2) == 1 ? 1 : 2;
+    setting_haptics = config.touch_setting("haptics", 1) != 0;
+    setting_rumble = config.touch_setting("rumble", 1) != 0;
     setting_tilt = config.touch_setting("tilt", 0) != 0;
     setting_tilt_range = std::clamp(
         config.touch_setting("tilt_range", 30), TILT_RANGE_MIN, TILT_RANGE_MAX);
@@ -435,6 +438,132 @@ void TouchControls::set_gear_buttons(int count)
     mark_fingers_stale();
     setting_gear_buttons = count == 1 ? 1 : 2;
     config.set_touch_setting("gear_buttons", setting_gear_buttons);
+}
+
+bool TouchControls::haptics_enabled()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return setting_haptics;
+}
+
+void TouchControls::set_haptics_enabled(bool value)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    setting_haptics = value;
+    config.set_touch_setting("haptics", value ? 1 : 0);
+    if (value)
+        pulse();
+}
+
+bool TouchControls::rumble_enabled()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return setting_rumble;
+}
+
+void TouchControls::set_rumble_enabled(bool value)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    setting_rumble = value;
+    config.set_touch_setting("rumble", value ? 1 : 0);
+}
+
+// SDL exposes the phone's own vibrator as a haptic device with this name.
+// It can appear a moment after startup, so a failed lookup is retried.
+SDL_Haptic* TouchControls::phone_vibrator()
+{
+    if (vibrator)
+        return vibrator;
+
+    const Uint32 now = SDL_GetTicks();
+    if (vibrator_retry_at != 0 && !SDL_TICKS_PASSED(now, vibrator_retry_at))
+        return nullptr;
+    vibrator_retry_at = now + 2000;
+
+    if ((SDL_WasInit(SDL_INIT_HAPTIC) & SDL_INIT_HAPTIC) == 0 &&
+        SDL_InitSubSystem(SDL_INIT_HAPTIC) != 0)
+    {
+        return nullptr;
+    }
+
+    const int count = SDL_NumHaptics();
+    for (int i = 0; i < count; ++i)
+    {
+        const char* name = SDL_HapticName(i);
+        if (!name || std::strcmp(name, "VIBRATOR_SERVICE") != 0)
+            continue;
+
+        SDL_Haptic* candidate = SDL_HapticOpen(i);
+        if (!candidate)
+            continue;
+
+        if (SDL_HapticRumbleInit(candidate) != 0)
+        {
+            SDL_HapticClose(candidate);
+            continue;
+        }
+
+        vibrator = candidate;
+        break;
+    }
+
+    return vibrator;
+}
+
+// Short tick confirming a touch-button press.
+void TouchControls::pulse()
+{
+    if (!setting_haptics)
+        return;
+
+    if (SDL_Haptic* device = phone_vibrator())
+    {
+        SDL_HapticRumblePlay(device, 0.6f, 18);
+        // The tick replaced any running rumble; let the mixer restart it.
+        rumble_issued_at = 0;
+        rumble_strength = 0.0f;
+    }
+}
+
+int TouchControls::rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 duration_ms)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+
+    const float strength = !initialised || !setting_rumble || duration_ms == 0
+        ? 0.0f
+        : std::max(low_frequency, high_frequency) / 65535.0f;
+
+    if (strength <= 0.0f)
+    {
+        if (rumble_playing && vibrator)
+            SDL_HapticRumbleStop(vibrator);
+        rumble_playing = false;
+        rumble_strength = 0.0f;
+        return 0;
+    }
+
+    SDL_Haptic* device = phone_vibrator();
+    if (!device)
+        return 0;
+
+    // The mixer calls this on every logic tick. Restarting the vibrator that
+    // often makes it stutter, so a request runs for a while and is renewed
+    // only shortly before it ends or when the strength really changes.
+    const Uint32 now = SDL_GetTicks();
+    const bool renew =
+        !rumble_playing ||
+        now - rumble_issued_at >= 160 ||
+        std::fabs(strength - rumble_strength) > 0.10f;
+
+    if (renew)
+    {
+        SDL_HapticRumblePlay(device, strength, 240);
+        rumble_playing = true;
+        rumble_strength = strength;
+        rumble_issued_at = now;
+    }
+
+    return 0;
 }
 
 bool TouchControls::tilt_enabled()
@@ -649,6 +778,8 @@ void TouchControls::update_pressed()
             continue;
 
         el.pressed = now_pressed[i];
+        if (el.pressed)
+            pulse();
 
         if (i == EL_GEAR_TOGGLE)
         {

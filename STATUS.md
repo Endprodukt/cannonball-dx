@@ -24,6 +24,8 @@ Built but not yet seen running on the phone (2026-10-12):
 - CRT shader in highp on Android (fix for the broken shadow mask / noise caused by
   16-bit mediump floats on mobile GPUs). The overlay-based mask and the Blargg
   filter itself were not changed.
+- Touch vibration and phone rumble (`touch.haptics`, `touch.rumble`): build, never
+  felt on a device. Rumble strength follows `controls.rumble`.
 - Tilt steering (`touch.tilt`, `touch.tilt_range`): builds, never run on a device.
   The steering direction is derived from geometry, not yet confirmed by hand.
 

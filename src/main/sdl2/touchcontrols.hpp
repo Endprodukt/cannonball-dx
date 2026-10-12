@@ -67,6 +67,17 @@ public:
     int  tilt_range();
     void set_tilt_range(int degrees);
 
+    // Vibration through the phone's own vibrator: a short tick whenever a
+    // touch button is pressed, and the game's rumble effects.
+    bool haptics_enabled();
+    void set_haptics_enabled(bool value);
+    bool rumble_enabled();
+    void set_rumble_enabled(bool value);
+
+    // Logic thread: play (or, with zero strength, stop) a rumble request from
+    // the gameplay rumble mixer. Same parameters as SDL_GameControllerRumble.
+    int rumble(Uint16 low_frequency, Uint16 high_frequency, Uint32 duration_ms);
+
     // Logic thread, directly after OInputs::tick(): replaces the digital
     // steering value with the tilt angle while tilt steering is active.
     void apply_tilt_steering();
@@ -194,6 +205,15 @@ private:
     bool  tilt_valid = false;
     float tilt_degrees = 0.0f;      // filtered; positive steers right
 
+    // Phone vibrator
+    bool setting_haptics = true;
+    bool setting_rumble = true;
+    SDL_Haptic* vibrator = nullptr;
+    Uint32 vibrator_retry_at = 0;
+    bool   rumble_playing = false;
+    float  rumble_strength = 0.0f;
+    Uint32 rumble_issued_at = 0;
+
     // Overlay state derived once per tick
     bool shown = false;
     int  page = PAGE_GAME;
@@ -223,6 +243,8 @@ private:
     void set_defaults(int page_filter);
     bool element_active(int index) const;
     void update_tilt();
+    SDL_Haptic* phone_vibrator();
+    void pulse();
     void load_layout();
     void save_layout();
 

@@ -964,6 +964,8 @@ protected:
         menu_touch.push_back(bool_text("TILT STEERING", touchcontrols.tilt_enabled()));
         menu_touch.push_back(
             std::string("TILT RANGE ") + std::to_string(touchcontrols.tilt_range()));
+        menu_touch.push_back(bool_text("TOUCH VIBRATION", touchcontrols.haptics_enabled()));
+        menu_touch.push_back(bool_text("PHONE RUMBLE", touchcontrols.rumble_enabled()));
         menu_touch.push_back("EDIT LAYOUT");
         menu_touch.push_back("RESET LAYOUT");
         menu_touch.push_back(ENTRY_BACK);
@@ -1021,6 +1023,18 @@ protected:
                 touchcontrols.set_tilt_range(value);
                 break;
             }
+
+            case 6:
+                touchcontrols.set_haptics_enabled(direction == 0
+                    ? !touchcontrols.haptics_enabled()
+                    : direction > 0);
+                break;
+
+            case 7:
+                touchcontrols.set_rumble_enabled(direction == 0
+                    ? !touchcontrols.rumble_enabled()
+                    : direction > 0);
+                break;
 
             default:
                 return false;
@@ -1111,7 +1125,7 @@ protected:
                 return;
             }
 
-            if (cursor >= 0 && cursor <= 5)
+            if (cursor >= 0 && cursor <= 7)
             {
                 if (adjust_touch_value(cursor, 0))
                 {
@@ -1121,7 +1135,7 @@ protected:
                 return;
             }
 
-            if (cursor == 6)
+            if (cursor == 8)
             {
                 touchcontrols.begin_edit();
                 set_menu(&menu_touch_edit);
@@ -1130,7 +1144,7 @@ protected:
                 return;
             }
 
-            if (cursor == 7)
+            if (cursor == 9)
             {
                 touchcontrols.reset_layout();
                 config.save();
@@ -1139,7 +1153,7 @@ protected:
                 return;
             }
 
-            if (cursor == 8)
+            if (cursor == 10)
             {
                 menu_back();
                 refresh_menu();

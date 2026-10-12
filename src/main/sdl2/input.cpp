@@ -8,6 +8,9 @@
 
 #include "sdl2/input.hpp"
 #include "sdl2/gamepad_rumble_state.hpp"
+#ifdef __ANDROID__
+#include "sdl2/touchcontrols.hpp"
+#endif
 
 #define scan_joysticks        scan_joysticks_base
 #define add_joystick          add_joystick_base
@@ -353,6 +356,14 @@ namespace
 #endif
     }
 }
+
+#ifdef __ANDROID__
+int gamepad_rumble::phone_rumble(
+    Uint16 low_frequency, Uint16 high_frequency, Uint32 duration_ms)
+{
+    return touchcontrols.rumble(low_frequency, high_frequency, duration_ms);
+}
+#endif
 
 void Input::ensure_gamecontroller_open()
 {
@@ -1843,6 +1854,20 @@ void Input::set_rumble(bool enable, float strength, int mode)
 
     if (!controller || !rumble_supported)
     {
+#ifdef __ANDROID__
+        // Without a controller the same contextual effects play on the phone
+        // itself. The GAMEPAD RUMBLE switch belongs to pads and is not shown
+        // without one, so it must not silence the phone; the Touch Controls
+        // menu has its own switch.
+        if (!has_game_controller())
+        {
+            const bool pad_rumble_enabled = gamepad_rumble::enabled;
+            gamepad_rumble::enabled = true;
+            gamepad_rumble::dispatch(nullptr, 0, 0, 45);
+            gamepad_rumble::enabled = pad_rumble_enabled;
+        }
+        return;
+#endif
 #ifndef WIN32
         // Preserve the legacy Linux-specific hidraw/evdev fallback. Windows is
         // intentionally excluded: its DirectInput backend is wheel FFB, not
