@@ -408,6 +408,8 @@ All files live in `Android/data/io.github.endprodukt.cannonballdx/files/` (`roms
 | Hide With Gamepad | Hides the overlay while a game controller is connected. |
 | Opacity | 10-100 %. |
 | Gear Shift | `2 Buttons` shows separate LO and HI buttons, `1 Button` a single button that toggles the gear and shows the current one. |
+| Tilt Steering | Steer by turning the phone like a steering wheel (accelerometer). The steering buttons still work and take priority while held; hide them in the layout editor if you do not want them. Inactive while a game controller is connected. |
+| Tilt Range | Tilt angle in degrees for full steering lock, 10-60. Smaller is more sensitive. |
 | Edit Layout | Opens the layout editor. |
 | Reset Layout | Restores the default positions and sizes. |
 

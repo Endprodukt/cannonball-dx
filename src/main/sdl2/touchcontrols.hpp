@@ -59,6 +59,17 @@ public:
     // or two separate LO / HI buttons.
     int  gear_buttons();
     void set_gear_buttons(int count);
+
+    // Tilt steering: hold the phone like a steering wheel. The range is the
+    // tilt angle in degrees that gives full steering lock.
+    bool tilt_enabled();
+    void set_tilt_enabled(bool value);
+    int  tilt_range();
+    void set_tilt_range(int degrees);
+
+    // Logic thread, directly after OInputs::tick(): replaces the digital
+    // steering value with the tilt angle while tilt steering is active.
+    void apply_tilt_steering();
     void reset_layout();
 
     // Layout editor. While editing, touches move and resize the buttons
@@ -71,6 +82,10 @@ public:
     static constexpr int OPACITY_MIN = 10;
     static constexpr int OPACITY_MAX = 100;
     static constexpr int OPACITY_STEP = 10;
+
+    static constexpr int TILT_RANGE_MIN = 10;
+    static constexpr int TILT_RANGE_MAX = 60;
+    static constexpr int TILT_RANGE_STEP = 5;
 
 private:
     enum
@@ -172,6 +187,13 @@ private:
     int  gear_toggle_press = -1;
     bool gear_is_high = false;
 
+    // Tilt steering
+    bool setting_tilt = false;
+    int  setting_tilt_range = 30;
+    SDL_Sensor* accelerometer = nullptr;
+    bool  tilt_valid = false;
+    float tilt_degrees = 0.0f;      // filtered; positive steers right
+
     // Overlay state derived once per tick
     bool shown = false;
     int  page = PAGE_GAME;
@@ -200,6 +222,7 @@ private:
 
     void set_defaults(int page_filter);
     bool element_active(int index) const;
+    void update_tilt();
     void load_layout();
     void save_layout();
 

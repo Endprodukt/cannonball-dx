@@ -961,6 +961,9 @@ protected:
         menu_touch.push_back(
             std::string("GEAR SHIFT ") +
             (touchcontrols.gear_buttons() == 1 ? "1 BUTTON" : "2 BUTTONS"));
+        menu_touch.push_back(bool_text("TILT STEERING", touchcontrols.tilt_enabled()));
+        menu_touch.push_back(
+            std::string("TILT RANGE ") + std::to_string(touchcontrols.tilt_range()));
         menu_touch.push_back("EDIT LAYOUT");
         menu_touch.push_back("RESET LAYOUT");
         menu_touch.push_back(ENTRY_BACK);
@@ -1002,6 +1005,22 @@ protected:
                 touchcontrols.set_gear_buttons(
                     touchcontrols.gear_buttons() == 1 ? 2 : 1);
                 break;
+
+            case 4:
+                touchcontrols.set_tilt_enabled(direction == 0
+                    ? !touchcontrols.tilt_enabled()
+                    : direction > 0);
+                break;
+
+            case 5:
+            {
+                int value = touchcontrols.tilt_range() +
+                    (direction < 0 ? -1 : 1) * TouchControls::TILT_RANGE_STEP;
+                if (direction == 0 && value > TouchControls::TILT_RANGE_MAX)
+                    value = TouchControls::TILT_RANGE_MIN;
+                touchcontrols.set_tilt_range(value);
+                break;
+            }
 
             default:
                 return false;
@@ -1092,7 +1111,7 @@ protected:
                 return;
             }
 
-            if (cursor >= 0 && cursor <= 3)
+            if (cursor >= 0 && cursor <= 5)
             {
                 if (adjust_touch_value(cursor, 0))
                 {
@@ -1102,7 +1121,7 @@ protected:
                 return;
             }
 
-            if (cursor == 4)
+            if (cursor == 6)
             {
                 touchcontrols.begin_edit();
                 set_menu(&menu_touch_edit);
@@ -1111,7 +1130,7 @@ protected:
                 return;
             }
 
-            if (cursor == 5)
+            if (cursor == 7)
             {
                 touchcontrols.reset_layout();
                 config.save();
@@ -1120,7 +1139,7 @@ protected:
                 return;
             }
 
-            if (cursor == 6)
+            if (cursor == 8)
             {
                 menu_back();
                 refresh_menu();

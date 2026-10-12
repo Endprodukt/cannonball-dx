@@ -374,6 +374,9 @@ void TouchControls::init()
     setting_opacity = std::clamp(
         config.touch_setting("opacity", 50), OPACITY_MIN, OPACITY_MAX);
     setting_gear_buttons = config.touch_setting("gear_buttons", 2) == 1 ? 1 : 2;
+    setting_tilt = config.touch_setting("tilt", 0) != 0;
+    setting_tilt_range = std::clamp(
+        config.touch_setting("tilt_range", 30), TILT_RANGE_MIN, TILT_RANGE_MAX);
 
     set_defaults(-1);
     load_layout();
@@ -432,6 +435,128 @@ void TouchControls::set_gear_buttons(int count)
     mark_fingers_stale();
     setting_gear_buttons = count == 1 ? 1 : 2;
     config.set_touch_setting("gear_buttons", setting_gear_buttons);
+}
+
+bool TouchControls::tilt_enabled()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return setting_tilt;
+}
+
+void TouchControls::set_tilt_enabled(bool value)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    setting_tilt = value;
+    config.set_touch_setting("tilt", value ? 1 : 0);
+}
+
+int TouchControls::tilt_range()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return setting_tilt_range;
+}
+
+void TouchControls::set_tilt_range(int degrees)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    setting_tilt_range = std::clamp(degrees, TILT_RANGE_MIN, TILT_RANGE_MAX);
+    config.set_touch_setting("tilt_range", setting_tilt_range);
+}
+
+// Read the accelerometer and derive how far the phone is rotated about the
+// axis through the screen, like a steering wheel. The sensor is only kept
+// open while tilt steering can actually be used.
+void TouchControls::update_tilt()
+{
+    const bool wanted = setting_tilt && !input.has_game_controller();
+
+    if (!wanted)
+    {
+        if (accelerometer)
+        {
+            SDL_SensorClose(accelerometer);
+            accelerometer = nullptr;
+        }
+        tilt_valid = false;
+        return;
+    }
+
+    if (!accelerometer)
+    {
+        if ((SDL_WasInit(SDL_INIT_SENSOR) & SDL_INIT_SENSOR) == 0 &&
+            SDL_InitSubSystem(SDL_INIT_SENSOR) != 0)
+        {
+            return;
+        }
+
+        const int count = SDL_NumSensors();
+        for (int i = 0; i < count && !accelerometer; ++i)
+        {
+            if (SDL_SensorGetDeviceType(i) == SDL_SENSOR_ACCEL)
+                accelerometer = SDL_SensorOpen(i);
+        }
+
+        if (!accelerometer)
+            return;
+    }
+
+    float data[3] = {};
+    if (SDL_SensorGetData(accelerometer, data, 3) != 0)
+        return;
+
+    // data[0] / data[1] are the device's own right / up axes. With the phone
+    // lying nearly flat the direction of "up" in the screen plane is noise,
+    // so keep the last value until it is held up again.
+    const float ax = data[0];
+    const float ay = data[1];
+    if (ax * ax + ay * ay < 9.0f)
+        return;
+
+    // Angle of "up" in device coordinates: +90 or -90 degrees in the two
+    // landscape orientations. Turning the phone clockwise lowers it, so the
+    // steering angle is the distance from whichever landscape is nearer.
+    const float up = std::atan2(ax, ay) * 57.29578f;
+    const float steer = (up >= 0.0f ? 90.0f : -90.0f) - up;
+
+    if (!tilt_valid)
+        tilt_degrees = steer;
+    else
+        tilt_degrees += (steer - tilt_degrees) * 0.35f;
+
+    tilt_valid = true;
+}
+
+void TouchControls::apply_tilt_steering()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+
+    if (!initialised || !setting_tilt || !tilt_valid ||
+        cannonball::state != cannonball::STATE_GAME)
+    {
+        return;
+    }
+
+    // Steering buttons, where still shown, take priority while held.
+    if (input.is_pressed(Input::LEFT) || input.is_pressed(Input::RIGHT))
+        return;
+
+    const float dead_zone = 1.5f;
+    float angle = tilt_degrees;
+    if (std::fabs(angle) <= dead_zone)
+        angle = 0.0f;
+    else
+        angle -= angle > 0.0f ? dead_zone : -dead_zone;
+
+    const float amount =
+        clampf(angle / (setting_tilt_range - dead_zone), -1.0f, 1.0f);
+
+    // Same centre and lock as OInputs::STEERING_CENTRE / STEERING_MAX, which
+    // are private to the engine class.
+    const int steering_centre = 0x80;
+    const float lock_range = 0x38;
+
+    oinputs.input_steering =
+        steering_centre + static_cast<int>(std::lround(amount * lock_range));
 }
 
 void TouchControls::reset_layout()
@@ -679,6 +804,7 @@ void TouchControls::tick()
     const bool want_shown = edit_mode || configured || wake_until != 0;
 
     gear_is_high = oinputs.gear;
+    update_tilt();
 
     const bool frontend =
         cannonball::state == cannonball::STATE_MENU ||

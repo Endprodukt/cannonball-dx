@@ -24,7 +24,8 @@ Built but not yet seen running on the phone (2026-10-12):
 - CRT shader in highp on Android (fix for the broken shadow mask / noise caused by
   16-bit mediump floats on mobile GPUs). The overlay-based mask and the Blargg
   filter itself were not changed.
-- Single gear-shift touch button (`touch.gear_buttons` = 1) and the reduced menus.
+- Tilt steering (`touch.tilt`, `touch.tilt_range`): builds, never run on a device.
+  The steering direction is derived from geometry, not yet confirmed by hand.
 
 ## Known bugs and limitations
 
@@ -45,7 +46,11 @@ Built but not yet seen running on the phone (2026-10-12):
   goes through SDL.
 - Android: in-menu `DISPLAY MODE` and `DISPLAY DEVICE` are removed; the surface is
   always fullscreen.
-- Touch: steering is digital (left/right buttons). No analog slider or tilt steering.
+- Touch: steering is digital buttons or accelerometer tilt. No analog slider.
+- Scanlines (all platforms, inherited): at 2X-4X engine resolution there is one
+  scanline per original line (224); at original resolution only every other row
+  can be dimmed (112). On displays whose height is not a multiple of 224 the
+  lines land on fractional pixels and look fine/uneven. Not changed.
 - Touch: the frontend layout has no VIEW button, so the Time Trial course selector
   cannot toggle traffic by touch (the Menu Accept button starts the run).
 - Touch: the layout editor's toolbar sits in the middle of the screen; a button

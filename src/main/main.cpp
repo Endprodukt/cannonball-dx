@@ -397,6 +397,9 @@ static void tick()
 
     if (tick_frame) {
         oinputs.tick();           // Do Controls
+#ifdef __ANDROID__
+        touchcontrols.apply_tilt_steering();
+#endif
 
         const bool gear_before = oinputs.gear;
         oinputs.do_gear();        // Digital Gear
