@@ -37,8 +37,21 @@ What a later session needs to continue efficiently. Repository-only.
   when debugging a device-only problem.
 - Worker threads are capped at 3 on Android (as on Windows) so SDL events and the
   GL context stay on the main thread.
-- No Android toolchain is installed on the development PC; the APK is only built
-  by GitHub Actions.
+- Local toolchain on the development PC: `F:\AndroidSdk` (JDK 17, Gradle 8.9,
+  NDK 28.2.13676358, CMake 3.22.1, platform/build-tools 34). Build from Git Bash:
+
+  ```bash
+  cd android
+  export JAVA_HOME="F:/AndroidSdk/jdk-17.0.20.1+1" ANDROID_HOME="F:/AndroidSdk"
+  /f/AndroidSdk/gradle-8.9/bin/gradle --no-daemon assembleRelease -PnativeBuildDir=F:/cbx
+  ```
+
+  `-PnativeBuildDir` is required on Windows: the default `.cxx` directory inside
+  the checkout exceeds the 260-character path limit. `android/local.properties`
+  (git-ignored) holds `sdk.dir`. The APK lands in
+  `android/app/build/outputs/apk/release/app-release.apk`.
+- The version code counts minutes since 2026-01-01, so any newer build installs
+  over any older one regardless of where it was built.
 
 ## Touch controls
 

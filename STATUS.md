@@ -7,8 +7,8 @@ Repository-only working notes. Not shipped in release packages.
 - **Windows**: the tested platform. Builds with Visual Studio 2022 + vcpkg.
 - **Linux**: builds in CI, not tested at runtime.
 - **Android (arm64-v8a)**: new. Project in `android/`, built by
-  `.github/workflows/android-build.yml`. **Not yet built by CI and not yet run on a
-  device** - see "Outstanding" below.
+  `.github/workflows/android-build.yml`. The APK builds locally (2026-10-12) and is
+  signed and packaged correctly. **Not yet run on a device** - see "Outstanding".
 - **Touch controls**: implemented in `src/main/sdl2/touchcontrols.*`, compiled
   **only for Android** (`__ANDROID__` guards; the Windows/Linux binaries contain
   none of it). The logic was verified once in a temporary Windows build with
@@ -17,6 +17,11 @@ Repository-only working notes. Not shipped in release packages.
   `config.xml`, and driving input in game.
 
 ## Known bugs and limitations
+
+- CI: the Windows and Linux workflows fail on pull requests at the artifact
+  upload step, because `github.ref_name` (`55/merge`) contains a slash. The builds
+  themselves succeed. Pre-existing; left untouched because the Windows build
+  setup is not to be changed without being asked.
 
 - Android: only `arm64-v8a` is built. Other ABIs can be requested with
   `./gradlew assembleRelease -PabiFilters=arm64-v8a,x86_64` but are untested.
@@ -34,8 +39,8 @@ Repository-only working notes. Not shipped in release packages.
 
 ## Outstanding
 
-1. Push the branch / open a PR so the Android workflow runs for the first time,
-   then fix whatever the NDK build or Gradle packaging reports.
+1. Confirm the Android workflow is green in CI (first run failed on a clang-only
+   error in `ohud.cpp`, fixed since).
 2. First run on a real phone: ROM import, performance at the default 2X engine
    resolution, audio latency, pause/resume, controller hot-plug, notch handling.
 3. Decide on release signing (private key via `CB_KEYSTORE_*` secrets).

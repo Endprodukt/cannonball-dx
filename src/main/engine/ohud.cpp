@@ -732,7 +732,12 @@ void OHud::blit_text_new(uint16_t x, uint16_t y, const char* text, uint16_t pal)
         // Convert lowercase characters to uppercase
         if (c >= 'a' && c <= 'z')
             c -= 0x20;
+#ifdef __ANDROID__
+        // NDK clang rejects a multi-byte character literal.
+        else if (c == 0xA9)
+#else
         else if (c == '©')
+#endif
             c = 0x10;
         else if (c == '-')
             c = 0x2d;

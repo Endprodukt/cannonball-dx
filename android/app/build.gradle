@@ -62,8 +62,9 @@ if (!versionMatch.find()) {
 }
 def gameVersion = versionMatch.group(1)
 
-// Every CI build must be installable over the previous one.
-def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int
+// Every build, local or CI, must be installable over any earlier one, so the
+// version code simply counts minutes since 2026-01-01 UTC.
+def buildNumber = ((System.currentTimeMillis() - 1767225600000L) / 60000L) as int
 
 def abiList = (project.findProperty('abiFilters') ?: 'arm64-v8a').toString().split(',').collect { it.trim() }
 
@@ -99,6 +100,13 @@ android {
         cmake {
             path file('../../CMakeLists.txt')
             version '3.22.1'
+
+            // On Windows the default .cxx directory inside a deep checkout
+            // exceeds the 260-character path limit. Pass a short directory:
+            //   gradlew assembleRelease -PnativeBuildDir=C:/cbdx-cxx
+            if (project.hasProperty('nativeBuildDir')) {
+                buildStagingDirectory file(project.property('nativeBuildDir'))
+            }
         }
     }
 
