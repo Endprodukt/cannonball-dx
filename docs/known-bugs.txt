@@ -11,11 +11,15 @@ As of October 2026:
     installed on SteamOS.
   - GAMEPAD bindings stored for a controller that is no longer connected are handed to the
     connected controller. This covers Steam Input, which replaces the physical pad with a
-    virtual one when the game is started as a non-Steam shortcut. Needs confirmation on a
-    real Steam Deck. Raw-axis fallback bindings and custom MENU ACCEPT/BACK/PAUSE bindings
+    virtual one when the game is started as a non-Steam shortcut. Confirmed by two Steam
+    Deck testers. Raw-axis fallback bindings and custom MENU ACCEPT/BACK/PAUSE bindings
     stay tied to their original device and have to be rebound.
-  - Random crashes were reported on SteamOS. No log or reproduction is available yet, so
-    this is still open.
+  - Random crashes and one freeze (picture and controls stopped, audio kept playing) were
+    reported on SteamOS. No log or reproduction is available. Suspected cause: with four or
+    more CPU cores the Linux build ran game logic, SDL event handling and menu code on a
+    worker thread, a mode never exercised by the Windows build. Thread auto-detection is
+    now limited to 3 on all platforms; "-t 4" still selects the old behaviour. Needs
+    confirmation from testers.
 
 As of September 2025:
 

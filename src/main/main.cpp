@@ -176,7 +176,10 @@ int     cannonball::fps_counter         = 0;
 int     cannonball::fps_lock            = 0; // 0=use config, 30/60/120=command-line override
 bool    cannonball::singlecore_detect   = true;
 bool    cannonball::singlecore_mode     = false;
-int     cannonball::game_threads        = omp_get_max_threads();
+// Auto-detection stops at 3 threads so tick() - SDL event pump, input, menu
+// and config.xml - stays on the main thread on every platform. The fourth
+// (prepare) thread moves all of that to a worker and is opt-in via "-t 4".
+int     cannonball::game_threads        = std::min(omp_get_max_threads(), 3);
 bool    cannonball::perftest            = false;
 
 // ------------------------------------------------------------------------------------------------
@@ -719,7 +722,7 @@ static int main_loop() {
     // thereby setting prepare_threads to 0 (below)
     if (threads > 3) threads = 3;
 #else
-    // On Linux, we can use up to 4 threads
+    // On Linux, up to 4 threads can be requested with -t 4
     if (threads > 4) threads = 4; // max used by CannonBall DX
 #endif
 

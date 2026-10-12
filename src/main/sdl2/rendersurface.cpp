@@ -590,6 +590,10 @@ bool RenderSurface::init_sdl(int video_mode)
         return false;
     }
 
+    // SDL enables text input by default, which opens the on-screen keyboard
+    // on Steam Deck. The game only uses key events, never text input.
+    SDL_StopTextInput();
+
     current_display = SDL_GetWindowDisplayIndex(window);
     if (current_display < 0)
         current_display = target_display;
