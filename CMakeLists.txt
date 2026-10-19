@@ -139,6 +139,7 @@ set(src_main
     "${main_cpp_base}/stdint.hpp"
     "${main_cpp_base}/main.hpp"
     "${main_cpp_base}/video.hpp"
+    "${main_cpp_base}/stereo.hpp"
     "${main_cpp_base}/utils.hpp"
     "${main_cpp_base}/windirent.h"
 
@@ -147,6 +148,7 @@ set(src_main
     "${main_cpp_base}/trackloader.cpp"
     "${main_cpp_base}/roms.cpp"
     "${main_cpp_base}/video.cpp"
+    "${main_cpp_base}/stereo.cpp"
     "${main_cpp_base}/utils.cpp"
     )
 

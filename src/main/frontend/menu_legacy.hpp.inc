@@ -22,6 +22,7 @@
 #include "sdl2/gamepad_rumble_state.hpp"
 #include "engine/audio/osoundint.hpp"
 #include "directx/ffeedback.hpp"
+#include "stereo.hpp"
 
 class CabDiag;
 
@@ -242,6 +243,9 @@ public:
                 std::string("FERRARI LOGO FIX ") +
                 (config.ferrari_mirror_fix() ? "ON" : "OFF"));
             menu_video_enhancements.push_back(scaler_entry);
+            menu_video_enhancements.push_back(stereo::menu_mode_text());
+            menu_video_enhancements.push_back(stereo::menu_depth_text());
+            menu_video_enhancements.push_back(stereo::menu_popout_text());
             menu_video_enhancements.push_back(ENTRY_BACK);
 
             menu_video_emulation.clear();
@@ -615,6 +619,17 @@ protected:
         return value;
     }
 
+    // Shown when Stereo 3D is switched on from the menu: the CRT effects and
+    // a 1x engine resolution both spoil the packed side-by-side image.
+    void stereo_enable_hint()
+    {
+        if (config.video.shader_mode != video_settings_t::SHADER_OFF ||
+            config.video.blargg != video_settings_t::BLARGG_DISABLE)
+            display_message("SWITCH CRT EMULATION OFF FOR 3D");
+        else if (config.video.hires == 0)
+            display_message("USE 2X ENGINE RESOLUTION FOR 3D");
+    }
+
     bool adjust_current_value(int direction)
     {
         if (direction == 0 || !menu_selected || cursor < 0 ||
@@ -806,6 +821,30 @@ protected:
                 menu_selected->at(cursor) =
                     std::string("PIXEL SCALER ") + pixel_scaler::name(next);
                 changed = next != current;
+            }
+            else if (selected(stereo::MENU_MODE_LABEL))
+            {
+                handled = true;
+                const bool was_off = config.video.stereo == stereo::MODE_OFF;
+                stereo::step_mode(direction);
+                menu_selected->at(cursor) = stereo::menu_mode_text();
+                if (was_off && config.video.stereo != stereo::MODE_OFF)
+                    stereo_enable_hint();
+                changed = true;
+            }
+            else if (selected(stereo::MENU_DEPTH_LABEL))
+            {
+                handled = true;
+                stereo::step_depth(direction);
+                menu_selected->at(cursor) = stereo::menu_depth_text();
+                changed = true;
+            }
+            else if (selected(stereo::MENU_POPOUT_LABEL))
+            {
+                handled = true;
+                stereo::step_popout(direction);
+                menu_selected->at(cursor) = stereo::menu_popout_text();
+                changed = true;
             }
             else if (selected(ENTRY_FPS_COUNTER))
             {

@@ -151,5 +151,21 @@ private:
     std::thread mixThread;
     void mixing_loop();
     static void sdl_callback_trampoline(void* udata, Uint8* stream, int len);
+
+    // Follow the system default output device. When the game was opened on
+    // the default device and Windows switches the default (for example to
+    // Virtual Desktop's audio), SDL2 migrates the stream internally but the
+    // result can buzz and crackle. Instead, the device is closed and reopened
+    // on the new default exactly as at start-up. Music and sound effects
+    // carry on; only the output device changes.
+    SDL_AudioSpec desired_spec{};          // spec used to open the device
+    bool          follow_default  = false; // opened on the default device
+    std::string   default_name;            // default device name when opened
+    Uint32        next_default_check = 0;  // SDL_GetTicks() of the next poll
+    static constexpr Uint32 DEFAULT_CHECK_MS = 500;
+
+    static bool query_default_device(std::string& name);
+    void check_default_device();
+    void reopen_on_default_device(const std::string& new_name);
 };
 #endif

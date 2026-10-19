@@ -23,6 +23,7 @@
 #include "engine/osprites.hpp"
 #include "engine/otraffic.hpp"
 #include "engine/data/ozoom_lookup.hpp"
+#include "stereo.hpp"
 
 OSprites osprites;
 
@@ -627,6 +628,7 @@ void OSprites::do_sprite(oentry* input)
 
     // Get Correct Output Entry
     osprite* output = &sprite_entries[input->dst_index];
+    output->data[8] = 0; // stereo depth tag: set below once the sprite is known to be visible
 
     // Copy address sprite was copied from.
     // todo: pass pointer?
@@ -919,6 +921,43 @@ std::exit(9);
     bool fully_inside = (sprite_x1 >= x2_bounds) && (sprite_x2 < x1_bounds);
     bool clip = !fully_inside;
     output->set_clip(clip);
+
+    // -------------------------------------------------------------------------
+    // Stereo 3D: tag the hardware sprite with its depth in word 8 (unused by
+    // the hardware format; see stereo::TAG_*).
+    //  - Scenery and traffic: world depth (z16, stored in road_priority).
+    //    Their zoom index mixes distance with object size and is not usable.
+    //  - Ferrari, its shadow and passengers: the car's plane (screen plane).
+    //  - Anything else (smoke, crash parts, clouds, logos): zoom index.
+    // road_priority is only a distance for scenery and traffic; the Ferrari,
+    // crash and ending sequences reuse it as a draw-on-top value.
+    // -------------------------------------------------------------------------
+    {
+        const bool ferrari_part =
+            input == oferrari.spr_ferrari || input == oferrari.spr_shadow ||
+            input == oferrari.spr_pass1   || input == oferrari.spr_pass2;
+        const int  slot = input->jump_index;
+        const bool road_object =
+            (slot < SPRITE_ENTRIES ||
+             (slot >= SPRITE_TRAFF1 && slot <= SPRITE_TRAFF8)) &&
+            input->road_priority > 0 && input->road_priority < 0x200;
+
+        if (ferrari_part)
+            output->data[8] = stereo::tag_world(stereo::CAR_PLANE_Z);
+        else if (road_object)
+            output->data[8] = stereo::tag_world(input->road_priority);
+        else
+            output->data[8] = stereo::tag_zoom(input->zoom);
+
+        // Calibration sample: scenery and traffic standing on the road
+        // (bottom-anchored), used to match road depth to sprite depth.
+        if (road_object && ((input->draw_props & 0xC) >> 2) == 2 && stereo::enabled())
+        {
+            const int y_bottom = sprite_y2 - 256;
+            if (y_bottom >= 0 && y_bottom < 224)
+                stereo::add_sample(y_bottom, stereo::world_inv(input->road_priority));
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Set Palette & Sprite Bank Information

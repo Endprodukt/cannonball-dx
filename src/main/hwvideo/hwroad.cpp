@@ -1,7 +1,11 @@
 #include <algorithm> // Required for std::fill_n
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include "hwvideo/hwroad.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
+#include "stereo.hpp"
 
 /***************************************************************************
     Video Emulation: OutRun Road Rendering Hardware.
@@ -135,6 +139,7 @@ void HWRoad::init(const uint8_t* src_road, const bool hires)
         x_offset = 0;
         decode_road(src_road);
         build_row_edges();
+        build_row_widths();
     }
 
     if (hires)
@@ -453,6 +458,10 @@ void HWRoad::render_foreground_lores(uint16_t* pixels)
         color_table[0x13] = ((data1 & 0x200) != 0) ? color_table[0x10] : (color_offset2 ^ 0x10 ^ bgcolor);
         color_table[0x17] = color_offset1 ^ 0x0e ^ ((color1 >> 7) & 1);
 
+        // Stereo 3D: per-scanline horizontal parallax (0 when not rendering an eye)
+        const int sh0 = stereo_shift_logical(0, y);
+        const int sh1 = stereo_shift_logical(1, y);
+
         // Shift road dependent on whether we are in widescreen mode or not
         uint16_t s16_x = 0x5f8 + config.s16_x_off;
 
@@ -463,7 +472,7 @@ void HWRoad::render_foreground_lores(uint16_t* pixels)
                 if (data0 & 0x800)
                     continue;
                 uint16_t pairs = config.s16_width >> 1;
-                uint32_t h0 = (hpos0 - (s16_x + x_offset)) & 0xfff;
+                uint32_t h0 = (hpos0 - (s16_x + x_offset) - sh0) & 0xfff;
                 uint32_t* out32 = reinterpret_cast<uint32_t*>(pPixel);
                 while (pairs--) {
                     // pixel 0
@@ -488,8 +497,8 @@ void HWRoad::render_foreground_lores(uint16_t* pixels)
             case 1: {
                 // hot path
                 uint16_t pairs = config.s16_width >> 1;               // number of 2-pixel pairs
-                uint32_t h0 = (hpos0 - (s16_x + x_offset)) & 0xfff;
-                uint32_t h1 = (hpos1 - (s16_x + x_offset)) & 0xfff;
+                uint32_t h0 = (hpos0 - (s16_x + x_offset) - sh0) & 0xfff;
+                uint32_t h1 = (hpos1 - (s16_x + x_offset) - sh1) & 0xfff;
                 uint32_t* out32 = reinterpret_cast<uint32_t*>(pPixel);
 
                 while (pairs--) {
@@ -535,8 +544,8 @@ void HWRoad::render_foreground_lores(uint16_t* pixels)
 
             case 2: {
                 uint16_t pairs = config.s16_width >> 1;               // number of 2-pixel pairs
-                uint32_t h0 = (hpos0 - (s16_x + x_offset)) & 0xfff;
-                uint32_t h1 = (hpos1 - (s16_x + x_offset)) & 0xfff;
+                uint32_t h0 = (hpos0 - (s16_x + x_offset) - sh0) & 0xfff;
+                uint32_t h1 = (hpos1 - (s16_x + x_offset) - sh1) & 0xfff;
                 uint32_t* out32 = reinterpret_cast<uint32_t*>(pPixel);
 
                 while (pairs--) {
@@ -582,7 +591,7 @@ void HWRoad::render_foreground_lores(uint16_t* pixels)
                 if (data1 & 0x800)
                     continue;
                 uint16_t pairs = config.s16_width >> 1;
-                uint32_t h1 = (hpos1 - (s16_x + x_offset)) & 0xfff;
+                uint32_t h1 = (hpos1 - (s16_x + x_offset) - sh1) & 0xfff;
                 uint32_t* out32 = reinterpret_cast<uint32_t*>(pPixel);
                 while (pairs--) {
                     // pixel 0
@@ -798,9 +807,13 @@ void HWRoad::render_foreground_hires(uint16_t* pixels)
             continue;
         }
 
+        // Stereo 3D: per-scanline horizontal parallax (0 when not rendering an eye)
+        const int sh0 = stereo_shift_logical(0, yy);
+        const int sh1 = stereo_shift_logical(1, yy);
+
         const int s16_x = 0x5f8 + config.s16_x_off;
-        int h0 = (hpos0 - (s16_x + x_offset)) & 0xfff;
-        int h1 = (hpos1 - (s16_x + x_offset)) & 0xfff;
+        int h0 =(hpos0 - (s16_x + x_offset) - sh0) & 0xfff;
+        int h1 = (hpos1 - (s16_x + x_offset) - sh1) & 0xfff;
         uint16_t* out = pixels + (y * width);
 
         for (int x = 0; x < logical_width; ++x)
@@ -1082,9 +1095,14 @@ void HWRoad::render_foreground_hires_smooth(uint16_t* pixels)
             : (color_offset2 ^ 0x10 ^ bgcolor);
         color_table[0x17] = color_offset1 ^ 0x0e ^ ((color1 >> 7) & 1);
 
-        int h0 = (hpos0_fp - screen_offset_fp) % scaled_period;
+        // Stereo 3D: per-scanline parallax with sub-native precision,
+        // interpolated between native scanlines like the road itself.
+        const int sh0 = stereo_shift_fp(0, yy, sub, render_scale);
+        const int sh1 = stereo_shift_fp(1, yy, sub, render_scale);
+
+        int h0 = (hpos0_fp - screen_offset_fp - sh0) % scaled_period;
         if (h0 < 0) h0 += scaled_period;
-        int h1 = (hpos1_fp - screen_offset_fp) % scaled_period;
+        int h1 = (hpos1_fp - screen_offset_fp - sh1) % scaled_period;
         if (h1 < 0) h1 += scaled_period;
 
         uint16_t* out = pixels + (y * width);
@@ -1120,4 +1138,201 @@ void HWRoad::render_foreground_hires_smooth(uint16_t* pixels)
             if (++h1 == scaled_period) h1 = 0;
         }
     }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Stereo 3D support
+//
+// Each road ROM row is a pre-rendered perspective slice of the road. The width
+// of the road surface within a row is proportional to inverse depth, so it can
+// be used directly as the depth of every scanline that selects that row, on
+// flat road, hills and splits alike.
+//
+// Set the environment variable CANNONBALL_STEREO_DEBUG=1 to log the measured
+// road widths at start-up and the depth calibration every 120 frames.
+// ------------------------------------------------------------------------------------------------
+
+namespace
+{
+    bool stereo_debug_enabled()
+    {
+        static const bool enabled = std::getenv("CANNONBALL_STEREO_DEBUG") != nullptr;
+        return enabled;
+    }
+}
+
+void HWRoad::build_row_widths()
+{
+    for (int road = 0; road < 2; ++road)
+    {
+        // 1) Measure the road surface extent of every row (codes 0/1/2 are
+        //    road surface and stripes, 3 is exterior, 7 the central marker).
+        float measured[256];
+        for (int row = 0; row < 256; ++row)
+        {
+            const uint8_t* src = roads + (road * 256 + row) * 512;
+            int first = -1, last = -1;
+            for (int x = 0; x < 512; ++x)
+            {
+                if ((src[x] & 3) != 3)
+                {
+                    if (first < 0) first = x;
+                    last = x;
+                }
+            }
+            measured[row] = (first < 0) ? 0.0f : static_cast<float>(last - first + 1);
+        }
+
+        // 2) Least-squares line through the unsaturated rows. Used for rows
+        //    whose road runs off the 512 pixel ROM row or that are empty, so
+        //    depth keeps increasing smoothly instead of clipping.
+        double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+        for (int row = 0; row < 256; ++row)
+        {
+            const float w = measured[row];
+            if (w > 4.0f && w < 500.0f)
+            {
+                n += 1; sx += row; sy += w; sxx += double(row) * row; sxy += double(row) * w;
+            }
+        }
+        const double denom = n * sxx - sx * sx;
+        const bool have_fit = n >= 16 && std::fabs(denom) > 1e-6;
+        const double slope = have_fit ? (n * sxy - sx * sy) / denom : 0.0;
+        const double icept = have_fit ? (sy - slope * sx) / n : 0.0;
+
+        for (int row = 0; row < 256; ++row)
+        {
+            float w = measured[row];
+            if (have_fit && (w <= 4.0f || w >= 500.0f))
+                w = static_cast<float>(slope * row + icept);
+            road_row_width[road * 256 + row] = std::max(w, 0.5f);
+        }
+
+        if (stereo_debug_enabled())
+        {
+            std::cout << "Stereo: road " << road << " row widths: fit "
+                      << (have_fit ? "ok" : "unavailable")
+                      << " (slope " << slope << ", intercept " << icept << ")"
+                      << ", row0=" << measured[0] << " row64=" << measured[64]
+                      << " row128=" << measured[128] << " row192=" << measured[192]
+                      << " row255=" << measured[255] << std::endl;
+        }
+    }
+
+    stereo_ref_width = 0.0f;
+}
+
+void HWRoad::stereo_prepare_frame(bool road_scene)
+{
+    const int control = road_control & 3;
+    float line_w[2][STEREO_LINES];
+    bool active = false;
+
+    for (int road = 0; road < 2; ++road)
+    {
+        const bool road_enabled = road_scene && ((road == 0) ? (control != 3) : (control != 0));
+        for (int yy = 0; yy < STEREO_LINES; ++yy)
+        {
+            const uint16_t data = ramBuff[road * 0x100 + yy];
+            const bool valid = road_enabled && !(data & 0x800);
+            stereo_valid[road][yy] = valid;
+            line_w[road][yy] = valid ? road_row_width[road * 256 + ((data >> 1) & 0xff)] : 0.0f;
+            active |= valid;
+        }
+    }
+    stereo::state.road_active = active;
+
+    if (!active)
+    {
+        stereo::samples.count = 0;
+        for (int road = 0; road < 2; ++road)
+            std::fill_n(stereo_inv[road], STEREO_LINES, stereo::INV_SCREEN);
+        return;
+    }
+
+    auto width_at = [&](int yy) -> float
+    {
+        if (yy < 0 || yy >= STEREO_LINES) return 0.0f;
+        if (stereo_valid[0][yy]) return line_w[0][yy];
+        if (stereo_valid[1][yy]) return line_w[1][yy];
+        return 0.0f;
+    };
+
+    // Fallback reference: the road just in front of the camera (bottom of the
+    // screen), which is roughly where the Ferrari's wheels meet the road.
+    float fallback = 0.0f;
+    for (int yy = STEREO_LINES - 1; yy >= STEREO_LINES / 2 && fallback <= 0.0f; --yy)
+        fallback = width_at(yy);
+
+    // Auto-calibration: a sprite standing on the road at scanline y with zoom z
+    // must have the same depth as the road at y, i.e.
+    //     width(y) / ref == inv(sprite)   =>   ref = width(y) / inv(sprite)
+    // Take the median estimate over this frame's samples and smooth over time.
+    float estimates[stereo::Samples::MAX];
+    int count = 0;
+    for (int i = 0; i < stereo::samples.count; ++i)
+    {
+        const float w = width_at(stereo::samples.y[i]);
+        const float inv = stereo::samples.inv[i];
+        if (w > 2.0f && inv > 0.05f)
+            estimates[count++] = w / inv;
+    }
+    stereo::samples.count = 0;
+
+    if (count >= 3)
+    {
+        std::nth_element(estimates, estimates + count / 2, estimates + count);
+        float est = estimates[count / 2];
+        if (fallback > 0.0f)
+            est = std::clamp(est, fallback * 0.5f, fallback * 2.0f);
+        stereo_ref_width = (stereo_ref_width <= 0.0f)
+            ? est
+            : stereo_ref_width + 0.1f * (est - stereo_ref_width);
+    }
+    else if (stereo_ref_width <= 0.0f)
+    {
+        stereo_ref_width = fallback;
+    }
+
+    const float ref = stereo_ref_width > 0.0f ? stereo_ref_width : 1.0f;
+    for (int road = 0; road < 2; ++road)
+    {
+        for (int yy = 0; yy < STEREO_LINES; ++yy)
+        {
+            // Lines without ROM road for this road borrow the other road's
+            // depth (identical scanline); otherwise treat as distant.
+            float w = line_w[road][yy];
+            if (!stereo_valid[road][yy])
+                w = width_at(yy);
+            stereo_inv[road][yy] = w > 0.0f ? (w / ref) : stereo::INV_TILES_BACK;
+        }
+    }
+
+    if (stereo_debug_enabled() && (++stereo_debug_counter % 120) == 0)
+    {
+        std::cout << "Stereo: ref width " << stereo_ref_width
+                  << " (fallback " << fallback << ", " << count << " samples)"
+                  << " inv@112=" << stereo_inv[0][112]
+                  << " inv@160=" << stereo_inv[0][160]
+                  << " inv@223=" << stereo_inv[0][223] << std::endl;
+    }
+}
+
+int HWRoad::stereo_shift_logical(int road, int yy) const
+{
+    if (stereo::state.eye == stereo::EYE_NONE || yy < 0 || yy >= STEREO_LINES)
+        return 0;
+    return static_cast<int>(std::lround(stereo::shift_logical(stereo_inv[road][yy])));
+}
+
+int HWRoad::stereo_shift_fp(int road, int yy, int sub, int render_scale) const
+{
+    if (stereo::state.eye == stereo::EYE_NONE || yy < 0 || yy >= STEREO_LINES)
+        return 0;
+
+    float inv = stereo_inv[road][yy];
+    if (sub != 0 && yy < STEREO_LINES - 1 && stereo_valid[road][yy] && stereo_valid[road][yy + 1])
+        inv += (stereo_inv[road][yy + 1] - inv) * (static_cast<float>(sub) / render_scale);
+
+    return stereo::shift_render(inv, render_scale);
 }

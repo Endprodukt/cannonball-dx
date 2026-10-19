@@ -252,15 +252,25 @@ namespace
         const int width = config.s16_width;
         const int height = config.s16_height;
 
-        for (int y = 0; y < height; y++)
+        // Stereo 3D renders into persistent per-eye buffers, so clear those too.
+        uint16_t* const targets[3] = {
+            video.pixels, video.stereo_eye_pixels(0), video.stereo_eye_pixels(1) };
+
+        for (uint16_t* target : targets)
         {
-            uint16_t* row = video.pixels + (y * width);
+            if (!target)
+                continue;
 
-            for (int x = 0; x < left_margin; x++)
-                row[x] = MAP_BACKGROUND_PIXEL;
+            for (int y = 0; y < height; y++)
+            {
+                uint16_t* row = target + (y * width);
 
-            for (int x = right_start; x < width; x++)
-                row[x] = MAP_BACKGROUND_PIXEL;
+                for (int x = 0; x < left_margin; x++)
+                    row[x] = MAP_BACKGROUND_PIXEL;
+
+                for (int x = right_start; x < width; x++)
+                    row[x] = MAP_BACKGROUND_PIXEL;
+            }
         }
     }
 

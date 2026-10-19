@@ -30,6 +30,7 @@
 #include "frontend/config.hpp"
 #include "engine/oroad.hpp"
 #include "engine/music_side_art.hpp"
+#include "stereo.hpp"
 
 #include "sdl2/pixelscaler_renderer.hpp"
 
@@ -84,6 +85,15 @@ try
     std::memset(pixel_buffers[0], 0, size);
     std::memset(pixel_buffers[1], 0, size);
 
+    // Stereo 3D per-eye targets (allocated up front so stereo can be toggled
+    // at runtime without reallocating).
+    for (int eye = 0; eye < 2; ++eye)
+    {
+        stereo_buffers[eye] = static_cast<uint16_t*>(::operator new(size, std::align_val_t(alignment)));
+        std::memset(stereo_buffers[eye], 0, size);
+        stereo_pixels[eye] = stereo_buffers[eye] + alignment;
+    }
+
     // Convert S16 tiles to a more useable format
     const bool hires = config.video.hires != 0;
 
@@ -133,6 +143,11 @@ void Video::disable()
     // The second allocation may have failed before pixels was assigned.
     if (pixel_buffers[0]) { ::operator delete(pixel_buffers[0], std::align_val_t(alignment)); pixel_buffers[0] = nullptr; }
     if (pixel_buffers[1]) { ::operator delete(pixel_buffers[1], std::align_val_t(alignment)); pixel_buffers[1] = nullptr; }
+    for (int eye = 0; eye < 2; ++eye)
+    {
+        if (stereo_buffers[eye]) { ::operator delete(stereo_buffers[eye], std::align_val_t(alignment)); stereo_buffers[eye] = nullptr; }
+        stereo_pixels[eye] = nullptr;
+    }
     pixels = nullptr;
     enabled = false;
 }
@@ -234,24 +249,69 @@ void Video::prepare_frame()
         // OutRun Hardware Video Emulation
         tile_layer->update_tile_values();
 
-        (hwroad.*hwroad.render_background)(pixels);
-        tile_layer->render_tile_layer(pixels, 1, 0);      // background layer
-        tile_layer->render_tile_layer(pixels, 0, 0);      // foreground layer
+        if (stereo::enabled() && stereo_pixels[0] && stereo_pixels[1])
+        {
+            // Stereo 3D: render the frame once per eye with depth-based
+            // horizontal parallax, then pack both eyes into 'pixels'.
+            stereo::begin_frame();
 
-        if (!config.engine.fix_bugs || oroad.horizon_base != ORoad::HORIZON_OFF)
-            (hwroad.*hwroad.render_foreground)(pixels);
+            // Screens without a 3D road (course map, Music Select, menus)
+            // switch the horizon off. Show those flat: both eyes identical.
+            hwroad.stereo_prepare_frame(oroad.horizon_base != ORoad::HORIZON_OFF);
 
-        sprite_layer->render(pixels, 8);
+            if (stereo::state.road_active)
+            {
+                stereo::state.eye = stereo::EYE_LEFT;
+                render_layers(stereo_pixels[0], true);
 
-        // The edited 21:9 side art represents the final appearance of the
-        // ultrawide margins. Draw it after sprites so legacy sprite fragments
-        // cannot reintroduce the blue/grey side artefacts. Text remains live
-        // and is rendered afterwards as usual.
-        music_side_art::render(pixels);
+                stereo::state.eye = stereo::EYE_RIGHT;
+                render_layers(stereo_pixels[1], false);
+            }
+            else
+            {
+                // Flat 2D: render once and keep both persistent eye buffers
+                // identical, so returning to 3D starts from the same image.
+                stereo::state.eye = stereo::EYE_NONE;
+                render_layers(stereo_pixels[0], true);
+                std::memcpy(stereo_pixels[1], stereo_pixels[0],
+                            static_cast<std::size_t>(config.s16_width) * config.s16_height * sizeof(uint16_t));
+            }
 
-        tile_layer->render_text_layer(pixels, 1);
-        tile_layer->render_text_scroll_overlay(pixels, 1);
+            stereo::state.eye = stereo::EYE_NONE;
+            stereo::compose(pixels, stereo_pixels[0], stereo_pixels[1],
+                            config.s16_width, config.s16_height,
+                            config.video.stereo);
+        }
+        else
+        {
+            stereo::samples.count = 0;
+            render_layers(pixels, true);
+        }
     }
+}
+
+// Draw every System 16 layer into 'target', back to front.
+// advance_animation: false for the second (right-eye) pass of a stereo frame,
+// so per-frame animated overlays only advance once.
+void Video::render_layers(uint16_t* target, bool advance_animation)
+{
+    (hwroad.*hwroad.render_background)(target);
+    tile_layer->render_tile_layer(target, 1, 0);      // background layer
+    tile_layer->render_tile_layer(target, 0, 0);      // foreground layer
+
+    if (!config.engine.fix_bugs || oroad.horizon_base != ORoad::HORIZON_OFF)
+        (hwroad.*hwroad.render_foreground)(target);
+
+    sprite_layer->render(target, 8);
+
+    // The edited 21:9 side art represents the final appearance of the
+    // ultrawide margins. Draw it after sprites so legacy sprite fragments
+    // cannot reintroduce the blue/grey side artefacts. Text remains live
+    // and is rendered afterwards as usual.
+    music_side_art::render(target);
+
+    tile_layer->render_text_layer(target, 1);
+    tile_layer->render_text_scroll_overlay(target, 1, advance_animation);
 }
 
 void Video::render_frame(int fastpass)
@@ -771,14 +831,14 @@ int16_t hwtiles::get_text_scroll_overlay_offset() const
     return text_scroll_offset;
 }
 
-void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw)
+void hwtiles::render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw, bool advance)
 {
     if (!text_scroll_active || !buf)
         return;
 
     // Advance at the DISPLAY frame rate, not the game-logic tick rate. This is
     // what makes a 60 FPS / 30 Hz CannonBall configuration genuinely smooth.
-    if (text_scroll_speed > 0 &&
+    if (advance && text_scroll_speed > 0 &&
         text_scroll_offset < text_scroll_max_offset)
     {
         const int frame_rate = config.fps > 0 ? config.fps : 60;

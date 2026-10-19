@@ -235,6 +235,9 @@ void Config::load()
     video.hires         = cfg.get_int("video.hires",           1); // Hi-Resolution Mode
     video.hiresprites   = cfg.get_int("video.hiresprites",     1); // default ON with the default 2X engine resolution
     video.hiresroad     = cfg.get_int("video.hiresroad",       1); // DX: smooth road edges at 2X and above
+    video.stereo        = std::clamp(cfg.get_int("video.stereo",        0), 0, 3);   // Stereo 3D output mode
+    video.stereo_depth  = std::clamp(cfg.get_int("video.stereo_depth", 10), 0, 48);  // Separation at infinity (native px)
+    video.stereo_popout = std::clamp(cfg.get_int("video.stereo_popout",50), 0, 200); // Pop-out limit (%)
     video.vsync         = cfg.get_int("video.vsync",           0); // Default OFF; user setting still takes precedence
     video.x_offset      = cfg.get_int("video.x_offset",        0); // Offset from calculated image X position
     video.y_offset      = cfg.get_int("video.y_offset",        0); // Offset from calculated image Y position
@@ -462,6 +465,9 @@ bool Config::save()
     cfg.put_int("video.hires",              video.hires);         // Game engine hires mode (1=enabled)
     cfg.put_int("video.hiresprites",        video.hiresprites);   // hi-res sprites (1=enabled)
     cfg.put_int("video.hiresroad",          video.hiresroad);     // DX smooth hi-res road (1=enabled)
+    cfg.put_int("video.stereo",             video.stereo);        // Stereo 3D output (0=off, 1=SBS, 2=SBS cross, 3=TAB)
+    cfg.put_int("video.stereo_depth",       video.stereo_depth);  // Stereo separation at infinity (native px)
+    cfg.put_int("video.stereo_popout",      video.stereo_popout); // Stereo pop-out limit (%)
     cfg.put_int("video.x_offset",           video.x_offset);      // X offset
     cfg.put_int("video.y_offset",           video.y_offset);      // Y offset
     // JJP Additional configuration for CRT emulation

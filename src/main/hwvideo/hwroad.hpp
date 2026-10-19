@@ -41,7 +41,26 @@ public:
         uint8_t  code[ROW_MAX_EDGES];
     };
 
+    // Stereo 3D: work out the inverse depth of every road scanline for the
+    // current frame (and refresh the road/sprite depth calibration). Call once
+    // per frame before rendering the eyes. road_scene = false for screens
+    // without a 3D road (course map, Music Select, menus): the frame is then
+    // shown flat and stereo::state.road_active is cleared.
+    void stereo_prepare_frame(bool road_scene);
+
 private:
+    // Stereo 3D data
+    static const int STEREO_LINES = 224;
+    float road_row_width[256 * 2];         // road surface width of each ROM row (inverse depth)
+    float stereo_inv[2][STEREO_LINES];     // inverse depth per road per native scanline
+    bool  stereo_valid[2][STEREO_LINES];   // scanline shows ROM road for that road
+    float stereo_ref_width = 0.0f;         // road width at the Ferrari's depth (calibrated)
+    int   stereo_debug_counter = 0;
+
+    void build_row_widths();
+    int  stereo_shift_logical(int road, int yy) const;
+    int  stereo_shift_fp(int road, int yy, int sub, int render_scale) const;
+
     uint8_t road_control;
     uint16_t color_offset1;
     uint16_t color_offset2;

@@ -732,7 +732,7 @@ void OHud::blit_text_new(uint16_t x, uint16_t y, const char* text, uint16_t pal)
         // Convert lowercase characters to uppercase
         if (c >= 'a' && c <= 'z')
             c -= 0x20;
-        else if (c == '©')
+        else if (c == 0xC2A9) // was '©' as a UTF-8 multi-character literal (same value GCC/MSVC used)
             c = 0x10;
         else if (c == '-')
             c = 0x2d;

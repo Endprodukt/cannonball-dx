@@ -134,6 +134,9 @@ struct video_settings_t
     int brightboost;
     int hiresprites;        // 0 = original; 1 = hires mode
     int hiresroad;          // DX: 0 = block-scaled road; 1 = smooth hi-res road edges
+    int stereo;             // Stereo 3D output: 0 = off, 1 = half SBS, 2 = half SBS cross-eye, 3 = half top/bottom
+    int stereo_depth;       // Stereo separation at infinity, in native pixels (0-48)
+    int stereo_popout;      // Maximum pop-out in front of the screen, % of the Ferrari's depth (0-200)
 };
 
 struct sound_settings_t

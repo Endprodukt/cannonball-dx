@@ -271,6 +271,14 @@ void Audio::start_audio(bool list_devices_only)
 
         mix_buffer_bytes = obtained.samples * CHANNELS * (BITS / 8);
 
+        // Follow default-device changes only when the default device was
+        // opened. A device chosen in config.xml is always kept.
+        desired_spec       = desired;
+        follow_default     = playback_device == NULL && query_default_device(default_name);
+        next_default_check = SDL_GetTicks() + DEFAULT_CHECK_MS;
+        if (follow_default)
+            std::cout << "Audio: following the default output device (" << default_name << ")" << std::endl;
+
         clear_buffers();
         clear_wav();
 
@@ -334,6 +342,11 @@ void Audio::tick()
     if (!sound_enabled || audio_paused == 2)
         return;
 
+    // Move to a new default output device if the system default changed.
+    check_default_device();
+    if (!sound_enabled)
+        return;
+
     // 2) Unpause the audio if necessary.
     if (audio_paused) {
         // Drop anything still queued
@@ -347,6 +360,95 @@ void Audio::tick()
         SDL_PauseAudioDevice(dev, 0);
         audio_paused = 0;
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Default output device following
+// ---------------------------------------------------------------------------
+
+bool Audio::query_default_device(std::string& name)
+{
+#if SDL_VERSION_ATLEAST(2, 24, 0)
+    char* default_name = nullptr;
+    SDL_AudioSpec spec;
+    if (SDL_GetDefaultAudioInfo(&default_name, &spec, 0) != 0 || !default_name)
+        return false;   // not supported by this audio backend (e.g. ALSA)
+    name = default_name;
+    SDL_free(default_name);
+    return true;
+#else
+    (void)name;
+    return false;
+#endif
+}
+
+void Audio::check_default_device()
+{
+    if (!follow_default)
+        return;
+
+    const Uint32 now = SDL_GetTicks();
+    if (static_cast<int32_t>(now - next_default_check) < 0)
+        return;
+    next_default_check = now + DEFAULT_CHECK_MS;
+
+    std::string name;
+    if (!query_default_device(name) || name.empty() || name == default_name)
+        return;
+
+    reopen_on_default_device(name);
+}
+
+void Audio::reopen_on_default_device(const std::string& new_name)
+{
+    std::cout << "Audio: default output device changed to " << new_name
+              << ", reopening audio." << std::endl;
+
+    // 1) Pause first, while the mixing thread is still running: the SDL
+    //    callback waits for mixed buffers, so it must be able to finish.
+    SDL_PauseAudioDevice(dev, 1);
+
+    // 2) Stop the mixing thread.
+    running.store(false, std::memory_order_relaxed);
+    if (mixThread.joinable())
+        mixThread.join();
+
+    // 3) Close the old device.
+    SDL_CloseAudioDevice(dev);
+    dev = 0;
+
+    // 4) Reset the ring buffer to its start-up state.
+    while (samplesReady.try_acquire()) {}
+    while (spaceAvailable.try_acquire()) {}
+    spaceAvailable.release(BUFFER_COUNT);
+    prodIndex.store(0);
+    consIndex.store(0);
+
+    // 5) Open the new default device with the original settings. Sound chip
+    //    state and custom music (WAV/MP3/YM) are untouched, so playback
+    //    continues where it was.
+    SDL_AudioSpec desired = desired_spec;
+    SDL_AudioSpec obtained{};
+    dev = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, 0);
+    if (dev == 0 || obtained.samples != desired.samples)
+    {
+        std::cerr << "Audio: could not reopen on the new default device: "
+                  << (dev == 0 ? SDL_GetError() : "buffer size not supported") << std::endl;
+        if (dev != 0)
+            SDL_CloseAudioDevice(dev);
+        dev = 0;
+        sound_enabled  = false;
+        follow_default = false;
+        return;
+    }
+
+    FREQ = obtained.freq;
+    SDL_PauseAudioDevice(dev, 1);
+    default_name = new_name;
+
+    // 6) tick() restarts the mixing thread and unpauses the device.
+    audio_paused = 1;
 }
 
 

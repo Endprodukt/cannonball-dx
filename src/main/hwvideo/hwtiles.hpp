@@ -52,7 +52,7 @@ public:
         int16_t pixels_per_second,
         int16_t max_offset);
     int16_t get_text_scroll_overlay_offset() const;
-    void render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw);
+    void render_text_scroll_overlay(uint16_t* buf, uint8_t priority_draw, bool advance = true);
 
 private:
     int16_t x_clamp;

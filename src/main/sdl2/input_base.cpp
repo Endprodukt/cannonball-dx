@@ -36,6 +36,7 @@
 #endif
 
 #include "frontend/config.hpp"
+#include "stereo.hpp"
 
 Input input;
 
@@ -680,6 +681,15 @@ void Input::handle_key(const int key, const bool is_pressed)
             // JJP - switches between sprite rendering (original/hi-res)
             if (!is_pressed) break;
             config.video.hiresprites ^= 1;
+            break;
+
+        case SDLK_F12:
+            // Stereo 3D: F12 cycles the output mode, Shift+F12 cycles the depth.
+            if (!is_pressed) break;
+            if (SDL_GetModState() & KMOD_SHIFT)
+                stereo::cycle_depth();
+            else
+                stereo::cycle_mode();
             break;
 
         case SDLK_F8:

@@ -5,6 +5,7 @@
 #include "hwvideo/hwtiles.hpp"
 #include "frontend/config.hpp"
 #include "engine/oroad.hpp"
+#include "stereo.hpp"
 
 /***************************************************************************
     Video Emulation: OutRun Tilemap Hardware.
@@ -230,6 +231,9 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
     int x_decrement = (x_clamp - xScroll) & 0x3ff;
     int y_decrement = yScroll & 0x1ff;
 
+    // Stereo 3D: distant backdrop parallax (0 when not rendering an eye)
+    const int stereo_dx = stereo::tile_shift(page_index);
+
     // Vertical tile scroll is written to the System 16 hardware as a 9-bit
     // value. A small negative scroll therefore arrives here close to 0x200
     // (for example -20 becomes 0x1EC). That wrap is correct for the arcade
@@ -305,6 +309,8 @@ void hwtiles::render_tile_layer(uint16_t* buf, uint8_t page_index, uint8_t prior
 
                 if (x < -x_clamp)
                     x += 1024;
+
+                x += stereo_dx;
 
                 if (extend_bumper_sky)
                 {

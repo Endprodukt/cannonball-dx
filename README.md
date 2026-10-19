@@ -54,6 +54,7 @@ The optional fix keeps the badge facing the right way. Small problem. Horse now 
 
 - **Ferrari badge orientation fix** - optional correction that prevents the emblem from flipping with the car sprite during direction changes
 - **4:3, 16:9, 16:10, 21:9 and Stretched aspect ratios**
+- **Stereo 3D (layered stereo)** - half side-by-side, cross-eye and top-and-bottom output for 3D displays and VR viewers; set in Settings > Video > Video Enhancements, or **F12** cycles the mode and **Shift+F12** the depth. See `docs/STEREO-3D.md`
 - **Windowed, Borderless Fullscreen and experimental Exclusive Fullscreen modes**
 - **30 FPS, Original timing, 60 FPS and experimental 120 FPS modes**
 - **Improved CannonBall-SE 2x Game Engine Resolution plus experimental 3x and 4x modes**

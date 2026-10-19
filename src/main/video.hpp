@@ -54,6 +54,11 @@ public:
     bool supports_window();
     bool supports_vsync();
 
+    // Stereo 3D per-eye render target (0 = left, 1 = right), or nullptr.
+    // Code that patches the framebuffer directly between frames must patch
+    // these too, as they persist frame to frame like 'pixels' does.
+    uint16_t* stereo_eye_pixels(int eye) const { return (eye == 0 || eye == 1) ? stereo_pixels[eye] : nullptr; }
+
     void clear_text_ram();
     void write_text8(uint32_t, const uint8_t);
 	void write_text16(uint32_t*, const uint16_t);
@@ -88,6 +93,13 @@ private:
     const int alignment = 64;
 	alignas(64) uint8_t palette[S16_PALETTE_ENTRIES * 2]; // 2 Bytes Per Palette Entry
     void refresh_palette(uint32_t);
+
+    // Stereo 3D: persistent per-eye render targets (same layout and padding
+    // as pixel_buffers). Each eye keeps its own previous frame, exactly like
+    // the single 2D target, then both are packed into 'pixels'.
+    uint16_t* stereo_buffers[2] = {nullptr, nullptr};
+    uint16_t* stereo_pixels[2]  = {nullptr, nullptr}; // [0] = left, [1] = right
+    void render_layers(uint16_t* target, bool advance_animation);
 
 };
 

@@ -26,6 +26,7 @@
 
 #include <iostream>
 #include "directx/ffeedback.hpp"
+#include "stereo.hpp"
 #include <string>
 #include <string_view>
 #include <cctype>
@@ -674,6 +675,12 @@ void Menu::tick()
                 entry = ferrari_mirror_fix_menu_text();
             else if (starts_with_label(entry, PIXEL_SCALER_LABEL))
                 entry = pixel_scaler_menu_text();
+            else if (starts_with_label(entry, stereo::MENU_MODE_LABEL))
+                entry = stereo::menu_mode_text();      // also follows F12
+            else if (starts_with_label(entry, stereo::MENU_DEPTH_LABEL))
+                entry = stereo::menu_depth_text();     // also follows Shift+F12
+            else if (starts_with_label(entry, stereo::MENU_POPOUT_LABEL))
+                entry = stereo::menu_popout_text();
         }
     }
 
@@ -1052,6 +1059,30 @@ bool Menu::select_pressed()
         {
             pixel_scaler::cycle();
             menu_video_enhancements[cursor] = pixel_scaler_menu_text();
+            return false;
+        }
+
+        if (starts_with_label(option, stereo::MENU_MODE_LABEL))
+        {
+            const bool was_off = config.video.stereo == stereo::MODE_OFF;
+            stereo::step_mode(1);
+            menu_video_enhancements[cursor] = stereo::menu_mode_text();
+            if (was_off && config.video.stereo != stereo::MODE_OFF)
+                stereo_enable_hint();
+            return false;
+        }
+
+        if (starts_with_label(option, stereo::MENU_DEPTH_LABEL))
+        {
+            stereo::step_depth(1);
+            menu_video_enhancements[cursor] = stereo::menu_depth_text();
+            return false;
+        }
+
+        if (starts_with_label(option, stereo::MENU_POPOUT_LABEL))
+        {
+            stereo::step_popout(1);
+            menu_video_enhancements[cursor] = stereo::menu_popout_text();
             return false;
         }
     }
